@@ -1,0 +1,977 @@
+Cannot be saved as pdf :()
+
+Safe and Nested Endgame Solving for Imperfect-Information Games 
+Noam Brown 
+Computer Science Department 
+Carnegie Mellon University 
+noamb@cs.cmu.edu 
+Tuomas Sandholm 
+Computer Science Department 
+Carnegie Mellon University 
+sandholm@cs.cmu.edu 
+Abstract 
+Unlike perfect-information games, imperfect-information 
+games cannot be decomposed into subgames that are 
+solved independently. Thus more computationally intensive 
+equilibrium-finding techniques are used, and abstraction— 
+in which a smaller version of the game is generated and 
+solved—is essential. Endgame solving is the process of computing 
+a (presumably) better strategy for just an endgame 
+than what can be computationally afforded for the full game. 
+Endgame solving has many benefits, such as being able to 
+1) solve the endgame in a finer information abstraction than 
+what is computationally feasible for the full game, and 2) incorporate 
+into the endgame actions that an opponent took that 
+were not included in the action abstraction used to solve the 
+full game. We introduce an endgame solving technique that 
+outperforms prior methods both in theory and practice. We 
+also show how to adapt it, and past endgame-solving techniques, 
+to respond to opponent actions that are outside the 
+original action abstraction; this significantly outperforms the 
+state-of-the-art approach, action translation. Finally, we show 
+that endgame solving can be repeated as the game progresses 
+down the tree, leading to significantly lower exploitability. 
+All of the techniques are evaluated in terms of exploitability; 
+to our knowledge, this is the first time that exploitability 
+of endgame-solving techniques has been measured in large 
+imperfect-information games. 
+Introduction 
+Imperfect-information games model strategic settings that 
+have hidden information. They have a myriad of applications 
+such as negotiation, shopping agents, cybersecurity, physical 
+security, and so on. In such games, the typical goal is to find 
+a Nash equilibrium, which is a profile of strategies—one for 
+each player—such that no player can improve her outcome 
+by unilaterally deviating to a different strategy. 
+Endgame solving is a standard technique in perfectinformation 
+games such as chess and checkers (Bellman 
+1965). In fact, in checkers it is so powerful that it was used 
+to solve the entire game (Schaeffer et al. 2007). 
+In imperfect-information games, endgame solving is drastically 
+more challenging. In perfect-information games it 
+is possible to solve just a part of the game in isolation, 
+but this is not generally possible in imperfect-information 
+games. For example, in chess, determining the optimal response 
+to the Queen’s Gambit requires no knowledge of the 
+optimal response to the Sicilian Defense. To see that such 
+a decomposition is not possible in imperfect-information 
+games, consider the game of Coin Toss shown in Figure 1. 
+In that game, a coin is flipped and lands either Heads or Tails 
+with equal probability, but only Player 1 sees the outcome. 
+Player 1 can then choose between actions Left and Right, 
+with Left leading to some unknown subtree. If Player 1 
+chooses Right, then Player 2 has the opportunity to guess 
+how the coin landed. If Player 2 guesses correctly, Player 1 
+receives a reward of ..1 and Player 2 receives a reward of 1 
+(the figure shows rewards for Player 1; Player 2 receives the 
+negation of Player 1’s reward). Clearly Player 2’s optimal 
+strategy depends on the probabilities that Player 1 chooses 
+Right with Heads and Tails. But the probability that Player 1 
+chooses Right with Heads depends on what Player 1 could 
+alternatively receive by choosing Left instead. So it is not 
+possible to determine what Player 2’s optimal strategy is in 
+the Right subtree without knowledge of the Left subtree. 
+Figure 1: The example game of Coin Toss. “C” represents a 
+chance node. S is a Player 2 (P2) information set. The dotted 
+line between the two P2 nodes means P2 cannot distinguish 
+between the two states. 
+Thus imperfect-information games cannot be solved via 
+decomposition as perfect-information games can. Instead, 
+the entire game is typically solved as a whole. This is a problem 
+for large games, such as No-Limit Texas Hold’em— 
+a common benchmark problem in imperfect-information 
+game solving—which has 10165 nodes (Johanson 2013). 
+The standard approach to computing strategies in such large 
+games is to first generate an abstraction of the game, which 
+is a smaller version of the game that retains as much as pos
+
+sible the strategic characteristics of the original game (Sandholm 
+2010). This abstract game is solved (exactly or approximately) 
+and its solution is mapped back to the original 
+game. In extremely large games, a small abstraction typically 
+cannot capture all the strategic complexity of the game, 
+and therefore results in a solution that is not a Nash equilibrium 
+when mapped back to the original game. For this 
+reason, it seems natural to attempt to improve the strategy 
+when a sequence farther down the game tree is reached and 
+the remaining subtree of reachable states is small enough to 
+be represented without any abstraction (or in a finer abstraction), 
+even though—as explained previously—this may not 
+lead to a Nash equilibrium. While it may not be possible 
+to arrive at an equilibrium by analyzing subtrees independently, 
+it may be possible to improve the strategies in those 
+subtrees when the original (base) strategy is suboptimal, as 
+is typically the case when abstraction is applied. 
+We first review prior forms of endgame solving for 
+imperfect-information games. Then we propose a new form 
+of endgame solving that retains the theoretical guarantees of 
+the best prior methods while performing better in practice. 
+Finally, we introduce a method for endgame solving to be 
+nested as players descend the game tree, leading to substantially 
+better performance. 
+Notation and Background for 
+Imperfect-Information Games 
+In an imperfect-information extensive-form game there is a 
+finite set of players, P. H is the set of all possible histories 
+(nodes) in the game tree, represented as a sequence of 
+actions, and includes the empty history. A(h) is the actions 
+available in a history and P(h) 2 P [ c is the player who 
+acts at that history, where c denotes chance. Chance plays 
+an action a 2 A(h) with a fixed probability c(h; a) that is 
+known to all players. The history h0 reached after an action 
+is taken in h is a child of h, represented by ha = h0, while h 
+is the parent of h0. If there exists a sequence of actions from 
+h to h0, then h is an ancestor of h0 (and h0 is a descendant 
+of h). Z  H are terminal histories for which no actions are 
+available. For each player i 2 P, there is a payoff function 
+ui : Z ! <. If P = f1; 2g and u1 = ..u2, the game is 
+two-player zero-sum. 
+Imperfect information is represented by information sets 
+(infosets) for each player i 2 P by a partition Ii of h 2 H : 
+P(h) = i. For any infoset I 2 Ii, all histories h; h0 2 I are 
+indistinguishable to player i, so A(h) = A(h0). I(h) is the 
+infoset I where h 2 I. P(I) is the player i such that I 2 Ii. 
+A(I) is the set of actions such that for all h 2 I, A(I) = 
+A(h). jAij = maxI2Ii jA(I)j and jAj = maxi jAij. 
+A strategy i(I) is a probability vector over A(I) for 
+player i in infoset I. The probability of a particular action 
+a is denoted by i(I; a). Since all histories in an infoset 
+belonging to player i are indistinguishable, the strategies 
+in each of them must be identical. That is, for all h 2 I, 
+i(h) = i(I) and i(h; a) = i(I; a). A full-game strategy 
+i 2 i defines a strategy for each infoset belonging to 
+Player i. A strategy profile  is a tuple of strategies, one for 
+each player. ui(i; ..i) is the expected payoff for player i 
+if all players play according to the strategy profile hi; ..ii. 
+(h) = h0avhP(h)(h; a) is the joint probability of 
+reaching h if all players play according to . 
+i (h) is the 
+contribution of player i to this probability (that is, the probability 
+of reaching h if all players other than i, and chance, 
+always chose actions leading to h). ..
+i(h) is the contribution 
+of all players other than i, and chance. (h; h0) is the 
+probability of reaching h0 given that h has been reached, and 
+0 if h 6@ h0. In a perfect-recall game, 8h; h0 2 I 2 Ii, 
+i(h) = i(h0). In this paper we focus specifically on 
+two-player zero-sum perfect-recall games. Therefore, for 
+i = P(I) we define i(I) = i(h) for h 2 I. Moreover, 
+I0 @ I if for some h0 2 I0 and some h 2 I, h0 @ h. Similarly, 
+I0  a @ I if h0  a @ h. We also define (I; I0) as the 
+probability of reaching I0 from I according to the strategy 
+. 
+For convenience, we define an endgame. If a history is in 
+an endgame, then any other history with which it shares an 
+infoset must also be in the endgame. Moreover, any descendent 
+of the history must be in the endgame. Formally, an 
+endgame is a set of histories S  H such that for all h 2 S, 
+if h @ h0, then h0 2 S, and for all h 2 S, if h0 2 I(h) for 
+some I 2 IP(h) then h0 2 S. The head of an endgame Sr is 
+the union of infosets that have actions leading directly into 
+S, but are not in S. Formally, Sr is a set of histories such 
+that for all h 2 Sr, h 62 S and either 9a 2 A(h) such that 
+h ! a 2 S, or h 2 I and for some history h0 2 I, h0 2 Sr. 
+A Nash equilibrium (Nash 1950) is a strategy profile 
+ such that 8i; ui(
+i ; ..
+i) = max0i
+2i ui(0i
+; ..
+i). 
+An -Nash equilibrium is a strategy profile  such that 
+8i; ui(
+i ; ..
+i)+  max0i
+2i ui(0i
+; ..
+i). In two-player 
+zero-sum games, every Nash equilibrium results in the same 
+expected value for a player. A best response BRi(..i) 
+is a strategy for player i such that ui(BRi(..i); ..i) = 
+max0i
+2i ui(0i
+; ..i). The exploitability exp(..i) of a 
+strategy ..i is defined as ui(BRi(..i); ..i) .. ui(), 
+where  is a Nash equilibrium. 
+A counterfactual best response (Moravcik et al. 2016) 
+CBRi(..i) is similar to a best response, but additionally 
+maximizes counterfactual value at every infoset. Specifically, 
+a counterfactual best response is a strategy i that is a 
+best response with the additional condition that if i(I; a) > 
+0 then v
+i (I; a) = maxa0 v(I; a0). 
+We further define counterfactual best response 
+value CBV ..i (I) as the value player i expects 
+to achieve by playing according to CBRi(i) 
+when in infoset I. Formally CBV ..i (I; a) = 
+P
+h2I 
+
+..i 
+..i (h)
+P
+z2Z 
+..
+hCBRi(..i);..ii(h  a; z)ui(z)
+ 
+and CBV ..i (I) = maxa2A(I) CBV ..i (I; a). 
+Prior Approaches to Endgame Solving in 
+Imperfect-Information Games 
+In this section we review prior techniques for endgame solving 
+in imperfect-information games. Our new algorithm then 
+builds on some of the ideas and notation. 
+Throughout this section, we will refer to the Coin Toss 
+game shown in Figure 1. We will focus on the Right
+
+endgame. If P1 chooses Left, the game continues to a much 
+larger endgame, but its structure is not relevant here. 
+We assume that a base strategy profile  has already been 
+computed for this game in which P1 chooses Right 3
+4 of the 
+time with Heads and 1
+2 of the time with Tails, and P2 chooses 
+Heads 1
+2 of the time, Tails 1
+4 of the time, and Forfeit 1
+4 of the 
+time after P1 chooses Right. The details of the base strategy 
+in the Left endgame are not relevant in this section, but we 
+assume that if P1 played optimally then she would receive 
+an expected payoff of 0:5 for choosing Left if the coin is 
+Heads, and ..0:5 for choosing Left if the coin is Tails. We 
+will attempt to improve P2’s strategy in the endgame that 
+follows P1 choosing Right. We refer to this endgame as S. 
+Unsafe Endgame Solving 
+We first review the most intuitive form of endgame solving, 
+which we refer to as unsafe endgame solving (Billings et 
+al. 2003; Gilpin and Sandholm 2006; 2007; Ganzfried and 
+Sandholm 2015). This form of endgame solving assumes 
+that both players will play according to their base strategies 
+outside of the endgame. In other words, all nodes outside 
+the endgame are fixed and can be treated as chance nodes 
+with probabilities determined by the base strategy. Thus, the 
+different roots of the endgame are reached with probabilities 
+determined from the base strategies using Bayes’ rule. A 
+strategy is then computed for the endgame—independently 
+from the rest of the game. Applying unsafe endgame solving 
+to Coin Toss (after P1 chooses Right) would mean solving 
+the game shown in Figure 2. 
+Figure 2: The game solved by Unsafe endgame solving to 
+determine a P2 strategy in the Right endgame of Coin Toss. 
+Specifically, we define R as the set of earliest-reachable 
+histories in S. That is, h 2 R if h 2 S and h0 62 S for 
+any h0 @ h. We then calculate (h) for each h 2 R. A 
+new game is constructed consisting only of an initial chance 
+node and S. The initial chance node reaches h 2 R with 
+probability  P (h) 
+h02R (h0) . This new game is solved and its 
+strategy is then used whenever S is encountered. 
+Unsafe endgame solving lacks theoretical solution quality 
+guarantees and there are many situations where it performs 
+extremely poorly. Indeed, if it were applied to the base strategy 
+of Coin Toss, it would produce a strategy in which P2 
+always chooses Heads—which P1 could exploit severely by 
+only choosing Right with Tails. Despite the lack of theoretical 
+guarantees and potentially bad performance, unsafe 
+endgame solving is simple and can sometimes produce lowexploitability 
+strategies in large games, as we show later. 
+We now move to discussing safe endgame solving techniques, 
+that is, ones that ensure that the exploitability of the 
+strategy is no higher than that of the base strategy. 
+Re-Solve Refinement 
+In Re-solve refinement (Burch, Johanson, and Bowling 
+2014), a safe strategy is computed for P2 in the endgame 
+by constructing an auxiliary game, as shown in Figure 3, 
+and computing an equilibrium strategy S for it. The auxiliary 
+game consists of a starting chance node that connects 
+to each history h in Sr in proportion to the probability that 
+player P1 could reach h if P1 tried to do so (that is, in proportion 
+to ..
+1(h)). Let aS be the action available in h such 
+that h  aS 2 S. At this point, P1 has two possible actions. 
+Action a0
+S, the auxiliary-game equivalent of aS, leads into 
+S, while action a0
+T leads to a terminal payoff that awards 
+the counterfactual best response value from the base strategy 
+CBV ..1 (I(h); aS). In the base strategy of Coin Toss, 
+the counterfactual best response value of P1 choosing Right 
+is 0 if the coin is Heads and 1
+2 if the coin is Tails. Therefore, 
+a0
+T leads to a terminal payoff of 0 for Heads and 1
+2 for Tails. 
+After the equilibrium strategy S is computed in the auxiliary 
+game, S
+2 is copied back to S in the original game (that 
+is, P2 plays according to S
+2 rather than 2 when in S). In 
+this way, the strategy for P2 in S is pressured to be similar 
+to that in the original strategy; if P2 were to choose a strategy 
+that did better than the base strategy against Heads but 
+worse against Tails, then P1 would simply choose a0
+T with 
+Heads and a0
+S with Tails. 
+Figure 3: The auxiliary game used by Re-solve refinement to 
+determine a P2 strategy in the Right endgame of Coin Toss. 
+Re-solve refinement is safe and useful for compactly storing 
+strategies and reconstructing them later. However, it may 
+miss out on opportunities for improvement. For example, if 
+we apply Re-solve refinement to our base strategy in Coin 
+Toss, we may arrive at the same strategy as the base strategy 
+in which Player 2 chooses Forfeit 25% of the time, 
+even though Heads and Tails dominate that action. The next 
+endgame solving technique addresses this shortcoming. 
+Maxmargin Refinement 
+Maxmargin refinement (Moravcik et al. 2016) is similar to 
+Re-solve refinement, except that it seeks to improve the 
+endgame strategy as much as possible over the alternative 
+payoff. While Re-solve refinement seeks a strategy for P2 
+in S that would simply dissuade P1 from entering S, Maxmargin 
+refinement additionally seeks to punish P1 as much
+
+as possible if P1 nevertheless chooses to enter S. A subgame 
+margin is defined for each infoset in Sr, which represents 
+the difference in value between entering the subgame 
+versus choosing the alternative payoff. Specifically, for each 
+infoset I 2 Sr and action aS leading to S, the subgame margin 
+M(I; aS) = vS 
+(I; a0
+T ) .. vS 
+(I; a0
+S), or equivalently 
+M(I; aS) = CBV ..1 (I; a) .. vS 
+(I; a0
+S). In Maxmargin 
+refinement, a Nash equilibrium strategy is computed such 
+that the minimum margin over all I 2 Sr is maximized. 
+Given our base strategy in Coin Toss, Maxmargin refinement 
+would result in P2 choosing Heads with probability 3
+8 , 
+Tails with probability 5
+8 , and Forfeit with probability 0. 
+Maxmargin refinement is safe. Furthermore, it guarantees 
+that if every Player 1 best response reaches the endgame 
+with positive probability through some infoset(s) that have 
+positive margin, then exploitability is strictly lower than that 
+of the base strategy. 
+Still, none of the prior techniques consider that in Coin 
+Toss P1 can achieve a payoff of 0:5 by choosing Left with 
+Heads, and thus has more incentive to reach S when in the 
+Tails state. The next section introduces our new technique, 
+Reach-Maxmargin refinement, which solves this problem. 
+Reach-Maxmargin Refinement 
+In this section we introduce Reach-Maxmargin refinement, a 
+new method for refining endgames that considers what payoffs 
+are achievable from other paths in the game. We first 
+consider the case of refining a single endgame in a game tree. 
+We then cover independently refining multiple endgames. 
+Refining a Single Endgame 
+All of the endgame-solving techniques described in the previous 
+section only consider the target endgame in isolation. 
+This can be improved by incorporating information about 
+what payoffs the players could receive by not reaching the 
+endgame. For example in Coin Toss (Figure 1), P1 can receive 
+payoff 0:5 by choosing Left in the Heads state, and 
+..0:5 in the Tails state. The solution that Maxmargin refinement 
+produces would result in P1 receiving payoff ..1
+4 by 
+choosing Right in the Heads state, and 1
+4 in the Tails state. 
+Thus, P1 could simply always choose Left in the Heads state 
+and Right in the Tails state against P2’s strategy and receive 
+expected payoff 3
+8 . Reach-Maxmargin improves upon this. 
+The auxiliary game used in Reach-Maxmargin refinement 
+requires additional definitions. Define the path QS(I) to an 
+infoset I 2 Sr to be the set of infosets I0 such that I0 v I 
+and I0 is not an ancestor of any other information set in Sr. 
+We also define CBR1(0..
+1)!Ia0
+S as the P1 strategy that 
+plays to reach I  a0
+S in all infosets I0 v I, and elsewhere 
+plays identically to CBR1(0..
+1). 
+We now describe the auxiliary game used in Reach- 
+Maxmargin. The auxiliary game begins with a chance node 
+that leads to h0 2 I0 in proportion to ..
+1(h0), where I0 is 
+the earliest infoset such that I0 2 QS(I) for some I 2 Sr. 
+P1 then has a choice between actions a0
+T and a0
+S. Action a0
+T 
+in Reach-Maxmargin refinement leads to a terminal payoff 
+of CBV ..1 (I0). P1 can instead take action a0
+S, which can 
+be viewed as P1 attempting to reach I  aS from I0. Since 
+there may be P2 nodes and chance nodes between I0 and 
+I, P1 may not reach I from I0 with probability 1. If P1 
+reaches an infoset I00 62 QS(I) that is “off the path” from 
+I, then we assume P1 plays according to a counterfactual 
+best response from that point forward and receives a payoff 
+of CBV ..1 (I00). However, with probability ..
+1(h0; h), P1 
+can reach history h  a0
+S for h 2 I. From this point on, the 
+auxiliary game is identical to that in Re-solve and Maxmargin 
+refinement. 
+Formally, let 0 be the strategy that plays according to 
+S in S and otherwise plays according to . For an infoset 
+I 2 Sr and action aS leading to S, let I0 be the earliest 
+infoset such that I0 v I and I0 cannot reach an infoset in Sr 
+other than I. We define a reach margin as 
+Mr(I; ; S) = CBV ..1 (I0) .. CBV 0
+..1!Ia0
+S (I0) 
+Reach-Maxmargin refinement finds a Nash equilibrium 
+S in the auxiliary game such that the minimum margin 
+minI Mr(I; S; S) is maximized. Theorem 1 shows that 
+Reach-Maxmargin refinement results in a combined strategy 
+with exploitability lower than or equal to the base strategy. If 
+the opponent reaches a refined endgame with positive probability 
+and the margin of the reached infoset is positive, then 
+exploitability is strictly lower than that of the base strategy. 
+This theorem statement is similar to that of Maxmargin refinement 
+(Moravcik et al. 2016), but the margins here are 
+higher than (or equal to) those in Maxmargin refinement. 
+Theorem 1. Given a strategy 2, an endgame S for P2, 
+and a refined endgame Nash equilibrium strategy S
+2 , let 
+02
+be the strategy that plays according to S
+2 in endgame 
+S and 2 elsewhere. If minI Mr(I; ; S)  0 for S, then 
+exp(02
+)  exp(2). Furthermore, if hBR02 
+;0
+2i(I) > 0 
+for some I 2 Sr for an endgame S, then exp(02
+)  
+exp(2) .. 0
+2 
+..1(I) minI M(I; 02
+; S). 
+The auxiliary game can be solved in a way that maximizes 
+the minimum margin by using a standard LP solver. In order 
+to use iterative algorithms such as the Excessive Gap Technique 
+(Nesterov 2005; Gilpin, Pe˜na, and Sandholm 2012) or 
+Counterfactual Regret Minimization (CFR) (Zinkevich et al. 
+2007), one can use the gadget game described by Moravcik 
+et al. (2016). Details on the gadget game are provided in the 
+Appendix. In our experiments we used CFR. 
+Refining Multiple Endgames Independently 
+Other endgame solving methods have also considered the 
+cost of reaching an endgame (Waugh, Bard, and Bowling 
+2009; Jackson 2014). However, those approaches (and 
+the version of Reach-Maxmargin refinement we described 
+above) are only correct in theory when applied to a 
+single endgame. Typically, we want to refine multiple 
+endgames independently—or, equivalently, any endgame 
+that is reached at run time. This poses a problem because 
+the construction of the auxiliary game assumes that all P2 
+nodes outside the endgame have strategies that are fixed according 
+to the base strategy. If this assumption is violated by 
+refining multiple endgames, then the theoretical guarantees 
+of Reach-Maxmargin refinement no longer hold.
+
+To address this issue, we first add a constraint that 
+CBV 0
+..1 (I)  CBV ..1 (I) for every P1 infoset. This trivially 
+guarantees that exp(02
+)  exp(2). We also modify 
+the Reach-Maxmargin auxiliary game. Let 0 be the strategy 
+profile after all endgames are solved and recombined. Ideally, 
+when solving an endgame S we would like any P1 action 
+leading away from S (that is, any action a belonging to 
+an infoset I0 2 QS(I) such that I0 a 62 QS(I)[S) to lead to 
+a terminal payoff of CBV 0 
+1 (ha) rather than CBV  
+1 (ha). 
+However, since we are solving the endgames independently, 
+we do not know what 0 will be. Nevertheless, we can have 
+h  a lead to a lower bound on CBV 0 
+1 (h  a). In our experiments 
+we use the minimum reachable payoff as a lower 
+bound.1 Tighter upper and lower bounds, or accurate estimates 
+of CBV 0 
+1 (I) for an infoset I, may lead to even better 
+empirical performance. 
+Theorem 2 shows that even though the endgames are 
+solved independently, if an endgame has positive minimum 
+margin and is reached with positive probability then the final 
+strategy will have lower exploitability than without Reach- 
+Maxmargin endgame solving on that endgame. 
+Theorem 2. Given a strategy 2, a set of disjoint endgames 
+S for P2, and a refined endgame Nash equilibrium strategy 
+S
+2 for each endgame S 2 S, let 02
+be the strategy 
+that plays according to S
+2 in each endgame S, respectively, 
+and 2 elsewhere. Moreover, let ..S 
+2 be the 
+strategy that plays according to 02
+everywhere except for 
+P2 nodes in S, where it instead plays according to 2. If 
+hBR02 
+;0
+2i(I) > 0 for some I 2 Sr, then exp(02
+)  
+exp(..S 
+2 ) .. 0
+2 
+..1(I) minI M(I; S
+2 ; S). 
+We now introduce an improvement to Reach-Maxmargin 
+refinement. Let I0 be an infoset in QS(I). Let aO be an action 
+leading away from S and let aQ be an action leading 
+toward S. If the lower bound for CBV 0
+S (I0; aO) is higher 
+than CBV S (I0; aQ) then S will never be reached through 
+I0 in a Nash equilibrium. Thus, there is no point in further 
+increasing the margin of I. This allows other margins 
+to be larger instead, leading to better overall performance. 
+This applies even when refining multiple endgames independently. 
+We use this improvement in our experiments. 
+Nested Endgame Solving 
+As we have discussed, large games must be abstracted to 
+reduce the game to a tractable size. This is particularly 
+common in games with large or continuous action spaces. 
+Typically the action space is discretized by action abstraction 
+so only a few actions are included in the abstraction. 
+While we might limit ourselves to the actions we included 
+in the abstraction, an opponent might choose actions that 
+are not in the abstraction. In that case, the off-tree action 
+can be mapped to an action that is in the abstraction, and 
+the strategy from that in-abstraction action can be used. This 
+1While this may seem like a loose lower bound, there are many 
+situations where the off-path action simply leads to a terminal node. 
+For these cases, the lower bound we use is optimal. 
+is certainly problematic if the two actions are very different, 
+but in many cases it leads to reasonable performance. 
+For example, in an auction game we might include a bid 
+of $100 in our abstraction. If a player bids $101, we can 
+probably treat that as a bid of $100 without major problems. 
+This is referred to as action translation (Gilpin, Sandholm, 
+and Sørensen 2008; Schnizlein, Bowling, and Szafron 2009; 
+Ganzfried and Sandholm 2013). Action translation is the 
+state-of-the-art prior approach to dealing with this issue. It is 
+used, for example, by all the leading competitors in the Annual 
+Computer Poker Competition (ACPC). The leading action 
+translation mapping—i.e., way of mapping opponent’s 
+off-tree actions back to actions in the abstraction—is the 
+pseudoharmonic mapping (Ganzfried and Sandholm 2013); 
+it has an axiomatic foundation, plays intuitively correctly in 
+small sanity-check games, and is used by most of the leading 
+teams in the ACPC. That is the action mapping that we 
+will benchmark against in our experiments. 
+In this section, we develop techniques for applying 
+endgame solving to calculate responses to opponent’s offtree 
+actions, thereby obviating the need for action translation. 
+We present two methods that dramatically outperform 
+the leading action translation technique. The same techniques 
+can also be used more generally to calculate finergrained 
+card or action abstractions as play progresses down 
+the game tree. In this section, for exposition, we assume that 
+P2 wishes to respond to P1 choosing an off-tree action. 
+The first method, which we refer to as the inexpensive 
+method, begins by calculating a Nash equilibrium  within 
+the abstraction, and calculating CBV ..1 (I; a) for each infoset 
+I 2 I1 and action a in the abstraction. When P1 
+chooses an off-tree action a in infoset I, an endgame S 
+is generated such that I 2 Sr and I  a leads to S. This 
+endgame may be an abstraction. S is solved using any of the 
+safe endgame solving techniques discussed earlier, except 
+that we use CBV ..1 (I) in place of CBV ..1 (I; a) (since 
+a is not a valid action in I according to ). The solution S 
+is combined with  to form 0. CBV 0
+..1 (I0; a) is then calculated 
+for each infoset I0 2 S and each I0 2 QS(I) (that 
+is, on the path to I). The process repeats whenever P1 again 
+chooses an off-tree action in S. 
+By using CBV ..1 (I) in place of CBV 0
+..1 (I0; a), we 
+can retain some of the theoretical guarantees of Reach- 
+Maxmargin refinement and Maxmargin refinement. Intuitively, 
+if in every information set I P1 is better off taking 
+an action already in the game than the new action that 
+was added, then the refined strategy is still a Nash equilibrium. 
+Specifically, if the minimum reach margin Mmin of 
+the added action is nonnegative, then the combined strategy 
+0 is a Nash equilibrium in the expanded game that contains 
+the new action. If Mmin is negative, then the distance of 0 
+from a Nash equilibrium is proportional to ..Mmin. 
+This “inexpensive” approach does not apply with Unsafe 
+endgame solving because the probability of reaching an action 
+outside of a player’s abstraction is undefined. That is, 
+(h  a) is undefined when a is not considered a valid action 
+in h according to the abstraction. Nevertheless, a similar 
+but more expensive approach is possible with Unsafe 
+endgame solving (as well as all the other endgame-solving
+
+techniques) by starting the endgame solving at h rather than 
+at ha. In other words, if action a taken in history h is not in 
+the abstraction, then Unsafe endgame solving is conducted 
+in the smallest endgame containing h (and action a is added 
+to that abstraction). This increases the size of the endgame 
+compared to the inexpensive method because a strategy must 
+be recomputed for every action a0 2 A(h) in addition to a. 
+For example, if an off-tree action is chosen by the opponent 
+as the first action in the game, then the strategy for the entire 
+game must be recomputed.We therefore refer to this method 
+as the expensive method. We present experiments with both 
+methods. 
+Experiments 
+We conducted our experiments on a poker game we call No- 
+Limit Flop Hold’em (NLFH). NLFH is similar to the popular 
+poker game of No-Limit Texas Hold’em except that there 
+are only two rounds, called the pre-flop and flop. At the beginning 
+of the game, each player receives two private cards 
+from a 52-card deck. Player 1 puts in the “big blind” of 100 
+chips, and Player 2 puts in the “small blind” of 50 chips. 
+A round of betting then proceeds starting with Player 2, referred 
+to as the preflop, in which an unlimited number of bets 
+or raises are allowed so long as a player does not put more 
+than 20,000 chips (i.e., her entire chip stack) in the pot. Either 
+player may fold on their turn, in which case the game 
+immediately ends and the other player wins the pot. After the 
+first betting round is completed, three community cards are 
+dealt out, and another round of betting is conducted (starting 
+with Player 1), referred to as the flop. At the end of this 
+round, both players form the best possible five-card poker 
+hand using their two private cards and the three community 
+cards. The player with the better hand wins the pot. 
+For equilibrium finding, we used a version of CFR called 
+CFR+ (Tammelin et al. 2015) with the speed-improvement 
+techniques introduced by Johanson et al. (2011). There is no 
+randomness in our experiments. 
+Our first experiment compares the performance of unsafe, 
+re-solve, maxmargin, and reach-maxmargin refinement 
+when applied to information abstraction (which is card abstraction 
+in the case of poker). Specifically, we solve NLFH 
+with no information abstraction on the preflop. On the flop, 
+there are 1,286,792 infosets for each betting sequence; the 
+abstraction buckets them into 30,000 abstract ones (using 
+a leading information abstraction algorithm (Ganzfried and 
+Sandholm 2014)). We then apply endgame solving immediately 
+after the preflop ends but before the flop community 
+cards are dealt. We experiment with two versions of the 
+game, one small and one large, which include only a few of 
+the available actions in each infoset. The small game has 9 
+non-terminal betting sequences on the preflop and 48 on the 
+flop. The large game has 30 on the preflop and 172 on the 
+flop. Table 1 shows the performance of each technique. In all 
+our experiments, exploitability is measured in the standard 
+units used in this field: milli big blinds per hand (mbb/h). 
+Despite lacking theoretical guarantees, Unsafe endgame 
+solving outperformed the safe methods in the small game. 
+However, it did substantially worse in the large game. This 
+Small Game Large Game 
+Base Strategy 9.128 4.141 
+Unsafe 0.5514 39.68 
+Resolve 8.120 3.626 
+Maxmargin 0.9362 0.6121 
+Reach-Maxmargin 0.8262 0.5496 
+Table 1: Exploitability (evaluated in the game with no information 
+abstraction) of the endgame-solving techniques. 
+exemplifies its variability. Among the safe methods, our 
+Reach-Maxmargin technique performed best on both games. 
+The second experiment evaluates nested endgame solving 
+using the different endgame solving techniques, and compares 
+them to action translation. In order to also evaluate 
+action translation, in this experiment, we create an NLFH 
+game that includes 3 bet sizes at every point in the game 
+tree (0.5, 0.75, and 1.0 times the size of the pot); a player 
+can also decide not to bet. Only one bet (i.e., no raises) is 
+allowed on the preflop, and three bets are allowed on the 
+flop. There is no information abstraction anywhere in the 
+game. 2 We also created a second, smaller abstraction of 
+the game in which there is still no information abstraction, 
+but the 0.75x pot bet is never available. We calculate the 
+exploitability of one player using the smaller abstraction, 
+while the other player uses the larger abstraction. Whenever 
+the large-abstraction player chooses a 0.75x pot bet, the 
+small-abstraction player generates and solves an endgame 
+for the remainder of the game (which again does not include 
+any 0.75x pot bets) using the nested endgame solving 
+techniques described above. This endgame strategy is then 
+used as long as the large-abstraction player plays within the 
+small abstraction, but if she chooses the 0.75x pot bet later 
+again, then the endgame solving is used again, and so on. 
+Table 2 shows that all the endgame solving techniques substantially 
+outperform action translation. Resolve, Maxmargin, 
+and Reach-Maxmargin use inexpensive nested endgame 
+solving, while Unsafe and “Reach-Maxmargin (expensive)” 
+use the expensive approach. Reach-Maxmargin refinement 
+performed the best, outperforming maxmargin refinement 
+and unsafe endgame solving. These results suggest that 
+nested endgame solving is preferable to action translation 
+(if there is sufficient time to solve the endgame). 
+Conclusion 
+We introduced an endgame solving technique for imperfectinformation 
+games that has stronger theoretical guarantees 
+2There are no chip stacks in this version of NLFH. Chip stacks 
+pose a considerable challenge to action translation, because the optimal 
+strategy in a poker game can change drastically when any 
+player has bet almost all her chips. Since action translation maps 
+each bet size to a bet size in the abstraction, it may significantly 
+overestimate or underestimate the number of chips in the pot, and 
+therefore perform extremely poorly when near the chip stack limit. 
+Refinement techniques do not suffer from the same problem. Conducting 
+the experiments without chip stacks is thus conservative 
+in that it favors action translation over the endgame solving techniques. 
+We nevertheless show that the latter yield significantly better 
+strategies.
+
+Exploitability 
+Randomized Pseudo-Harmonic Mapping 146.5 
+Resolve 15.02 
+Reach-Maxmargin (Expensive) 14.92 
+Unsafe (Expensive) 14.83 
+Maxmargin 12.20 
+Reach-Maxmargin 11.91 
+Table 2: Comparison of the various endgame solving techniques 
+in nested endgame solving. The performance of 
+the pseudo-harmonic action translation is also shown. Exploitability 
+is evaluated in the large action abstraction, and 
+there is no information abstraction in this experiment. 
+and better practical performance than prior endgame-solving 
+methods. We presented results on exploitability of both safe 
+and unsafe endgame solving techniques.We also introduced 
+a method for nested endgame solving in response to the opponent’s 
+off-tree actions, and demonstrated that this leads to 
+dramatically better performance than the usual approach of 
+action translation. This is, to our knowledge, the first time 
+that exploitability of endgame solving techniques has been 
+measured in large games. 
+Acknowledgments 
+This material is based on work supported by the NSF under 
+grants IIS-1617590, IIS-1320620, and IIS-1546752, the 
+ARO under award W911NF-16-1-0061. 
+References 
+Bellman, R. 1965. On the application of dynamic programming 
+to the determination of optimal play in chess and 
+checkers. Proceedings of the National Academy of Sciences 
+53(2):244–246. 
+Billings, D.; Burch, N.; Davidson, A.; Holte, R.; Schaeffer, 
+J.; Schauenberg, T.; and Szafron, D. 2003. Approximating 
+game-theoretic optimal strategies for full-scale poker. In 
+Proceedings of the 18th International Joint Conference on 
+Artificial Intelligence (IJCAI). 
+Burch, N.; Johanson, M.; and Bowling, M. 2014. Solving 
+imperfect information games using decomposition. In AAAI 
+Conference on Artificial Intelligence (AAAI). 
+Ganzfried, S., and Sandholm, T. 2013. Action translation 
+in extensive-form games with large action spaces: Axioms, 
+paradoxes, and the pseudo-harmonic mapping. In Proceedings 
+of the International Joint Conference on Artificial Intelligence 
+(IJCAI). 
+Ganzfried, S., and Sandholm, T. 2014. Potential-aware 
+imperfect-recall abstraction with earth mover’s distance in 
+imperfect-information games. In AAAI Conference on Artificial 
+Intelligence (AAAI). 
+Ganzfried, S., and Sandholm, T. 2015. Endgame solving in 
+large imperfect-information games. In International Conference 
+on Autonomous Agents and Multi-Agent Systems (AAMAS). 
+Gilpin, A., and Sandholm, T. 2006. A competitive Texas 
+Hold’em poker player via automated abstraction and realtime 
+equilibrium computation. In Proceedings of the National 
+Conference on Artificial Intelligence (AAAI), 1007– 
+1013. 
+Gilpin, A., and Sandholm, T. 2007. Better automated abstraction 
+techniques for imperfect information games, with 
+application to Texas Hold’em poker. In International Conference 
+on Autonomous Agents and Multi-Agent Systems 
+(AAMAS), 1168–1175. 
+Gilpin, A.; Pe˜na, J.; and Sandholm, T. 2012. First-order 
+algorithm with O(ln(1=)) convergence for -equilibrium in 
+two-person zero-sum games. Mathematical Programming 
+133(1–2):279–298. Conference version appeared in AAAI- 
+08. 
+Gilpin, A.; Sandholm, T.; and Sørensen, T. B. 2008. A 
+heads-up no-limit Texas Hold’em poker player: Discretized 
+betting models and automatically generated equilibriumfinding 
+programs. In International Conference on Autonomous 
+Agents and Multi-Agent Systems (AAMAS). 
+Jackson, E. 2014. A time and space efficient algorithm for 
+approximately solving large imperfect information games. 
+In AAAI Workshop on Computer Poker and Imperfect Information. 
+Johanson, M.; Waugh, K.; Bowling, M.; and Zinkevich, M. 
+2011. Accelerating best response calculation in large extensive 
+games. In Proceedings of the International Joint Conference 
+on Artificial Intelligence (IJCAI). 
+Johanson, M. 2013. Measuring the size of large no-limit 
+poker games. Technical report, University of Alberta. 
+Moravcik, M.; Schmid, M.; Ha, K.; Hladik, M.; and 
+Gaukrodger, S. J. 2016. Refining subgames in large imperfect 
+information games. In AAAI Conference on Artificial 
+Intelligence (AAAI). 
+Nash, J. 1950. Equilibrium points in n-person games. Proceedings 
+of the National Academy of Sciences 36:48–49. 
+Nesterov, Y. 2005. Excessive gap technique in nonsmooth 
+convex minimization. SIAM Journal of Optimization 
+16(1):235–249. 
+Sandholm, T. 2010. The state of solving large incompleteinformation 
+games, and application to poker. AI Magazine 
+13–32. Special issue on Algorithmic Game Theory. 
+Schaeffer, J.; Burch, N.; Bj¨ornsson, Y.; Kishimoto, A.; 
+M¨uller, M.; Lake, R.; Lu, P.; and Sutphen, S. 2007. Checkers 
+is solved. Science 317(5844):1518–1522. 
+Schnizlein, D.; Bowling, M.; and Szafron, D. 2009. Probabilistic 
+state translation in extensive games with large action 
+sets. In Proceedings of the 21st International Joint Conference 
+on Artificial Intelligence (IJCAI). 
+Tammelin, O.; Burch, N.; Johanson, M.; and Bowling, M. 
+2015. Solving heads-up limit Texas hold’em. In Proceedings 
+of the 24th International Joint Conference on Artificial 
+Intelligence (IJCAI). 
+Waugh, K.; Bard, N.; and Bowling, M. 2009. Strategy grafting 
+in extensive games. In Proceedings of the Annual Conference 
+on Neural Information Processing Systems (NIPS).
+
+Zinkevich, M.; Bowling, M.; Johanson, M.; and Piccione, 
+C. 2007. Regret minimization in games with incomplete 
+information. In Proceedings of the Annual Conference on 
+Neural Information Processing Systems (NIPS). 
+Appendix: Supplementary Material 
+Description of Gadget Game 
+Solving the auxiliary game described in Maxmargin Refinement 
+and Reach-Maxmargin Refinement will not, by itself, 
+maximize the minimum margin. While LP solvers can easily 
+handle this objective, the process is more difficult for iterative 
+algorithms such as Counterfactual Regret Minimization 
+(CFR) and the Excessive Gap Technique (EGT). For these 
+iterative algorithms, the auxiliary game can be modified into 
+a gadget game that, when solved, will provide a Nash equilibrium 
+to the auxiliary game and will also maximize the 
+minimum margin (Moravcik et al. 2016). 
+The gadget game differs from the auxiliary game in two 
+ways. First, all P1 payoffs that are reached from the initial 
+information set of I0 are shifted by CBV ..1 (I0; a) 
+in Maxmargin refinement and by CBV ..1 (I0) in Reach- 
+Maxmargin refinement. Second, rather than the game starting 
+with a chance node that determines P1’s starting state, 
+P1 will get to decide for herself which state to begin the 
+game in. Specifically, the game begins with a P1 node where 
+each action in the node corresponds to an information set 
+I in Sr for Maxmargin refinement, or the earliest infoset 
+I0 2 QS(I) for Reach-Maxmargin refinement. After P1 
+chooses to enter an information set I, chance chooses the 
+precise history h 2 I in proportion to ..1 
+..1 (h). 
+By shifting all payoffs by CBV ..1 (I0; a) or 
+CBV ..1 (I0), the gadget game forces P1 to focus on 
+improving the performance of each information set over 
+some baseline, which is the goal of Maxmargin and Reach- 
+Maxmargin refinement. Moreover, by allowing P1 to choose 
+the state in which to enter the game, the gadget game forces 
+P2 to focus on maximizing the minimum margin. 
+Figure 4 illustrates the gadget game for Maxmargin refinement. 
+Proof of Theorem 1 
+Proof. Assume Mr(I; ; S)  0 for every information set 
+I in Sr for an endgame S and let  = minI Mr(I; ; S). 
+For an information set I 2 Sr, let I0 be the earliest 
+information set in QS(I). Then CBV ..1 (I0)  
+CBV 0
+..i!Ia0
+S (I0) + . 
+First suppose that hBR(0
+2);0
+2i(I) = 0. Then either 
+hBR(0
+2);0
+2i(I0) = 0 or hBR(0
+2);0
+2i(I0; I) = 0. If it is the 
+former case, then CBV ..1 (I0) does not affect exp(02
+). If it 
+is the latter case, then since I is the only information set in 
+Sr reachable from I0, so in any best response I0 only reaches 
+nodes outside of S with positive probability. The nodes outside 
+S belonging to P2 were unchanged between  and 0, 
+so CBV 0
+..1 (I0)  CBV ..1 (I0). 
+Now suppose that hBR(0
+2);0
+2i(I) > 0. 
+Since BR(02
+) already reaches I0 on its own, 
+Figure 4: An example of a gadget game in Maxmargin refinement. 
+P1 picks the initial information set she wishes 
+to enter Sr in. Chance then picks the particular history 
+of the information set, and play then proceeds identically 
+to the auxiliary game. All P1 payoffs are shifted by 
+CBV ..1 (I0; a). 
+so CBV 0
+..i (I0) = CBV 0
+..i!Ia0
+S (I0). Since 
+CBV ..1 (I0)  CBV 0
+..i!Ia0
+S (I0) + , so we get 
+CBV ..1 (I0)  CBV 0
+..i (I0) + . This is the condition 
+for Theorem 1 in Moravcik et al. (2016). Thus, from that 
+theorem, we get that exp(02
+)  exp(2) .. 0
+2 
+..1(I). 
+Now consider any information set I00 @ I0. Before encountering 
+any P2 nodes whose strategies are different in 
+0 (that is, P2 nodes in S), P1 must first traverse a I0 information 
+set as previously defined. But for every I0 information 
+set, CBV 0
+..1 (I0)  CBV ..1 (I0). Therefore, 
+CBV 0
+..1 (I00)  CBV ..1 (I00). 
+Proof of Theorem 2 
+Proof. Let S 2 S be an endgame for P2 and assume 
+hBR02 
+;0
+2i(I) > 0 for some I 2 Sr. Let  = 
+minI Mr(I; ; S) and let I0 be the earliest information set 
+in QS(I). Since we added the constraint that CBR0
+..1 (I)  
+CBR..1 (I) for all P1 information sets, so   0. We 
+only consider the non-trivial case where  > 0. Since 
+BR(02
+) already reaches I0 on its own, so CBV 0
+..i (I0) = 
+CBV 0
+..i!Ia0
+S (I0). 
+Let 0S 
+2 represent the strategy which plays according to 
+S
+2 in P2 nodes of S and elsewhere plays according to 
+. Since  > 0 and we assumed the minimum payoff 
+for every P1 action in QS(I) that does not lead to I, so 
+CBV 0S 
+..1!Ia0
+S (I0)  BRV ..S 
+..1 (I0) .. . 
+Moreover, since 0S 
+..1 assumes a value of CBV ..1 (h) is 
+received whenever a history h 62 QS(I) is reached due 
+to chance or P2, and CBV ..1 (h) is an upper bound on 
+CBV 0
+..1 (h), so CBV 0S 
+..1!Ia0
+S (I0)  CBV 0
+..1!Ia0
+S (I0). 
+Thus, CBV 0
+..1!Ia0
+S (I0)  BRV ..S 
+..1 (I0) .. . Finally, 
+since I0 can be reached with probability ..1 (I0), so 
+exp(02
+)  exp(..S 
+2 ) .. 0
+2 
+..1(I) minI M(I; S
+2 ; S).
+
