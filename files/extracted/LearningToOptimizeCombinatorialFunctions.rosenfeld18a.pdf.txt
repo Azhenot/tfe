@@ -1,0 +1,1463 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Learning to Optimize Combinatorial Functions
+
+
+Learning to Optimize Combinatorial Functions
+
+Nir Rosenfeld 1 Eric Balkanski 1 Amir Globerson 2 Yaron Singer 1
+
+Abstract
+Submodular functions have become a ubiquitous
+tool in machine learning. They are learnable
+from data, and can be optimized efficiently and
+with guarantees. Nonetheless, recent negative
+results show that optimizing learned surrogates
+of submodular functions can result in arbitrarily
+bad approximations of the true optimum. Our
+goal in this paper is to highlight the source of
+this hardness, and propose an alternative criterion
+for optimizing general combinatorial functions
+from sampled data. We prove a tight equivalence
+showing that a class of functions is optimizable if
+and only if it can be learned. We provide efficient
+and scalable optimization algorithms for several
+function classes of interest, and demonstrate their
+utility on the task of optimally choosing trending
+social media items.
+
+1. Introduction
+Submodular optimization is fast becoming a primary tool in
+machine learning. The power of submodularity as a model
+has been demonstrated in numerous applications, including
+document summarization (Lin & Bilmes, 2011), cluster-
+ing (Gomes & Krause, 2010), active learning (Golovin &
+Krause, 2011; Guillory & Bilmes, 2011; Hoi et al., 2006),
+graph and network inference (Gomez Rodriguez et al., 2010;
+Rodriguez & Schölkopf, 2012; Defazio & Caetano, 2012),
+and information diffusion in networks (Kempe et al., 2003).
+Crucial to the success of these methods is the fact that op-
+timizing submodular functions can be done efficiently and
+with provable guarantees (Krause & Golovin, 2014).
+
+In many cases, however, the true function cannot be ac-
+cessed, and instead a surrogate function is learned from
+data (Balkanski et al., 2017). To this end, PMAC learning
+(Balcan & Harvey, 2011) offers a framework for analyzing
+the learnability of submodular functions, as well as algo-
+
+1Harvard University 2Tel Aviv University. Correspondence to:
+Nir Rosenfeld <nirr@g.harvard.edu>.
+
+Proceedings of the 35 th International Conference on Machine
+Learning, Stockholm, Sweden, PMLR 80, 2018. Copyright 2018
+by the author(s).
+
+rithms for learning in practice. Encouraging results show
+that in many cases submodular functions can be efficiently
+learned from data (Balcan & Harvey, 2011; Iyer et al., 2013;
+Feldman & Kothari, 2014; Feldman & Vondrak, 2016). A
+natural approach in this setting is to first learn a surrogate
+function from samples, and then optimize it, hoping that the
+estimated optimum will be close to the true one. A recent
+line of work has been devoted to this setting of optimization
+from samples (OPS) (Balkanski et al., 2016; 2017).
+
+The main result of OPS is unfortunately discouraging: for
+maximizing a submodular function under a cardinality con-
+straint, no algorithm can obtain a constant factor approxi-
+mation guarantee given polynomially-many samples from
+any distribution (Balkanski et al., 2017). Thus, optimizing
+over learned surrogates does not provide any meaningful
+guarantees with respect to the true function.
+
+The hardness of OPS is, however, a worst-case result. The
+hardness stems from the discrepancy between how the algo-
+rithm gains access to information (via samples) and how it
+is evaluated (globally). In contrast, machine learning objec-
+tives are typically concerned with expected outcomes, and
+are evaluated over the same distribution from which data is
+acquired (Valiant, 1984). In this paper, we build on this moti-
+vation and propose an alternative framework for optimizing
+from samples. The objective we propose, called distribu-
+tional optimization from samples (DOPS), circumvents the
+above difficulties by considering a distribution-dependent
+objective. In general, a function class F is in α-DOPS if an
+α-approximation of the empirical argmax can be found with
+arbitrarily high probability using polynomially many sam-
+ples, for any distribution D and for any f ∈ F . Formally:
+Definition 1 (α-DOPS). Let F = {f : 2[n] → R+} be a
+class of set functions over n elements. We say that F is
+α-distributionally optimizable from samples if there is an
+algorithm A that, for every distribution D over 2[n], every
+f ∈ F , and every �, δ ∈ [0, 1], when A is given as input
+a sample set S = {(Si, f(Si))}Mi=1 where Si
+
+iid∼ D, with
+probability of at least 1− δ over S it holds that:
+
+PT ∼Dm
+[
+f
+(
+A(T )
+
+)
+≥ αmax
+
+S∈T
+f(S)
+
+]
+≥ 1− � (1)
+
+where T = {(Sj)}mj=1, A(T ) ∈ T is the output of the
+algorithm, and S is of size M ∈ poly(n,m, 1/�, 1/δ).
+
+
+
+Learning to Optimize Combinatorial Functions
+
+The criterion in Eq. (1) relaxes the OPS objective to hold in
+expectation over D. This is achieved by replacing the entire
+combinatorial domain with a sampled subset T of size m,
+allowing for a distribution-agnostic notion of approximation.
+As m increases, satisfying Eq. (1) is expected to be harder.
+When m→∞, DOPS recovers OPS.
+
+Our first goal in this paper is to establish the hardness of
+DOPS. In general, classic approximation results do not nec-
+essarily transfer to statistical settings (Balkanski et al., 2017).
+Nonetheless, our main theoretical result establishes a tight
+equivalence between DOPS and PMAC learning (Balcan &
+Harvey, 2011), meaning that any F that is learnable is also
+optimizable, and vice versa. This demonstrates an intriguing
+link between learning and optimizing submodular functions,
+which are known to be PMAC-learnable (Balcan & Harvey,
+2011). The equivalence result is constructive, and gives a
+general optimization algorithm which can utilize any PMAC
+learner as a black box for DOPS, and vice versa. While our
+main focus in this paper is on submodular functions, these
+results hold for any family of combinatorial functions.
+
+In practice, however, optimizing via PMAC algorithms has
+several drawbacks (Balcan & Harvey, 2011; Feldman &
+Kothari, 2014; Feldman & Vondrak, 2016). Our second
+goal in this paper is hence to design an efficient and scal-
+able DOPS algorithm for several classes of interest. Our
+algorithm optimizes a loss function whose minimization
+provides a sufficient condition for DOPS. We prove that the
+minimizer of the empirical loss can be used for recovering
+an approximate argmax. In this sense, the framework we
+propose is one in which the algorithm “learns to optimize”.
+We show how the loss can be minimized efficiently and with
+guarantees for several submodular function classes, includ-
+ing coverage functions, cut functions, and unit demand.
+
+An additional benefit of our approach is that it provides guar-
+antees even when the output of the algorithm is restricted to
+a set of sampled alternatives. This setting is especially preva-
+lent in cases where both sets and their values are generated
+by human users. For example, in the problem of influence
+maximization (Kempe et al., 2003), the goal is to choose
+a “seed” set of users such that, when exposed to certain
+content, will maximize its expected propagation. However,
+targeting arbitrary subsets of users is in most cases impos-
+sible, and the algorithm must choose between the sets of
+users sharing currently trending items. In the last part of the
+paper we demonstrate the empirical utility of our approach
+on this task using real data from Twitter.
+
+2. Distributional optimization and learning
+In this section we give a tight characterization of function
+classes in DOPS by showing that a class F is in DOPS if
+and only if it is PMAC-learnable. This involves two steps. In
+
+the first, we show that if F is α-PMAC learnable with sam-
+ple complexity MPMAC, then it is α-DOPS. We augment this
+result with tight sample complexity bounds for α-DOPS. In
+the second part, we show that PMAC learnability is not only
+sufficient but also necessary for distributional optimization
+from samples. We show that if F is not α-PMAC learnable,
+then it is not (α− �)-DOPS for any constant � > 0, which is
+tight. This result is obtained by constructing a novel PMAC
+algorithm based on a DOPS black-box, and may thus be of
+separate interest in PMAC analysis. Overall, our results de-
+termine the hardness of DOPS by establishing a connection
+between the approximability and learnability of function
+classes.
+
+We begin by reviewing the notion of PMAC learnability:
+
+Definition 2 (PMAC, Balcan & Harvey (2011)). A class F
+is α-PMAC-learnable if there is an algorithm such that for
+every distribution D, every f ∈ F , and every �, δ ∈ [0, 1],
+
+PS∼D
+[
+f̃(S) ≤ f(S) ≤ αf̃(S)
+
+]
+≥ 1− � (2)
+
+where the input of the algorithm is a set S of size M ∈
+poly(n, 1/�, 1/δ), the output is a mapping f̃ : 2[n] → R+,
+and Eq. (2) holds w.p. at least 1− δ over S.
+
+Intuitively, PMAC generalizes the standard notion of PAC
+learning by considering a loss which penalizes predictions
+that are not within a factor of α of their true value.
+
+We are now ready to prove our main theoretical results.
+
+2.1. If F is PMAC-learnable then F is in DOPS
+
+We show that if F is α-PMAC learnable with sample com-
+plexity MPMAC(n, δ, �, α), then it is α-DOPS with sample
+complexity MPMAC(n, δ, 1− (1− �)1/m, α), and this sample
+complexity is tight. A PMAC algorithm learns a surrogate
+function f̃ . In our reduction, the corresponding DOPS algo-
+rithm simply outputs argmaxS∈T f̃(S). The technical part
+of this result is in showing the sample complexity tightness.
+Intuitively, the sample complexity is exactly the number of
+samples that are needed so that, with high probability, f̃
+obtains a good approximation on all S ∈ T . We begin by
+showing that MPMAC(n, δ, 1 − (1 − �)1/m, α) is sufficient,
+which follows from the definition of PMAC.
+
+Theorem 1. Assume F is α-PMAC-learnable with sample
+complexity MPMAC(n, δ, �, α), then F is α-DOPS with sam-
+ple complexity at most MPMAC(n, δ, 1− (1− �)1/m, α), i.e.,
+
+MDOPS(n,m, δ, �, α) ≤MPMAC(n, δ, 1− (1− �)1/m, α).
+
+Proof. Let f ∈ F , D be some distribution, S =
+{(Si, f(Si))}Mi=1 and T = {Si}mi=1 be the train and test
+sets, andA be an algorithm that constructs f̃ which α-PMAC
+learns f with sample complexity MPMAC(n, δ, �, α).
+
+
+
+Learning to Optimize Combinatorial Functions
+
+The DOPS algorithm that we analyze constructs f̃ with
+algorithm A using S and returns
+
+S̃? = argmax
+S∈T
+
+f̃(S).
+
+Fix �, δ > 0 and α > 1 and consider M = MPMAC(n, δ, 1−
+(1 − �)1/m, α). By the definition of α-PMAC, we get that
+with probability 1− δ over S,
+
+Pr
+S∼D
+
+[
+f̃(S) ≤ f(S) ≤ α · f̃(S)
+
+]
+≥ (1− �)1/m.
+
+Next, we obtain
+
+Pr
+T
+
+[
+f̃(S) ≤ f(S) ≤ α · f̃(S) : ∀S ∈ T
+
+]
+=
+(
+
+Pr
+S∼D
+
+[
+f̃(S) ≤ f(S) ≤ α · f̃(S)
+
+])m
+≥ 1− �.
+
+where the equality is due to the sets S ∈ T being drawn
+i.i.d. fromD, and the inequality holds with probability 1−δ
+over S. We define S? = argmaxS∈T f(S) and obtain that
+with probability 1− � over T and 1− δ over S,
+
+f(S̃?) ≥ f̃(S̃?) ≥ f̃(S?) ≥ α−1f(S?).
+
+We conclude that withM = MPMAC(n, δ, 1−(1−�)1/m, α),
+
+f(S̃?) ≥ 1
+α
+·max
+S∈T
+
+f(S)
+
+with probability 1− � over T and 1− δ over S.
+
+For tightness, we give an information-theoretic lower bound
+by constructing a difficult class F that cannot be in α-DOPS
+with less than MPMAC(n, δ, 1− (1− �)1/m, α) samples.
+Theorem 2. For all α > 1 and �, δ > 0, for m sufficiently
+large, there exists a family of functions F and a function
+MPMAC(·) such that
+
+• for all �′, δ′ > 0: F is α-PMAC-learnable with sample
+complexity MPMAC(n, δ′, �′, α), and
+
+• given strictly less than MPMAC(n, δ, 1− (1− �)1/m, α)
+samples, F is not α-DOPS, i.e.,
+
+MDOPS(n,m, δ, �, α) ≥MPMAC(n, δ, 1−(1−�)1/m, α).
+
+Proof Sketch (see supp. material for full proof). For each
+f in the difficult F , only a single set S? has a high value,
+while all others have low values. We consider a uniformly
+random function f ∈ F and the corresponding randomized
+subclass F ′ ⊆ F which consists of all functions f ′ such
+that S? is in the test set but not in the train set.
+
+Informally, an algorithm which aims to optimize f ∈ F ′
+cannot use the train set to learn which S ∈ T is S?. More
+
+precisely, if f ∈ F ′, the decisions of the algorithm are
+independent of the randomization of f , conditioned on f ∈
+F ′. Thus, if f ∈ F ′, the algorithm does not obtain an α-
+approximation because of the gap between the value of S?
+
+and the other sets.
+
+We construct F and D such that S? is in the test set w.p.
+greater than 1 − �. This implies that to satisfy DOPS, the
+algorithm must observe enough samples so that S? is in the
+train set w.p. at least 1− δ. We then argue that this number
+of samples is at least MPMAC(n, δ, 1− (1− �)1/m, α).
+
+2.2. If F is not PMAC-learnable then F is not in DOPS
+
+A simple intuition for Theorem 1 is that if one can accu-
+rately predict the values of all S ∈ T , then it is possible
+to find the empirical argmax. The main result in this sec-
+tion, which is perhaps less intuitive, shows that the reverse
+implication also holds. Namely, if one can find the the em-
+pirical argmax, then it is possible to infer the values of all
+sets in T . The contrapositive of this result is that if F is
+not PMAC-learnable, then F is not in DOPS. Combining
+both results provides a full characterization of distributional
+optimization in terms of learnability.
+
+To construct a PMAC learner from a DOPS algorithm, we
+first randomly partition S into “train” and “test” sets. We
+then train the DOPS algorithm on the train set, and use it
+to generate pairwise comparisons with test elements. The
+learned value for S is given by the maximum value of a test
+sample that S “beats” (via the inferred comparisons). At
+a high level, the analysis uses the DOPS guarantees and a
+bucketing argument to satisfy the PMAC requirements.
+Theorem 3. Let µ = maxS f(S)/minS:f(S)>0 f(S),
+c be any constant such that 1 ≤ α ≤ c, and
+Mµ =
+
+8 log µ
+� log c
+
+(
+1
+� + 2 log
+
+(
+1
+δ
+
+))
+. If a class F is in α-
+
+DOPS with sample complexity MDOPS(n,m, �, δ, α), then
+it is α-PMAC-learnable with sample complexity Mµ +
+MDOPS(n, 2, �/Mµ, δ/Mµ, α/c), i.e.,
+
+MPMAC(n, �, δ, α) ≥Mµ+MDOPS(n, 2, �/Mµ, δ/Mµ, α/c).
+
+Proof. Fix �, δ > 0 and α > 1. Let S = {(Si, f(Si))}Mi=1
+be the samples from D that are given as input. We partition
+the samples in S uniformly at random into S1 and S2 of
+sizes M1 and M2, respectively. For some S ∼ D, the goal
+is to predict f̃(S) such that f̃(S) ≤ f(S) ≤ α · f̃(S).
+
+For each Si ∈ S2, define S2,i := {Si, S}. Since F is
+in DOPS, with M1 = MDOPS(n, 2, �/M2, δ/M2, α/c) sam-
+ples, the algorithm outputs S?i ∈ S2,i such that with proba-
+bilities 1− δ/M2 over S1 and 1− �/M2 over S2,i,
+
+f(S?i ) ≥
+α
+
+c
+max(f(S), f(Si)).
+
+By a union bound, this holds for all i ∈M2 with probability
+1− δ over S1 and probability 1− � over S and S2.
+
+
+
+Learning to Optimize Combinatorial Functions
+
+We say that S “beats” Si if the α-DOPS algorithm outputs
+S when given S2,i. Let S−2 be the collection of sets Si in
+S2 such that S beats Si. The learning algorithm is
+
+f̃(S) =
+c
+
+α
+· max
+Si∈S−2
+
+f(Si).
+
+Let fmin = minS f(S) and fmax = maxS f(S). We parti-
+tion the sets into buckets defined as follows:
+
+Bi := {S : fmin · ci−1 ≤ f(S) < fminci}
+
+for i ≥ 1 and B0 = {S : f(S) = 0}. With β :=
+logµ/ log c buckets, all sets S are in a bucket since fmin ≤
+f(S) ≤ fmax. We define a bucket Bi to be dense if a ran-
+dom set S ∼ D has non-negligible probability to be in
+Bi, otherwise it is sparse. More precisely, Bi is dense if
+PrS∼D [S ∈ Bi] ≥ �/2β.
+
+The set S is in a dense bucket Bi with probability at least
+1 − �2 since there are at most β buckets that are not dense
+and S is in each of them with probability at most �2β by the
+definition of dense bucket. With m samples, the expected
+number of samples in Bi is at least m �2β and by a standard
+concentration bound,
+
+Pr
+
+[
+|Bi| ≤
+
+m
+
+2
+
+�
+
+2β
+
+]
+≤ e−
+
+m�
+16β
+
+We assume that |Bi| ≥ m2
+�
+
+2β for the remainder of the proof.
+There is at most one set in bucket Bi that is beaten by all
+the other sets. Since the set S has equal probability to be
+any of the sets in Bi,1 there is at least one other set S− in
+Bi which S beats with probability 1/|Bi| ≤ 4β/m�.
+
+With δ ≥ e−
+m�
+16β (and hence m ≥ log(1/δ)16β� ), with prob-
+
+ability of at least 1− δ, the number of samples in Bi is at
+least m �4β . With �/2 ≥ 4β/m� (and hence m ≥ 8β/�
+
+2),
+with probability of at least 1− � over S ∼ D, S is in a dense
+bucket and beats at least one other S− ∈ S−2 in that bucket.
+
+We get that:
+
+f̃(S) =
+c
+
+α
+· max
+Si∈S−2
+
+f(Si) ≥
+c
+
+α
+· f(S−) ≥ 1
+
+α
+· f(S)
+
+where the equality is by the definition of f̃(S), the first
+inequality is since S− ∈ S−2 , and the last is since S and S−
+are in the same bucket. We also have
+
+f(S) ≥ α
+c
+· max
+Si∈S−2
+
+f(Si) = f̃(S)
+
+where the inequality is by the definition of S−2 and the equal-
+ity by definition of f̃(S). Thus, f̃(S) ≤ f(S) ≤ αf̃(S) and
+with M2 = m ≥ 8 log µ� log c
+
+(
+1
+� + 2 log
+
+(
+1
+δ
+
+))
+= Mµ, the sample
+
+complexity is Mµ +MDOPS(n, 2, �/Mµ, δ/Mµ, α/c).
+
+1We assume that the DOPS algorithm breaks ties in a consistent
+manner, i.e., it cannot be adversarial and break ties depending on
+whether S is the set we wish to learn or if S ∈ S2.
+
+Algorithm 1 DOPS(S = {(Si, zi)}Mi=1, m, α)
+1: Randomly partition [M ] into N = bMm c sets A1, . . . , AN
+2: Create m-tuple sample set S = {(Si, zi)}Ni=1 from S
+
+where Si = {Sj}j∈Ai and z
+i = {zj}j∈Ai
+
+3: Compute α(zi) = {y ∈ [m] : ziy ≥ αmax zi} ∀ i ∈ [N ]
+
+4: θ̂ = argmin
+θ∈Θ
+
+N∑
+i=1
+
+max
+y
+
+[1{y 6∈α(zi)} + fθ(S
+i
+y)− ψθ(Si, zi)]+
+
+where ψθ(S, z) = 1|α(z)|
+∑
+y∈α(z) fθ(Sy)
+
+5: Return h
+θ̂
+(T ) = argmax
+
+S∈T
+f
+θ̂
+(S)
+
+3. Learning to Optimize at Scale
+In this section we give an efficient DOPS algorithm that
+applies to several interesting parametric submodular sub-
+classes FΘ = {fθ : θ ∈ Θ}. Our general technique
+includes two steps. First, we identify a loss function whose
+minimization provides a sufficient condition for DOPS (Eq.
+(1)), but is in general hard to optimize. Then, we show that
+for the function classes we consider, a transformation of the
+inputs reveals structure which can be exploited for efficiently
+optimizing a convex surrogate loss. Note that in principle,
+due to Thm. 1, any PMAC algorithm can be used for DOPS.
+This, however, has several practical disadvantages, which
+we comment on in Sec. 3.5.
+
+We begin by illustrating our approach for coverage functions
+with parametric weights. We then describe our algorithm,
+prove its correctness, and show how it can be applied to
+other classes such as graph cuts, unit demand, and coverage
+functions with parametric cover sets.
+
+3.1. Learning to optimize coverage functions
+
+Coverage functions are a simple but important class of sub-
+modular functions, and have been used in applications such
+as computational linguistics (Sipos et al., 2012), algorith-
+mic game theory (Dughmi & Vondrák, 2015), and influence
+maximization in social networks (Kempe et al., 2003). Let
+U be a ground set of d items, and C = {C1, . . . , Cn} a col-
+lection of subsets where Ci ⊆ U . For a set of non-negative
+item weights θ = {θ1, . . . , θd}, a function fθ : 2[n] → R is
+a coverage function if:
+
+fθ(S) =
+∑
+
+u∈C(S)
+
+θu, C(S) =
+⋃
+i∈S
+
+Ci (3)
+
+While apparently simple, coverage functions are quite ex-
+pressive, and optimizing them from samples is known to
+be hard (Balkanski et al., 2017). One reason is that, as a
+
+
+
+Learning to Optimize Combinatorial Functions
+
+function of their inputs S, coverage functions can be highly
+non-linear. Meanwhile, as a function of their parameters,
+they become linear via a simple transformation of the inputs:
+
+fθ(S) = 〈φ(S), θ〉, φu(S) = 1{∃ i∈S s.t. u∈Ci} (4)
+
+This structure allows our algorithm to efficiently find the
+approximate empirical argmax of any given T with high
+probability. The output of the algorithm is a function h ∈ H
+for choosing one S out of the m candidates in T , where:
+
+H = {hθ(T ) = argmax
+S∈T
+
+fθ(S) : θ ∈ Θ} (5)
+
+In this sense, our method “learns” how to optimize over
+collections of size m.
+
+3.2. Algorithm
+
+Pseudocode of our DOPS algorithm is given in Algorithm 1.
+The following theorem establishes its correctness:
+
+Theorem 4. Let m ∈ N and �, δ ∈ [0, 1], and let f = fθ∗
+with θ∗ ∈ Θ. For a given α > 0, let h be the output of
+Algorithm 1 when given S = {(Si, zi)}Mi=1, m, and α as
+input, where z = fθ(S) and S
+
+iid∼ D. Then, with probability
+of at least 1− δ over S, it holds that:
+
+PT ∼Dm
+[
+f
+(
+h(T )
+
+)
+≥ αmax
+
+S∈T
+f(S)
+
+]
+≥ 1− � (6)
+
+for M ≥ Õ(m(kB/�)2) with k = max |S|, B = ‖θ∗‖2.
+
+The following proof holds for any class of functions that
+can be made linear in their parameters under some represen-
+tation. This includes the coverage functions in Sec. 3.1 as
+well as the classes we consider in Sec. 3.3.
+
+Proof. We begin with some notation. Let S =
+{S1, . . . , Sm} be a set of m examples with corresponding
+values z = {z1, . . . , zm} where zy = f(Sy). Algorithm 1
+returns a function h that chooses a set Sy ∈ S. It will be
+convenient to instead view h as a mapping from S to indices
+y ∈ [m]. Denote the set of α-approximate solutions by:
+
+α(z) = {y ∈ [m] : zy ≥ αmax z} (7)
+
+Our analysis makes use of the following loss function:
+
+∆α(z, y) = 1{y 6∈ α(z)} (8)
+
+Eq. (8) is useful since L(h) := E[∆α(z, h(S))] ≤ � im-
+plies that h satisfies Eq. (6). We therefore focus on bounding
+L(h). As we do not have access toD, our algorithm chooses
+an h ∈ H which instead minimizes the empirical loss. Note
+that while ∆α is defined over m-tuples, S contains individ-
+ual sets. To ensure a consistent empirical loss, we randomly
+
+partition [M ] into N = M/m distinct sets A1, . . . , AN ,
+and define anm-tuple sample set S = {(Si, zi)}Ni=1, where
+Si = {Sy}y∈Ai and zi = {zy}y∈Ai . The loss is now:
+
+L̂(h;S) = 1
+N
+
+N∑
+i=1
+
+∆α(z
+i, ŷi), ŷi = h(Si) (9)
+
+Since ∆α is not convex, the algorithm instead optimizes a
+surrogate convex upper bound. There are many ways to do
+this; here we use an average hinge surrogate:
+
+max
+y∈[m]
+
+[∆α(z
+i, y) + fθ(S
+
+i
+y)− ψθ(Si, zi)]+ (10)
+
+where [a]+ = max{0, a} and:
+
+ψθ(S, z) =
+1
+
+|α(z)|
+∑
+
+y∈α(z)
+fθ(Sy) (11)
+
+Eq. (10) is similar in spirit to the loss in (Lapin et al., 2015),
+and is tight w.r.t. Eq. (9) whenever L̂ = 0, Intuitively,
+minimizing Eq. (10) pushes θ towards values for which the
+true argmax is scored higher than all others by a margin.
+Note that the average in Eq. (11) can be replaced with a
+max to attain a tighter (though no longer convex) surrogate.
+
+Since S is labeled by some fθ∗ ∈ FΘ, we have that
+L(hθ∗) = 0. This means that there is some θ ∈ Θ such
+that with L̂(hθ;S) = 0, and due to the tightness of Eq. (10),
+L̃(hθ;S) = 0 as well. This is sufficient for applying the
+following generalization bound (Collins, 2004):
+
+L(h) ≤ O
+
+(√
+m
+
+M
+
+(
+(kB logM)2 + log
+
+1
+
+δ
+
+))
+(12)
+
+Plugging in M gives L(h) ≤ �, concluding the proof.
+
+Eq. (10) is convex whenever fθ is linear in θ for some repre-
+sentation φ. This holds for coverage functions (Eq. (4)) as
+well as for the other classes we consider in Sec. 3.3. Eq. (10)
+can then be optimized using standard convex solvers, or with
+highly efficient and scalable solvers such as the cutting plane
+method of Joachims et al. (2009).
+
+3.3. Other submodular classes
+
+We now discuss how our method can be extended to other
+submodular function classes. For each class, we give a
+transformation φ of the inputs under which the function
+becomes linear in its parameters. Thm. 4 and Algorithm 1
+can then be applied with the appropriate fθ(S) = 〈φ(S), θ〉.
+
+Graph k-cuts: Let G = (V,E) be an undirected graph,
+and let θ ∈ R|E|+ be edge weights. For a partition P ∈ [k]|V |
+of the nodes into k groups, its value is given by:
+
+fθ(P ) =
+1
+
+2
+
+∑
+(u,v)∈E
+Pu 6=Pv
+
+θuv
+
+
+
+Learning to Optimize Combinatorial Functions
+
+While k-cut functions are known to be hard to optimize over
+P , they become linear in θ with the transformation:
+
+φuv(P ) = 1{Pu 6= Pv} ∀ (u, v) ∈ E
+
+Unit demand: Let θ ∈ Rn+ be a set of item weights. The
+value of a subset S ⊆ [n] is given by:
+
+fθ(S) = max
+u∈S
+
+θu
+
+Although it is possible to write fθ = 〈θ, φ(S)〉 with
+φu(S) = 1{θu≥θv ∀v∈S}, this representation requires θ,
+which is unknown. Nonetheless, a similar data-dependent
+construction can still be used to obtain some θ′ which min-
+imizes the loss. To see why, let S̄ ∈ S be the set with the
+highest value fθ(S̄) in S. For this S̄, there must exist some
+u ∈ S̄ that is not in any other S ∈ S with fθ(S) < fθ(S̄).
+By setting φv(S̄) = 1{u=v} and θ′u = fθ(S̄), we ensure
+that fθ(S̄) = 〈θ′, φ(S̄)〉. Note that this does not necessarily
+imply that θ′u = θu. In a similar fashion, by setting:
+
+φu(Si) = 1{u ∈ Si ∧ @ j 6= i s.t. u ∈ Sj ∧ zj < zi}
+
+for every i ∈M , we get that fθ(Si) = 〈θ′, φ(Si)〉 for some
+θ′, which guarantees L̂ = 0. Note that generalization here
+concerns φ as applied to examples in both S and T .
+
+Coverage with parametrized cover sets: Let U = [N ]
+be a ground set of items with unit weights. The parameters
+are a collection item subsets {C1, . . . , Cn} with Ci ⊆ U .
+We use ξiu = 1{u ∈ Ci} and denote the maximal overlap
+by d = maxu
+
+∑
+i ξiu. For a subset S ∈ [n], its value is:
+
+fC(S) =
+∣∣∣⋃
+
+i∈S
+Ci
+
+∣∣∣
+While fC is not linear over C, it can be linearized over a
+different parameterization. For xi = 1{i ∈ S}, we have:
+
+fC(S) =
+∑
+u∈Ω
+
+(
+1−
+
+n∏
+i=1
+
+(1− xiξiu)
+)
+
+Since fC is a polynomial of degree at most d, the explicit
+size of φ (and hence of the corresponding θ) is nd. For
+computational efficiency, we can consider the dual form and
+implicitly define φ via the kernalized inner product:
+
+〈φ(S), φ(S′)〉 =
+(
+〈xS , xS′〉+ 1
+
+)d
+
+3.4. Reducing the sample-complexity cost of m
+
+Interestingly, at the cost of a small additional additive error,
+the dependence of the generalization bound on m can be
+removed by considering an alternative loss function. Fix
+
+some q ∈ [0, 1]. Given S, define Q to be the set of ex-
+amples in the top q-quantile. The idea here is to learn θ
+so that fθ will score top-quantile examples S ∈ Q above
+low-quantile examples S 6∈ Q. The corresponding loss is
+therefore defined over example pairs:
+
+∆q(S, S
+′, fθ) =
+
+{
+1{fθ(S)<fθ(S′)} if S ∈ Q ∧ S′ 6∈ Q
+0 otherwise
+
+(13)
+Note that, in a similar fashion to ∆α, the empirical loss
+L̂q over ∆q can be optimized efficiently, and the optimal θ
+gives L̂q = 0. For any S ∈ S, the probability of having at
+least one S ∈ S ∩Q is 1− qm. Applying the generalization
+bound in Agarwal & Niyogi (2009) gives:
+
+� ≤ qm + Õ
+
+(
+B
+
+λMq
++
+
+(
+B2
+
+λ
++ Z
+
+)√
+ln(1/δ)
+
+Mq
+
+)
+(14)
+
+where Z = supS f(S) and λ controls an additional regular-
+izer. In Sec. 4 we use a stricter variant of this formulation,
+in which high-quantile items are binned separately.
+
+3.5. Using PMAC algorithms in practice
+
+In principle, the reduction in Sec. 2.1 shows that any PMAC
+algorithm can be used for DOPS. Practically, however, this
+approach has several disadvantages. The root cause of this
+is that most current PMAC algorithms are designed for gen-
+eral submodular functions.2 As such, they must adhere to
+demanding lower bounds (Balcan & Harvey, 2011; Feldman
+& Vondrak, 2016) which hold even for simple distributions
+(e.g., uniform). When considering specific submodular sub-
+classes, these algorithms can therefore be suboptimal (and
+in fact quite costly) in terms of runtime, sample complexity,
+and/or approximation ratio. Additionally, virtually all cur-
+rent PMAC algorithms provide guarantees for either uniform
+or product distributions. Even in this setting, PMAC algo-
+rithms either guarantee a fixed approximation ratio, or are
+exponential in α (Feldman & Vondrak, 2016), making them
+difficult to use for α-DOPS with arbitrarily small α. The
+only known result for arbitrary distributions is the
+
+√
+n+ 1-
+
+PMAC algorithm of Balcan & Harvey (2011), which give a
+matching Ω̃(n1/3) lower bound on α.
+
+4. Experiments
+In this section we evaluate the performance of our method
+on the task of optimally choosing trending items in social
+media platforms. Of the countless items that are continu-
+ously created and shared by users in such platforms, only a
+handful will become widespread (Goel et al., 2012). A key
+
+2 A notable exception to this is Feldman & Kothari (2014)
+which specifically considers PMAC learning of coverage functions
+with unknown cover sets.
+
+
+
+Learning to Optimize Combinatorial Functions
+
+time
+
+n
+u
+
+m
+b
+
+e
+r 
+
+o
+f 
+
+a
+d
+
+o
+p
+
+ti
+o
+
+n
+s
+
+Figure 1. Demonstrating the power of a coverage model. The
+true diffusion curves of a focal hashtag ω (black) and an additional
+hashtag ω′ with an initially similar (but eventually very different)
+diffusive pattern (orange). Diffusion-curve extrapolations (Bauck-
+hage & Kersting, 2014) are generated based on Sω alone (dashed
+blue) and on both Sω and C(Sω) (dashed green), with dashed
+lines marking the times of the corresponding last observations.
+This shows how conditioning on C(Sω) can boost performance by
+providing a probabilistic “glimpse” into the near future. Markers
+in the zoomed inlaid plot indicate active users.
+
+challenge faced daily by platform administrators is that of
+identifying potential trending content as early as possible.
+Trending items can then be marked, used for generating
+recommendations, or promoted to the public front page.
+
+4.1. Optimizing trending items
+
+For a given social platform, let n be the number of users,
+and Ω be the set of spreading content items. When a user
+u ∈ [n] is observed to have been exposed to an item ω ∈ Ω,
+we say that u adopted ω. This can happen, for instance,
+when u views, shares, comments, or votes on ω. A crucial
+factor in the successful spread of an item is the identity of
+its early adopters (Rogers, 1962; Goldenberg et al., 2002).
+We therefore represent each content item ω at a certain time
+point by the set of users that have adopted it up to that time,
+which we denote by Sω ⊆ [n]. We will be interested in
+the final number of adopters zω as a function of the set
+of adopting users, namely zω = f(Sω). For simplicity
+we assume that all items are considered at the time when
+adopted by exactly k users, so that |Sω| = k for all ω ∈ Ω.
+Under the above representation, targeting a successful item
+can be thought of as optimizing over the set of adopting
+users under a cardinality constraint. The task is therefore to
+choose the set Sω for which f(Sω) is maximal.
+
+The above optimization task has two clear restrictions. First,
+f cannot be accessed or queried, and any information re-
+garding the value of subsets is available only via samples,
+namely past items and their adopting users. Second, an algo-
+rithm cannot output any user subset S ⊆ [n], but must rather
+choose from a set of currently available items. In addition,
+
+the task of choosing the top trending item is performed re-
+peatedly, each time over a different collection of content
+items. For example, for a front page that is updated hourly, a
+new trending item must be selected from the set of currently
+propagating content items for each update. Note that in such
+systems, the available subsets and their eventual value are
+primarily determined by the system’s users. Online social
+platforms are therefore a prime example of a setting where
+an optimization algorithm has only statistical access to data.
+
+4.2. Experimental setup
+
+We evaluate the performance of our method on a benchmark
+dataset of propagating Twitter hashtags (Weng et al., 2013).
+Data was gathered by monitoring the sharing (tweeting and
+retweeting) of hashtags across users over the course of a
+month. The dataset includes 612,355 users who shared
+226,488 distinct hashtags, with a total of 1,687,704 sharing
+activities. For each hashtag, the data describes the sequence
+of adopting users and the corresponding timestamps. These
+are used to construct a “retweet” social network G = (V,E)
+where (u, v) ∈ E if v retweeted u. A user is considered to
+be active if she shared at least 20 hashtags. We focus on the
+11,815 active users and on the 4,155 hashtags that include
+at least one active user. If a user retweeted the same hashtag
+more than once, we consider only the first tweet.
+
+Samples were generated in the following manner. For each
+hashtag ω, the user set Sω was defined to include the first
+k ∈ {5, . . . , 15} active adopting users, and zω was set to
+be the number of eventual adopters. All pairs (Sω, zω)
+were randomly partitioned into a train set S and a global
+test set T ′ using a 90:10 split. All methods were given
+S as input, and were evaluated on 1,000 random subsets
+T ⊆ T ′ of size m, where m ∈ {100, . . . , 500}. This was
+repeated 100 times, and average results are reported. All
+methods we consider return an element Ŝ ∈ T by com-
+puting argmaxS∈T g(S) for some score function g, which
+is typically learned from the data. Hyper-parameters were
+tuned using cross validation for all relevant methods.
+
+DOPS model: We implement the DOPS algorithm using
+coverage functions as the base class. Specifically, given the
+social network graph G = (V,E), we use V as the ground
+set, and construct a cover set Cv = u : (v, u) ∈ E) for
+every v ∈ V . The coverage function we learn is:
+
+fθ,η(S) =
+∑
+v∈V
+
+θv +
+∑
+
+u∈C(S)
+
+ηu (15)
+
+whereC(S) =
+⋃
+v∈S Cv . The idea behind this model is that,
+
+given that user v adopted, each of her neighbors can also
+adopt (with some probability). Figure 1 illustrates this idea.
+Thus, the two terms in Eq. (15) quantify the contributions
+of the adopting nodes and of their neighbors, respectfully,
+
+
+
+Learning to Optimize Combinatorial Functions
+
+100 200 300 400 500
+0
+
+50
+
+100
+
+150
+
+200
+
+a
+v
+g
+
+. 
+n
+
+u
+m
+
+. 
+a
+
+d
+o
+
+p
+te
+
+rs
+
+Slope
+
+OPS
+
+PMAC
+
+LinReg
+
+DOPS
+
+5 7 9 11 13 15
+0
+
+50
+
+100
+
+150
+
+200
+
+a
+v
+g
+. 
+n
+u
+m
+
+. 
+a
+d
+o
+p
+te
+
+rs
+
+Slope
+
+OPS
+
+PMAC
+
+LinReg
+
+DOPS
+
+Figure 2. Comparison different methods for the task of optimally choosing trending hashtags on Twitter.
+
+to the overall score. The coverage formulation takes into ac-
+count the potential overlap in neighboring nodes, which can
+often be considerable (Holland & Leinhardt, 1971; Watts &
+Strogatz, 1998). We note that G is constructed using train-
+ing data alone, and incoming edges where only considered
+for nodes with at least 10 shares. Eq. (10) was optimized
+using the cutting-plane method of Joachims et al. (2009).
+
+Baselines: We compare to the following methods:
+
+• SLOPE: A first-order extrapolation where we first esti-
+mate the slope of the diffusion curve, and then choose
+the subset with the highest value.
+
+• LINREG: We first run linear regression with `2 regu-
+larization, and then choose the subset with the highest
+predicted value.
+
+• OPS: A variant of the OPS (Balkanski et al., 2016),
+where instead of returning a global argmax, a given
+subset is scored based on the sum of marginal estimates.
+Note that under certain conditions, this algorithm is
+optimal for the setting of optimization from samples.
+
+• PMAC: A soft version of the distribution-independent
+PMAC algorithm of Balcan & Harvey (2011). Since the
+original algorithm assumes separability (which does
+not hold here), we instead use an agnostic classifier.
+
+Results: Figures 2(a) and 2(b) compare the value (number
+of adopters) for the chosen output of each method. As can be
+seen, DOPS clearly outperforms other methods by a margin.
+Note that when k increases, average output values are likely
+to increase as well, since the algorithms are given more
+information as input. When m increases, however, it is not
+clear a-priori how the average output values should change.
+This is because larger test sets are more likely to include
+higher-valued items, but at the same time have more low-
+valued alternatives. Interestingly, while the performance of
+
+most baselines does not improve (or even degrades) as m
+increases, the performance of DOPS improves steadily.
+
+5. Conclusions
+In this work, we proposed an optimization criterion for
+settings where the algorithm is limited to statistical access of
+the objective function. We argue that this setting is pervasive,
+and in fact, believe that in most applications it is the common
+rule rather than the exception. Previous results have been
+generally negative, but mostly due to demanding worst-case
+requirements. Drawing inspiration from learning theory, our
+solution relaxes these requirements to hold in expectation.
+
+Our main theoretical result shows an equivalence between
+optimization in this setting and learning. This highlights
+intriguing connections between the computational and statis-
+tical structure of function classes. An interesting corollary is
+that analyzing hardness of computation and approximation
+can now be done using statistical tools, and vice versa.
+
+Several of the functions classes we explored are notoriously
+hard to optimize, but have a surprisingly simple structure
+as a function of their parameters. This allowed us to use
+simple learning strategies to produce powerful optimization
+mechanisms. We hypothesize that there are many other
+classes that posses these properties. An additional avenue
+for further exploration, hinted by our equivalence result, is
+the reverse: are there classes that are seemingly hard-to-
+learn, but due to their optimizational properties, can actually
+be learned efficiently? We leave this for future work.
+
+Acknowledgements
+This research was supported by a Google PhD Fellowship,
+NSF grant CAREER CCF-1452961, BSF grant 2014389,
+NSF USICCS proposal 1540428, ISF Centers of Excellence
+grant, a Google research award, and a Facebook research
+award.
+
+
+
+Learning to Optimize Combinatorial Functions
+
+References
+Agarwal, Shivani and Niyogi, Partha. Generalization bounds
+
+for ranking algorithms via algorithmic stability. Journal
+of Machine Learning Research, 10(Feb):441–474, 2009.
+
+Balcan, Maria-Florina and Harvey, Nicholas JA. Learning
+submodular functions. In Proceedings of the forty-third
+annual ACM symposium on Theory of computing, pp.
+793–802. ACM, 2011.
+
+Balkanski, Eric, Rubinstein, Aviad, and Singer, Yaron. The
+power of optimization from samples. In Advances in
+Neural Information Processing Systems, pp. 4017–4025,
+2016.
+
+Balkanski, Eric, Rubinstein, Aviad, and Singer, Yaron. The
+limitations of optimization from samples. In Proceedings
+of the 49th Annual ACM SIGACT Symposium on Theory
+of Computing, STOC 2017, Montreal, QC, Canada, June
+19-23, 2017, pp. 1016–1027, 2017.
+
+Bauckhage, Christian and Kersting, Kristian. Strong regular-
+ities in growth and decline of popularity of social media
+services. arXiv preprint arXiv:1406.6529, 2014.
+
+Collins, Michael. Parameter estimation for statistical pars-
+ing models: Theory and practice of distribution-free meth-
+ods. New developments in parsing technology, 23:19–55,
+2004.
+
+Defazio, Aaron and Caetano, Tiberio S. A convex formu-
+lation for learning scale-free networks via submodular
+relaxation. In Advances in Neural Information Processing
+Systems, pp. 1250–1258, 2012.
+
+Dughmi, Shaddin and Vondrák, Jan. Limitations of random-
+ized mechanisms for combinatorial auctions. Games and
+Economic Behavior, 92:370–400, 2015.
+
+Feldman, Vitaly and Kothari, Pravesh. Learning coverage
+functions and private release of marginals. In Conference
+on Learning Theory, pp. 679–702, 2014.
+
+Feldman, Vitaly and Vondrak, Jan. Optimal bounds on ap-
+proximation of submodular and XOS functions by juntas.
+SIAM Journal on Computing, 45(3):1129–1170, 2016.
+
+Goel, Sharad, Watts, Duncan J, and Goldstein, Daniel G.
+The structure of online diffusion networks. In Proceed-
+ings of the 13th ACM conference on electronic commerce,
+pp. 623–638. ACM, 2012.
+
+Goldenberg, Jacob, Libai, Barak, and Muller, Eitan. Riding
+the saddle: How cross-market communications can create
+a major slump in sales. Journal of Marketing, 66(2):1–16,
+2002.
+
+Golovin, Daniel and Krause, Andreas. Adaptive submod-
+ularity: Theory and applications in active learning and
+stochastic optimization. Journal of Artificial Intelligence
+Research, 42:427–486, 2011.
+
+Gomes, Ryan and Krause, Andreas. Budgeted nonparamet-
+ric learning from data streams. In ICML, pp. 391–398,
+2010.
+
+Gomez Rodriguez, Manuel, Leskovec, Jure, and Krause,
+Andreas. Inferring networks of diffusion and influence.
+In Proceedings of the 16th ACM SIGKDD international
+conference on Knowledge discovery and data mining, pp.
+1019–1028. ACM, 2010.
+
+Guillory, Andrew and Bilmes, Jeff A. Simultaneous learning
+and covering with adversarial noise. In ICML, volume 11,
+pp. 369–376, 2011.
+
+Hoi, Steven CH, Jin, Rong, Zhu, Jianke, and Lyu, Michael R.
+Batch mode active learning and its application to medical
+image classification. In Proceedings of the 23rd inter-
+national conference on Machine learning, pp. 417–424.
+ACM, 2006.
+
+Holland, Paul W and Leinhardt, Samuel. Transitivity in
+structural models of small groups. Comparative Group
+Studies, 2(2):107–124, 1971.
+
+Iyer, Rishabh K, Jegelka, Stefanie, and Bilmes, Jeff A. Cur-
+vature and optimal algorithms for learning and minimiz-
+ing submodular functions. In Advances in Neural Infor-
+mation Processing Systems, pp. 2742–2750, 2013.
+
+Joachims, T., Finley, T., and Yu, Chun-Nam. Cutting-plane
+training of structural SVMs. Machine Learning, 77(1):
+27–59, 2009.
+
+Kempe, David, Kleinberg, Jon, and Tardos, Éva. Maxi-
+mizing the spread of influence through a social network.
+In Proceedings of the ninth ACM SIGKDD international
+conference on Knowledge discovery and data mining, pp.
+137–146. ACM, 2003.
+
+Krause, Andreas and Golovin, Daniel. Submodular function
+maximization., 2014.
+
+Lapin, Maksim, Hein, Matthias, and Schiele, Bernt. Top-
+k multiclass svm. In Advances in Neural Information
+Processing Systems, pp. 325–333, 2015.
+
+Lin, Hui and Bilmes, Jeff. A class of submodular functions
+for document summarization. In Proceedings of the 49th
+Annual Meeting of the Association for Computational
+Linguistics: Human Language Technologies-Volume 1,
+pp. 510–520. Association for Computational Linguistics,
+2011.
+
+
+
+Learning to Optimize Combinatorial Functions
+
+Rodriguez, Manuel Gomez and Schölkopf, Bernhard. Sub-
+modular inference of diffusion networks from multiple
+trees. arXiv preprint arXiv:1205.1671, 2012.
+
+Rogers, E.M. Diffusion of innovations. Free Press of Glen-
+coe, 1962.
+
+Sipos, Ruben, Shivaswamy, Pannaga, and Joachims,
+Thorsten. Large-margin learning of submodular summa-
+rization models. In Proceedings of the 13th Conference
+of the European Chapter of the Association for Computa-
+tional Linguistics, pp. 224–233. Association for Compu-
+tational Linguistics, 2012.
+
+Valiant, Leslie G. A theory of the learnable. Communica-
+tions of the ACM, 27(11):1134–1142, 1984.
+
+Watts, Duncan J and Strogatz, Steven H. Collective dy-
+namics of small-worldnetworks. nature, 393(6684):440,
+1998.
+
+Weng, Lilian, Menczer, Filippo, and Ahn, Yong-Yeol. Viral-
+ity prediction and community structure in social networks.
+Scientific reports, 3:2522, 2013.
+
+

@@ -1,0 +1,2571 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Controlling False Discoveries During
+Interactive Data Exploration
+
+Zheguang Zhao Lorenzo De Stefani Emanuel Zgraggen Carsten Binnig
+Eli Upfal Tim Kraska
+
+Department of Computer Science, Brown University
+{firstname_lastname}@brown.edu
+
+ABSTRACT
+Recent tools for interactive data exploration significantly increase
+
+the chance that users make false discoveries. The crux is that these
+tools implicitly allow the user to test a large body of different hy-
+potheses with just a few clicks thus incurring in the issue commonly
+known in statistics as the “multiple hypothesis testing error”. In
+this paper, we propose solutions to integrate multiple hypothesis
+testing control into interactive data exploration tools. A key insight
+is that existing methods for controlling the false discovery rate (such
+as FDR) are not directly applicable for interactive data exploration.
+We therefore discuss a set of new control procedures that are better
+suited and integrated them in our system called AWARE. By means
+of extensive experiments using both real-world and synthetic data
+sets we demonstrate how AWARE can help experts and novice users
+alike to efficiently control false discoveries.
+
+1 Introduction
+“Beer is good for you: study finds that suds contain anti-viral
+
+powers” [DailyNews 10/12]. “Secret to Winning a Nobel Prize? Eat
+More Chocolate” [Time, 10/12]. “Scientists find the secret of longer
+life for men (the bad news: Castration is the key)” [Daily Mail UK,
+09/12]. “A new study shows that drinking a glass of wine is just as
+good as spending an hour at the gym” [Fox News, 02/15].
+
+There has been an explosion of data-driven discoveries like the
+ones mentioned above. While several of these are legitimate, there
+is an increasing concern that a large amount of current published
+research findings are false [19]. The reasons behind this trend are
+manifold.
+
+In this paper we make the case that the rise of interactive data
+exploration (IDE) tools has the potential to worsen this situation
+further. Commercial tools like Tableau or research prototypes like
+Vizdom [9], Dice [22] or imMens [26], aim to enable domain ex-
+perts and novice users alike to discover complex correlations and to
+test hypotheses and differences between various populations in an
+entirely visual manner with just a few clicks; unfortunately, often ig-
+noring even the most basic statistical rules. We recently performed a
+small user study and asked people to explore census data using such
+an interactive data exploration tool. Within minutes, all participants
+were able to extract multiple insights, such as “people with a Ph.D.
+earn more than people with a lower educational degree”. At the
+same time, almost none of the participants used a statistical method
+to test whether the difference the visually observed visually from
+the histogram is actually meaningful. Further, most users including
+experts with statistical training, did not consider that this type of ex-
+ploration, that consists of repeated attempts to find interesting facts,
+increases the chance to observe seemingly significant correlations
+by chance.
+
+This problem is well known in the statistics community and
+referred to as the “multiple testing problem” or “multiple hypothesis
+
+error” and it denotes the fact the more tests an analysts performs, the
+higher is the chance that a discovery is observed by chance. Let us
+assume an analyst tests 100 potential correlations, 10 of them being
+true, and she wants to limit the chance of a false discovery to 5%
+(i.e., the family-wise error rate should be p = 0.05). Assume further
+that our test has a statistical power (i.e, the likelihood to discover
+a real correlation) of 0.8; all very common values for a statistical
+testing. With this setting, the user will find ≈ 13 correlations of
+which 5 (≈ 40%) are “bogus”. The analyst should use a multiple
+hypothesis test correction method, such as the Bonferroni correction
+[6]. However, Bonferroni correction significantly decreases the
+power of every test and with it the chance of finding a true insight.
+This is especially true in the case of interactive data exploration,
+where the number of tests is not known upfront and incremental
+versions of Bonferroni correction need to be applied which would
+even further decrease the power of the tests.
+
+Another interesting question concerns what should be considered
+as a hypothesis test when users interactively explore data. For
+example, if a user sees a visualization, which shows no difference
+in salaries between men and women based on their education, but
+later on decides based on that insight to look at salary differences
+between married men and women. Should we still account for that?
+The answer in most cases will be “yes” as the analyst probably
+implicitly made a conclusion based on that visualization, which then
+in turn triggered her next exploration step. However, if she considers
+this visualization just as a descriptive statistic of how the data looks
+like, and makes no inference based on it (i.e. it did not influence
+the decision process of what to look at next), then it should not be
+considered as a hypothesis. The difference is subtle and usually
+very hard to understand for non-expert users, while it might have a
+profound impact on the number of false discoveries a user makes.
+
+Finally, in the context of data exploration there has been recent
+work on automatically recommending visualization [36, 23, 37]
+or correlations [8]. These systems yet again increase the chance
+of false discoveries since they automatically test all (or at least a
+large fraction) of possible combinations of features until something
+interesting shows up without considering the multiple hypothesis
+testing problem.
+
+In this paper, we make a first step towards integrating automatic
+multiple hypothesis testing control into an interactive data explo-
+ration tool. We propose a potential user interface and a meaningful
+default hypothesis (i.e., the null hypothesis), which allows us to
+achieve control of the ratio of false discoveries for every user inter-
+action. Specifically, we propose to consider every visualization as a
+hypothesis unless the user specifies otherwise. We further discuss
+control procedures based on the family-wise error and discuss why
+they are too pessimistic for interactive data exploration tools and
+why the more modern criteria of controlling the false discovery rate
+
+ar
+X
+
+iv
+:1
+
+61
+2.
+
+01
+04
+
+0v
+1 
+
+ [
+cs
+
+.D
+B
+
+] 
+ 4
+
+ D
+ec
+
+ 2
+01
+
+6
+
+
+
+(FDR) is better suited for large scale data exploration. The chal-
+lenge of FDR, however, is, that the standard techniques, such as the
+Benjamini-Hochberg procedure are not incremental and require to
+test all the hypotheses, before determining which hypotheses are
+rejected. This clearly constitutes a problem in the data exploration
+setting where users make discoveries incrementally. The recent
+α-investing technique [14] proposes an incremental procedure to
+control a variation of FDR, called marginal FDR (mFDR), which
+however relies on the user having a deep understanding of how
+valuable each individual test is supposed to be. Again a contradic-
+tion to data exploration, where the user only over time gains a feel
+about the importance of certain questions. We therefore propose
+new strategies based on the α-investing procedure [14], which are
+particular tailored towards interactive data exploration tools. We
+implement these ideas in a system called AWARE and we show how
+this system can help experts and novice users alike to control false
+discoveries through extensive experiments on both real-world and
+synthetic data and workloads.
+
+The main contributions can be summarized as follows:
+• We propose AWARE, a novel system which automatically
+
+tracks hypotheses during data exploration;
+• We discuss several multiple hypothesis testing control meth-
+
+ods and how well they work for data exploration;
+• Based on the previous discussion, we develop newα-investing
+
+rules to control a variant of the false discovery rate (FDR),
+called marginal FDR (mFDR);
+• We evaluate our system using synthetic and real-world datasets
+
+and show that our methods indeed achieve control of the
+number of false discoveries when using an interactive data
+exploration system.
+
+The paper is structured as follows: in Section 2 we discuss, by
+means of an example, why some visualizations should be considered
+hypothesis tests and what are the main challenges encountered when
+testing hypotheses for the IDE setting. In Section 3 we present
+AWARE’s user interface and discuss how to automatically track
+hypotheses and how to integrate the user feedback into tracking
+the hypothesis. In Section 4 we discuss multiple hypothesis testing
+techniques known in literature and show how well they fit in the
+IDE setting. In Section 5 we then propose new multiple hypothesis
+testing procedures for IDE based on the α-investing procedure.
+Afterwards, in Section 7 we present the result of our experimental
+evaluation using both real-world and synthetic data. Finally, in
+Section 8 and 9 we discuss related work and present our conclusions.
+
+2 A Motivational Example
+To motivate the various aspects for multi-hypothesis control dur-
+
+ing data exploration we outline a potential scenario that is inspired
+by Vizdom [9]. Similar workflows however can be achieved with
+other systems like Tableau, imMens [26] or Dice [22].
+
+Let us assume that Eve is a researcher at a non-profit organiza-
+tion and is working on a project relevant to a specific country. She
+just obtained a new dataset containing census information and is
+now interested in getting an overview of this data as well as ex-
+tracting new insights. She starts off by considering the “gender”
+attribute and observes that the dataset contains the same number
+of records for men and women (Figure 1 A). She then moves to
+a second visualization, displaying the distribution of people who
+earn above or below $50k a year. Eve links the two charts so that
+selections in the “salary” visualization now filter the “gender” vi-
+sualization. She notices that by selecting the salaries above $50k,
+the distribution of “gender” is skewed towards men, suggesting that
+men have higher salaries than women (B). After creating a third
+visualization for “gender”, selecting the records corresponding to
+records with salary lower than $50k (dashed line indicates inversion
+
+of selection), she confirms her finding “Women in this country are
+predominately earning less than $50k” (C). Eve now wants to un-
+derstand what else influences a persons yearly salary and creates a
+chain of visualizations that selects people who have PhD degrees
+and are not married (D). Extending this chain using the “salary”
+attribute appears to suggest that this sub-population contains a lot of
+high-earners (E). By selecting the high-earners and extending the
+chain with two “age” visualizations allows her to compare the age
+distribution of unmarried PhDs earning more than $50k to those
+making less than $50k. In order to verify that the observed visual
+difference is actually statistically significant she performs a t-test by
+dragging the two charts close to each other (F).
+
+While the example workflow contains only one hypothesis test
+explicitly initiated by the user, we argue that without accounting for
+other implicit hypothesis tests there is a significantly increase of risk
+that the users may observe false discoveries during similar scenarios
+of data exploration. This opens up new important questions: why
+and when should visualizations be considered statistical hypothesis
+tests? How should these tests be formulated?
+
+2.1 Hypothesis Testing
+In this paper, we focus on the widely used frequentist inference
+
+approach and its p-value outcome. In order to determine whether
+there is a correlation between two observed phenomena formalized
+in a “research hypothesis” H that is actually statistical relevant
+(i.e., not product of noise in the data) we analyze its corresponding
+“null hypothesis” H which refers to a general statement or default
+position according to which there is no relationship between two
+measured phenomena. Given this relationship between H and H ,
+the research hypothesisH is also commonly referred as “alternative
+hypothesis”.
+
+The testing procedure will then determine whether to accept
+(resp., reject) a null hypothesis H which in turn corresponds to
+rejecting (resp., accepting) the corresponding alternative hypothesis
+(or research hypothesis)H. In order to do so the p-value of the null
+hypothesis H is evaluated. The p-value is used in the context of
+null hypothesis testing in order to quantify the idea of statistical
+significance of evidence and it denotes the probability of obtaining
+an outcome at least as extreme as the one that was actually observed
+in the data, under the assumption that H is true. Depending on
+the context, the p-value of H is evaluated using the appropriate
+statistical test (e.g., the t-test or the X 2-test).
+
+If the p-value p associated to the null hypothesis H is less than
+or equal to the significance level α chosen by the testing procedure
+(commonly 0.05 or 0.01), the test suggests that the observed data is
+inconsistent with the null hypothesis, so the null hypothesis must
+be rejected.This procedure guarantees for a single test, that the
+probability of a “false discovery” (also known as “false positive” or
+“Type I error”) – wrongly rejecting the null hypothesis of no effect –
+is at most α. This does not imply that the alternative hypothesis is
+true; it just states that the observed data has the likelihood of p ≤ α
+under the assumption that the null hypothesis is true. The statistical
+power or sensitivity of a binary hypothesis test is the probability that
+the test correctly rejects the null hypothesis H when the alternative
+hypothesisH is true.
+
+While the frequentist approach to hypothesis test has been crit-
+icized [20, 28] and there has been a lot of work in developing
+alternative approaches, such as Bayesian tests [5], it is still widely
+used in practice and we consider it a good first choice to build a
+system which automatically controls the multiple hypotheses error
+as they have two advantages: (1) Novice users are more likely to
+have experience with standard hypothesis testing than the more de-
+manding Bayesian testing paradigm. (2) The frequentist inference
+approach does not require to set a hard-to-determine prior as it is
+
+
+
+gender
+
+co
+un
+
+t
+
+Male Female Other
+
+A
+
+salary over 50k
+
+co
+un
+
+t
+
+True False
+gender
+
+co
+un
+
+t
+
+Male Female Other
+
+gender
+
+co
+un
+
+t
+
+Male Other
+
+salary over 50k
+
+co
+un
+
+t
+
+True False
+
+gender
+
+co
+un
+
+t
+
+Male Female Other
+
+B C
+
+education
+
+co
+un
+
+t
+
+HS Bachelor Master PhD
+
+marital status
+
+co
+un
+
+t
+
+Married Never
+Married
+
+Not
+Married
+
+Widowed
+
+Female
+
+salary over 50k
+
+co
+un
+
+t
+True False
+
+education
+
+co
+un
+
+t
+
+HS Bachelor Master PhD
+
+marital status
+
+co
+un
+
+t
+
+Married Never
+Married
+
+Not
+Married
+
+Widowed
+
+age
+
+co
+un
+
+t
+
+10 20 30 50 60 7040 9080
+
+age
+
+co
+un
+
+t
+
+10 20 30 50 60 7040 9080
+
+0.011p
+
+t-test
+
+D
+
+E F
+
+salary over 50k
+
+co
+un
+
+t
+
+True False
+
+education
+
+co
+un
+
+t
+
+HS Bachelor Master PhD
+
+marital status
+
+co
+un
+
+t
+
+Married Never
+Married
+
+Not
+Married
+
+Widowed
+
+Figure 1: An example Interactive Data Exploration Session
+
+the case with Bayesian tests.
+
+2.2 Visualizations as Hypotheses
+A visualization per-se shows a descriptive statistic (e.g., the count
+
+of women or the count of men) of the dataset and is not a hypothesis.
+It is reasonable to assume that in step A of Figure 1 the user just
+looks at the gender distribution and simply acknowledges that the
+census surveys roughly the same amount of women and men. How-
+ever, it becomes an hypothesis test, if the user expected something
+else and draws a conclusion/inference based on the visualization.
+For example, if the user somehow assumed that there should be
+more men than women in the data and therefore considering the
+fact that there is an equal amount as an insight. The notion of a
+visualization being considered as a hypothesis becomes even clearer
+in step (B) and (C) of the example work-flow. When looking at
+the visualization in (B) in isolation, it just depicts a descriptive
+statistic. Indeed, if the user would just take it as such and not make
+any inference about it and/or base further exploration on an insight
+extracted from this visualisation, then it would not be considered an
+hypothesis. We argue however that the opposite is true more often
+than not. First, our analytical reasoning and sense-making process
+is inherently non-linear [29, 33]. Our future actions are influenced
+by new knowledge we discovered in previous observations. Second,
+while susceptible to certain types of biases [11], the human visual
+system is highly optimized at picking up differences in visual sig-
+nals and at detecting patterns [7]. An average user is very likely
+drawn to the changes between the gender distribution of step (A)
+and step (B) and might therefore infer that women earn less than
+men and potentially flag this as an interesting insight that deserves
+more investigation. This is illustrated in step (C) where the user now
+further drills down and visually compares the distribution of gender
+filtered by salary. We qualitatively confirmed this notion through
+a formative user study where we manually coded user-reported in-
+sights, following a think-aloud protocol similar to the one proposed
+in [16]. In this study we observed that users tend to pick up on
+even slight differences in visualizations and regard them as insights
+and users predominantly base future exploration paths on previously
+inferred insights.
+
+We conclude two things: (1) most of the time users indeed treat
+visualizations as hypotheses, though there are exceptions, and (2)
+they often (wrongly) assume that what they see is statistical signifi-
+cant. The latter is particularly true if the users do not carefully check
+the axis on the actual count. For example, if a user starts to analyze
+the outliers of a billion record dataset and makes the conclusion
+that mainly uneducated whites are causing the outliers, the dataset
+
+she is referring to might be comparable small and the chance of
+randomness might be much higher. The same argument also holds
+against the critic, that with enough data observing differences by
+chance are much less likely, which is true. As part of visual data
+exploration tools, users often explore sub-populations, and while the
+original dataset might be large, the sub-population might be small.
+Thus, we argue that every visualization as part of a interactive data
+exploration tool should be treated as a hypothesis and that users
+should be informed about the significance of the insights they gain
+from the visualization. At the same time, a user should have the
+choice to declare a visualization as just descriptive.
+
+2.3 Heuristics for Visualization Hypotheses
+A core question remains: what should the hypothesis for a visu-
+
+alization be. Ideally, users would tell the system every single time
+what they are thinking so that the hypothesis is adjusted based on
+their assumed insight(s) they gain from the visualization. However,
+this is disruptive to any interactive data exploration session. We
+rather argue that the system should use a good default hypothesis, the
+user can modify (or even delete) if she so desires. For the purpose of
+this work, we mainly focus on histograms as shown in Figure 1 and
+acknowledge that there exist many other visualizations, which we
+consider as future work. We derived the following heuristics from
+two separate user studies where we observed over 50 participants
+using a IDE tool to explore various datasets.
+
+1. Every visualization without any filter conditions is not a hy-
+pothesis (e.g., step A in Figure 1) unless the user makes it
+one. This is reasonable, as users usually first gain a general
+high-level impression of the data. Furthermore, in order to
+make it an hypothesis, the user would need to provide some
+prior knowledge/expectation, for example as discussed before,
+that he expected more men than women in the dataset.
+
+2. Every visualization with a filter condition is a hypothesis
+with the null-hypothesis that the filter condition makes no
+difference compared to the distribution of the whole dataset.
+For example, in step B of Figure 1 the null hypothesis for the
+distribution of men vs. women given the high salary class
+of over $50k would be that there is no difference compared
+to the equal distribution of men vs. women over the entire
+dataset (the visualization in step A). This is again a reasonable
+assumption as the distribution of an attribute given others is
+only interesting, if it shows some different effect compared to
+looking at the whole dataset.
+
+3. If two visualization with the same but some negated filter
+conditions are put next to each other, it is a test with the
+
+
+
+null-hypothesis that there is no difference between the two
+visualized distributions, which supersedes the previous hy-
+pothesis. This is the case in step C: given that the user looks
+explicitly at the distribution of males vs females given a salary
+over and under $50k is a strong hint from the user, that he
+wants to compare these two distributions.
+
+As with every heuristic it is important to note, that the heuristic
+can be wrong. Therefore it is extremely important to allow the
+user to overwrite the default hypothesis as well as delete default
+hypothesis if one really just acted as a descriptive statistic or was
+just generated as part to a bigger hypothesis test. Furthermore, there
+exist of course other potential null-hypothesis. For example, in
+our workflow we assume by default that the user aims to compare
+distributions, which requires a χ2-test. However, maybe in some
+scenarios comparing the means (i.e., a t-test) might be more appro-
+priate as the default test. Yet, studying in detail what a good default
+null-hypothesis is dependent on the data properties and domain, is
+beyond the scope of this paper.
+
+2.4 Heuristics Applied to the Example
+For our example in Figure 1 the resulting hypothesis could be
+
+as follows: Step A is not an hypothesis based on rule 1 as it just
+visualizes the distribution of a single attribute over the whole dataset.
+Step B is the hypothesis m1 if the distribution of gender is different
+given a salary over $50k. Step C supersedes the previous hypothesis
+and replaces it with an hypothesis m′1 if the gender distribution
+between a salary over and under $50k is different, which is a sightly
+different question. Step D creates a hypothesis m2 if the marital
+status for people with PhDs is different compared to the entire
+dataset, whereas step-E generates a hypothesis m3 if there is a
+different salary distribution given not married people with a PhD.
+By studying the age distribution in step F the system first generated
+a default hypothesis m4 that the distribution of the ages is different
+given a PhD and being not married for different salary classes.
+However, the user overwrites immediately the default hypothesis
+with an hypothesis m′4 about the average age. Furthermore, as
+the previous visualizations in step D and E might just have been
+stepping stones towards creating m4 the user might or might not
+delete hypothesis m2 and m3. However, if the insights our user
+gained from viewing the marital status, etc., influenced her to look
+at the age distribution, she might want to keep them as hypothesis.
+
+Clearly this is only a very small example, but it already demon-
+strates the general issues. Not every insight the user gains (e.g.,
+the insight that women earn less) is explicitly expressed as a test.
+At the same time, as more the user “surfs” around the higher the
+chance that she finds something which looks interesting, but just
+appears because of chance. In the example above, by the time the
+user actually performs its first test (step F), she implicitly already
+tested at least one other hypothesis and potentially even four others.
+Assuming a targeted p-value of α = 0.05, the chance of a false
+discovery therefore increased to 1 − (1 − α)2 = 0.098 for two
+hypothesis and up to 1 − (1 − α)4 = 0.185 for four hypothesis.
+While the question of what should count as an hypothesis is highly
+dependent on the user and can never be fully controlled by any
+system, we can however, enable the system to make good sugges-
+tions and help users to track the risk of making false discoveries by
+chance. Furthermore, this short workflow also demonstrates that
+hypotheses are built by adding but also by removing attributes. As
+we will discuss later, there exist no good method so far to control
+the risk of making false discoveries for incremental sessions like the
+ones created by interactive data exploration systems. We therefore
+develop new methods especially for interactive data exploration in
+Section 5.
+
+Finally, it should be noted, that the same problems also exist
+
+with exploratory analysis using SQL or other tools. However, we
+argue that the situation is becoming worse by the up-rise of visual
+exploration tools, like Tableau, which are often used by novice users,
+who not necessarily reflect enough on their exploration path after
+they found something interesting.
+
+3 The AWARE User Interface
+As argued in the previous section, user feedback is essential in
+
+determining, tracking and controlling the right hypothesis during
+the data exploration process. With AWARE we created a system
+that applies our heuristic automatically to all visualizations. We
+designed AWARE ’s user interface with a few goals in mind.
+
+First, the user should be able to see the hypotheses the system
+assumed so far, their p-values , effect sizes and if they are considered
+significant and should be able to change, add or delete hypotheses
+at any given stage of the exploration.
+
+Second, hypotheses rejection decisions should never change based
+on future user actions unless the user explicitly asks for it. We
+therefore require an incremental procedure to control the multiple
+hypothesis risk that does not change its rejection decisions even if
+more hypothesis tests are executed. For example, the system should
+not state that their is a significant age difference for not married
+highly educated people, and then later on revoke its assessment just
+because the user did more tests. More formally, if the system de-
+termined which hypotheses m1...mn are significant (i.e., it rejects
+the null) or not and the user changes the last hypothesis or adds an
+hypothesis mn+1, which should be the most common cases, the
+significance of hypotheses m1..mn should not change. However,
+if the user might change, delete, or add hypothesis k ∈ 1, .., n, de-
+pending on the used procedure we might allow that the significance
+of hypotheses mk+1 to mn might have to change as well.
+
+Third, individual hypothesis descriptions should be augmented
+with information about how much data nH1 the user has to add,
+under the assumption that the new data will follow the current
+observed distribution of the data, to make an hypothesis significant.
+While sounding counter-intuitive, as one might (wrongly) imply,
+it is possible to make any hypothesis true by adding more data,
+calculating this value is in some fields already common practice.
+For example, in genetics scientist often search (automatically) for
+correlations between genes and high-level effects (like cancer). If
+such a correlation is found, often because of the multiple hypothesis
+error the chance of a true discovery is tiny (i.e., the p-value is too
+high). In that case the scientist works backwards and estimates
+how much more genes she has to to sequence in order to make
+the hypothesis relevant, expecting that the new data (e.g., gene
+sequences) follow the same distribution of the data the scientist
+already has. However, if the effect was just produced by chance,
+the new data will be more similar to the distribution of the null-
+hypothesis and the null will not be rejected. The required value is
+generally easy to calculate or approximate, and are highly valuable
+for the end-user. A small value for nH1 in relation to the number
+of totally tested hypotheses might be an indication that the power
+(i.e., the chance to accept a true alternative hypothesis) of the test
+was not sufficiently large.
+
+And finally, users should be able to bookmark important hypothe-
+ses. Our system uses default hypothesis throughout the exploration
+and the user might find it too cumbersome to correct everyone for
+his real intentions, there might be more hypotheses generated than
+the user intended to test. Even if all hypotheses are what the user
+was considering, some of them might be more important to her than
+others; the hypotheses the user would like to include in a presen-
+tation or show to her boss. A key key question becomes, what is
+the expected number of false discoveries among those important
+
+
+
+alpha
+2.5%
+
+5%
+
+salary | education <> salaryH1
+0.027
+
+t-test
+salary | education = salaryH0
+
+cohen's d 0.5
+
+H1
+0.001
+
+t-test H0
+
+cohen's d 0.8
+age | {chain} <> age | {chain-1}
+
+H1
+0.011
+
+t-test
+
+age | {chain} = age | {chain-1}
+
+H0
+
+cohen's d 0.5
+
+gender | marital = genderH1
+0.621
+
+chi square
+gender | marital = genderH0
+
+cohen's d 0.01
+
+A
+B
+
+C
+D
+
+E salary | {chain-1} <> salary
+
+salary | {chain-1} = salary
+
+Figure 2: The AWARE User Interface
+
+discoveries?
+Figure 2 shows the current interface design of AWARE with a
+
+risk controller, which incorporates the above ideas, running on a
+tablet. The user interface features an unbounded 2D canvas where
+chains of visualizations (such as the one shown in Figure 1) can be
+laid out in a free form fashion. A “risk-gauge” on the right-hand
+side of the display (Figure 2 (A)) serves two purposes: it gives
+users a summary of the underlying procedure (e.g., the budget for
+the false discovery rate set to 5% with current remaining wealth
+of 2.5%; both explained in the next two sections) and it provides
+access to a scrollable list of all the hypothesis tests (implicit and
+explicit) that have been execute so far. Each list entry displays
+details about one test and its results. Textual labels describe the
+null- and alternative-hypothesis and color coded p-values indicate
+if the null-hypothesis was rejected or accepted (green for rejected,
+red for accepted). Furthermore, it visualizes the distribution of
+null-hypothesis and alternative hypothesis and shows its difference,
+included an indication of its color coded effect size (D). Tap gestures
+on a specific item allow users to change things like the default
+hypothesis or the type of test. Additionally other information such
+as an estimation of the size of an additional data nH1 that could
+make the observation significant can be displayed in each item.
+In the example this information is encoded through a set of small
+squares (B, C) where each square indicates the amount of data that
+is in the corresponding distribution. In (B) the five red squares tells
+us that we need 5x the amount of data from the null-distribution to
+flip this test form rejected to accepted or conversely in (C) 11.5x
+the amount of data from the alternative-distribution to rejected this
+hypothesis. Finally, we allow to mark important hypotheses by
+tapping the “star” icons (E).
+
+4 Background on Multiple Hypothesis Error
+The previous section described how we convey the multiple hy-
+
+pothesis error to the user and ask for user feedback to derive the
+right hypothesis. In this section we describe different alternatives to
+calculate the potential false discovery error and discuss they appro-
+priateness for the IDE setting. The notation used in the rest of the
+paper is summarized in Appendix A.
+
+We consider a setting, in which we evaluate the statistical rel-
+evance of hypotheses from a set H = H1,H2, . . . ,Hm, created
+incrementally by an IDE system in a streaming fashion. In order
+to verify whether any such hypothesis Hj is in fact statistically
+relevant we consider its corresponding null hypothesis Hj . Using
+the appropriate statistical test (e.g., the t-test or the X 2-test) the
+p-value of Hj evaluated and based on it the testing procedure deter-
+mine whether to accept (resp., reject) a null hypothesis Hj which
+
+in turn corresponds to rejecting (resp., accepting) the corresponding
+alternative hypothesis (or research hypothesis)H|. The hypothesis
+according to which all null hypotheses are true is referred as the
+“complete” or “global” null hypothesis.
+
+The set of null hypotheses rejected by a statistical test are called
+“discoveries”and are denoted as R. Among these we distinguish the
+set of true discoveries S, and the set of false discoveries or false
+positives V ; i.e., |V |+|S|= |R| False discoveries are commonly
+referred also as Type 1 errors. Null hypotheses in S are false null
+hypotheses, while null hypotheses in V are true null hypotheses.
+
+4.1 Hold-Out Dataset
+A possible method to deal with the multiple hypothesis error is to
+
+split the datasetD into a explorationD1 and a validationD2 dataset
+[38]. D1 is then used for the data exploration process, whereas the
+validation dataset is used to re-test all hypotheses in order to validate
+the results of the first phase. In the following we will provide some
+examples which will clarify how, albeit useful, a hold-out dataset
+does not solve the multiple hypothesis testing problem.
+
+Let us consider a null hypothesis H , and let pD denote its associ-
+ated p-value when H is evaluated with respect of the entire dataset
+D. Lets assume we perform a test with significance-level α. In this
+case the probability of wrongly rejecting H is at most α Suppose
+now that we randomly split the dataset into two datasets D1 and D2.
+For the same null hypothesis H we evaluate the p-values pD1 and
+pD2 each obtained by evaluating H on D1 or D2 respectively. We
+then run a a test with significance-level α (like the one discussed
+above) for each of the datasets. We then decide to reject H if it
+has been rejected by both the testing procedures operating on the
+datasetsD1 orD2. If both procedures operating onD1 andD2 have
+significance-level α, then the probability that the overall procedure
+ends up rejecting H is at most α2.
+
+For the common value of α = 0.05, the chance of a Type I error
+is thus reduced to 0.0025, which is good news. Rather than fully
+handling the multiple hypothesis problem, what we have achieved
+trough this procedure is however just the lowering of the threshold
+for rejecting the null hypothesis (i.e., the significance level of the
+test).
+
+This fact appears clearly in the following scenario. Suppose that
+the user wants to evaluate multiple hypotheses (e.g., 25) rather than
+just one. Assuming that these hypotheses, and their p-values are
+independent, the probability of observing at least one erroneous
+rejection using the test technique based on the use of the holdout
+dataset would be: pf = 1 − (1 − pD)25 ≈ 0.06, which is higher
+than the desired α significance level.
+
+Albeit the lowering of the achieved reduction of the significance
+level is indeed useful for reducing the chance of Type I errors, it
+comes at the cost of a significant reduction of the power of the
+testing procedure.
+
+Let us consider the following example scenario in which we aim
+to compare the means M1 and M2 of two samples one drawn from
+a population with expected value µ1 = 0 and the other from a
+population with µ2 = 1, both having a standard deviation of σ = 4.
+In order to determinate weather the observed difference betweenM1
+anM2 is actually statistically significant, we test the null-hypothesis
+“there is no significant difference between µ1 and µ2” using the
+one-sided t-test and a sample composed by 500 records from each
+population. Given the properties of the t-test (see [13]), the statistical
+power of our test would be 0.99, and the probability of erroneously
+accepting the null hypothesis would be at most 0.01.
+
+Suppose now that we divide the dataset into a dataset for explo-
+ration and one for validation each composed by 250 records. The
+statistical power for each of the individual t-test executed on the
+two dataset is now lowered to 0.87, due to the reduction of the data
+
+
+
+being used. Further, recall that the procedure based on the holdout
+set rejects a null hypothesis only if said hypothesis is rejected by
+both sub-tests. This implies that the actual overall power of the
+testing procedure is 0.87 · 0.87 ≈ 0.76, which is significantly lower
+than the 0.99 achieved by the test which uses the entire data.
+
+In general, approaches based on hold-out datasets are considered
+inferior compared to testing over the entire dataset. In some sce-
+narios, like building machine learning models, hold-out datasets
+might even be the only possibility to test a model or tune parameters.
+In those cases, a hold-out approach (like k-fold cross-validation)
+should be considered as test and should be controlled for the multiple
+hypothesis error as recent work suggests [10, 24, 30].
+
+It is however important to remark that in our work we aim to
+predict guarantees on the statistical significance of the statistical
+predictors which are instead not achievable using prediction-driven
+approaches such as cross-validation.
+
+4.2 Family-Wise Error Rate (FWER)
+Traditionally, frequentist methods for multiple comparisons test-
+
+ing focus on correcting for modest numbers of comparisons. A
+natural generalization of the significance level to multiple hypothe-
+sis testing is the Family Wise Error Rate, which is the probability of
+incurring at least one Type I error in any of the individual tests. The
+FWER is the probability of making at least one type I error in the
+family:
+
+FWER = Pr(V ≥ 1) = 1− Pr(V = 0) (1)
+
+By assuring that FWER ≤ α, that is the FWER is controlled
+at level α, we have that the probability of even one Type I error in
+evaluating a family of hypotheses is at most α.
+
+We say that a procedure controls the FWER in the weak sense,
+if the FWER control at level α is guaranteed only when all null
+hypotheses are true (i.e. when the complete null hypothesis is true).
+We say that a procedure controls the FWER in the strong sense, if the
+FWER control at level α is guaranteed for any configuration of true
+and non-true null hypotheses (including the global null hypothesis).
+
+Bonferroni Correction: The Bonferroni correction is the sim-
+plest statistical procedure for multiple hypothesis testing [6]. Let
+α be the critical threshold for the test. The value of α is usually
+selected at 0.01 or 0.05.
+
+Let pi the p-value statistic associated with the null hypothesis
+Hi. When testing m distinct null hypotheses using the Bonferroni
+correction, a null hypothesis Hi is rejected if pi ≤ α/m. The
+Bonferroni procedure thus achieves control of the FWER at level α.
+
+Unfortunately, the Bonferroni correction can not be applied in our
+setting as it requires knowledge of the total number of hypotheses
+being considered. An alternative approach is to use a variation of the
+Bonferroni correction, according to which the j-th null hypothesis
+Hj is rejected if pj ≤ α · 2−j . It is possible to show that this
+procedure indeed controls FWER at level α as j →∞ and does not
+need explicit knowledge of m. However the acceptance threshold
+decreases exponentially with respect to the number of hypotheses,
+thus resulting in a high number of false negatives.
+
+The main common issue with all FWER techniques is that the
+power of the test significantly decreases as m increases due to
+the corresponding decrease in the acceptance threshold (α/m in
+the original Bonferroni or α/2i in the sequential variant). While
+some alternative testing procedures such as those of Vǐdák [34],
+Holm [18], Hochberg [17], and Simes [35] offer more power while
+controlling FWER, the achieved improvements are generally minor.
+A review of several of these techniques is provided by Shaffer
+in [32].
+
+4.3 False Discovery Rate (FDR)
+In [2] Benjamini and Hochberg proposed the notion of False
+
+Discovery Rate (FDR) as a less conservative approach to control
+
+errors in multiple tests which achieve a substantial increase in the
+power of the testing procedure.
+
+FDR-controlling procedures are designed to control the expected
+ratio Q = V/R of false discoveries among all discoveries returned
+by a procedure. In particular, the FDR of a statistical procedure is
+defined as:
+
+FDR = E [Q] = E
+
+[
+V
+
+R
+|R > 0
+
+]
+P (R > 0). (2)
+
+However, if we define FDR to be zero when R = 0, we can
+simplify 2 to:
+
+FDR = E
+
+[
+V
+
+R
+
+]
+(3)
+
+We say that a testing procedure controls FDR at level α if we
+have FDR ≤ α. Designing a statistical test that controls for FDR
+is not simple, as the FDR is a function of two random variables
+that depend both on the set of null hypotheses and the set of alter-
+native hypotheses. The standard technique to control the FDR is
+the Benjamini-Hochberg procedure(BH), which operates as follows:
+let p1 ≤ p2 ≤ . . . ≤ pm be the sorted order of the the p-values
+for the m tested null hypotheses. To control FDR at level α (for
+independent null p-values) determine the maximum k for which
+pk ≤ km · α, and reject the null hypotheses corresponding to the
+p-values p1, p2, . . . , pk.
+
+Interestingly, under the complete null hypothesis, controlling the
+FDR at level α guarantees also “weak control” over the FWER
+FWER = P (V ≥ 1) = E
+
+(
+V
+R
+
+)
+= FDR ≤ α. This follows
+
+from the fact that the event of rejecting at least one true null hypoth-
+esis V ≥ 1 is exactly the event V/R = 1, and the event V = 0 is
+exactly the event V/R = 0 (recall V/R = 0 when V = R = 0).
+This makes the FDR relatively easy to explain to the user as under
+complete random data, the chance of one or more false discoveries
+is at most α as in FWER. However, FDR does not however ensure
+control of the FWER if there are some true discoveries to be made
+(i.e., it does not ensure “strong control” of the FWER).
+
+Because of its increased power, FDR appears to be a better candi-
+date than FWER in the context interactive data exploration, where
+usually a larger number of hypotheses are to be considered. Unfor-
+tunately, both the original Benjamini-Hochberg procedure and its
+variation for dealing with dependent hypotheses [3] are not incre-
+mental as they require knowledge of the total number of hypotheses
+being tested (similar to what was discussed for Bonferroni) and
+of the sorted list of all the p-values corresponding to each null
+hypothesis being evaluated.
+
+An adaptation of the FDR technique to a setting for which an
+unspecified number of null hypotheses are observed incrementally
+was recently discussed in [15]. The main idea behind the Sequen-
+tial FDR procedure is to convert the arbitrary sequence of p-values
+corresponding to the null hypotheses observed on the stream of hy-
+potheses into an ordered sequence akin to the one generated by the
+classical Benjamini-Hochberg procedure. The natural application
+for this technique is the progressive refinement of a model by consid-
+ering additional features. That is, it starts constructing a model for
+the data with something known and general. The user then proceeds
+to refine the model by determining the most significant features.
+
+One drawback of the Sequential FDR method, is given by the
+fact that the order according to which the hypotheses are observed
+on the stream heavily influences the outcome of the procedure. For
+example, if an hypothesis with high p-value is observed among the
+first in the stream, this will harm the ability of the procedure of
+rejecting following null hypotheses, even if they have low p-value
+(see discussion in [15]). This aspect makes Sequential FDR not
+applicable for data exploration system for which the user is likely to
+explore different “avenues” of discovery rather than focusing on the
+specialization of a model.
+
+
+
+4.4 Other Approaches
+Although for most practical applications, FDR controlling pro-
+
+cedures constitute the de facto standard for multiple hypothesis
+testing [12], many other techniques have been presented in the litera-
+ture. Among them, Bayesian techniques are particularly noteworthy.
+In [5], alternative solutions to the multple hypothesis problem com-
+bining decision theory with Bayesian FDR are discussed. However,
+as often the case with Bayesian approaches, the computational cost
+for these procedures when applied to large datasets are significant,
+and the results are highly dependent on the prior model assumptions.
+
+Another approach is correcting for the multiplicity through simu-
+lations (e.g., the permutation test [31]) that experimentally evaluate
+the probability of an observation in the null distribution. This ap-
+proach is also not practical in large datasets because of the large
+number of different possible observations and the need to evaluate
+very small p-values of each of these distributions [21].
+
+In this paper, we elect to use a family of multiple hypothesis
+testing procedures know as α-investing introduced in [14] and then
+generalized in [1]. These procedures are especially interesting for
+the incremental and interactive nature of interactive data exploration.
+The details of α-investing and its application to our setting is exten-
+sively discussed in the next section.
+
+5 Interactive Control using α-Investing
+One drawback of the Sequential FDR procedure [15] as well as
+
+adaptations of FWER controlling techniques to the streaming setting
+is given by the fact that decisions regarding the rejection or accep-
+tance of previously considered null hypotheses could potentially
+be overturned in latter stages due to new hypotheses being consid-
+ered. Although statistically sound, this fact could appear extremely
+counter intuitive and confusing to the user. The only way to adopt
+the Sequential FDR procedure to data exploration would be to batch
+all the hypotheses and only present the final decisions afterwards.
+In that sense Sequential FDR is incremental but non-interactive in
+data exploration.
+
+In order to have both incremental and interactive multiple hy-
+pothesis error control, we consider a different approach for multiple
+hypothesis testing based on the “α-investing ” testing procedure
+introduced originally introduced by Foster and Stine in [14]. Simi-
+larly to Sequential-FDR , this procedure does not require explicit
+knowledge of the total number of hypotheses being tested and can
+therefore be applied in the hypothesis streaming setting. α-investing
+presents however several crucial differences with respect to both
+traditional and sequential FDR control procedures.
+
+In the following, we first introduce the general outline of the
+procedure as presented in [14] and then discuss several investing
+strategies (called policies) that we have developed for interactive
+data exploration.
+
+5.1 Outline of the Procedure
+For α-investing , the quantity being controlled is not the clas-
+
+sic FDR but rather an alternative quantity called “marginal FDR
+(mFDR)”:
+
+mFDRη(j) =
+E [V (j)]
+
+E [R(j)] + η
+(4)
+
+where j denotes the total number of tests which have been executed,
+while V (j) (resp., R(j)) denote the number of false (resp., total)
+discoveries obtained using the α-investing procedure.
+
+In particular, we say that a testing procedure controlsmFDRη at
+level α if mFDRη(j) ≤ α. The parameter η is introduced in order
+to weight the impact of cases for which the number of discoveries
+is limited. Common choices for η are 1, (1 − α), whereas the
+procedure appears to lose in power for values of η close to 0 [14].
+
+Under the complete null hypothesis we have V (j) = R(j) hence
+
+mFDRη(j) ≤ α implies that E [V (j)] ≤ αη/(1− α). If we
+chose η = 1−α then E [V (j)] ≤ α, and we can thus conclude that
+control of the mFDR1−α at level α implies weak control fo the
+FWER at level α [14]. We refer the reader to the original paper of
+Foster and Stine [14] for an extensive discussion on the relationship
+between mFDR and the classic FDR. A generalization of the α-
+investing procedure was later introduced in [1]. The α-investing
+procedure does not in general require any assumption regarding the
+independence of the hypotheses being tested, although opportune
+corrections are necessary in order to deal with possible dependencies.
+In our analysis, we however assume that all the hypotheses and the
+corresponding p-values are indeed independent.
+
+Intuitively the α-investing procedure works as follows: With
+every test j the users sets an αj-value, which has to be below the
+current wealth, which is in the beginning usually α · (1− α) before
+he performs the test. If the null-hypothesis is accepted (pj > αj)
+the invested alpha value is lost. To some degree this is similar
+to the Bonferroni-correction as one could consider the αj value
+everybody is compared to as α/m. So whenever a test is performed,
+the wealth decreases by α/m until the wealth is 0 and the user has
+to stop exploring. However, in contrast to the Bonferroni-correction,
+with α-investing the user can regain wealth through a rejected null-
+hypothesis, which makes the procedure truly incremental as it does
+no longer depend on the number of anticipated hypotheses m and
+also more powerful.
+
+More formally, we denote as W (0) the initial α-wealth assigned
+to the testing procedure. If the goal of the testing procedure is to
+control mFDRη at level α, then we shall set W (0) = α · η. Here,
+η is commonly set to (1− α). We denote as W (j) the amount of
+“available α-wealth” after j tests have being executed.
+
+Each time a null hypothesis Hj is being tested, it is assigned
+a budget αj > 0. Let pj denote the p-value associated with the
+null hypothesis Hj . This hypothesis is rejected if pj ≤ αj . If
+Hj is rejected than the testing procedure obtains a “return” on its
+investment ω ≤ α. Instead, if the null hypothesis Hj is accepted,
+αj/(1− αj) alpha wealth is deducted from the available α-wealth:
+
+W (t)−W (t− 1) =
+{
+ω if pj ≤ αj ,
+−
+
+αj
+1−αj
+
+if pj > αj
+(5)
+
+The testing procedure halts when the available α-wealth reaches 0.
+At that point in time, the user should stop exploring to guarantee that
+mFDR ≤ α. Obviously again something, which is not desirable
+as it is hard to convey to any user, that he has to stop exploring. We
+will discuss this problem and potential solutions in Section 5.8.
+
+The budget αj which can be assigned to test must be such that
+regardless of the outcome of the test, the availableα-wealth available
+after the test is not negative W (j) ≥ 0, hence αj ≤ W (j −
+1)/(1−W (j − 1)). Further we impose that αj < 1. While this
+constraint was not explicated in [14], it is indeed necessary for the
+correct functioning of the procedure. Setting αj = 1 would lead to
+the potential deduction of an infinite amount of α-wealth, violating
+the non negativity of W (j). Setting αj > 1 would instead lead to
+having a positive increase of the available α-wealth regardless of
+the outcome of the test. In our analysis we will however assume
+that all the hypotheses being considered are indeed independent and
+their associated p-values are independent as well.
+
+We refer as “α-investing rule” to the policy according to which
+available budget has to be assigned to the hypotheses that needs to
+be tested. Furthermore, in [14] it was shown that any α-investing
+policy for which W (0) = η · α, ω = α, and which obeys the rule
+in (5), controls the mFDR at level α, for α, η ∈ [0, 1].
+
+The freedom of assigning to each hypothesis a specific level
+of confidence independent of the order, and the possibility of “re-
+investing” the wealth obtained by previous rejection constitute great
+
+
+
+advantages with respect to the Sequential FDR procedure.
+
+5.2 α-Investing for Data Exploration
+While it is relatively straightforward to devise investing rules, it is
+
+difficult a priori to determinate the “best way to invest” the available
+alpha-wealth. If αj is picked too small, the statistical power of
+every test is reduced and the chance is even higher too loose the
+invested wealth given a true alternative hypothesis. If αj is too
+large, the entire α wealth might be quickly exhausted and the user
+(in theory) has to stop exploring or re-evaluate all his test (see also
+Section 5.8). A policy is most likely to be successful if it can exploit
+some knowledge of the testing setting.
+
+Another complication is the construction of tests for which one
+can obtain the needed p-values . To show that a testing procedure
+controls mFDR, we require that conditionally on the prior j - 1
+outcomes (denoted as Ri), the level of the test of Hj must not
+exceed αj :
+
+P (Rj = 1|Rj1, Rj2, ..., R1) ≤ αj . (6)
+
+This does not however constitute a problem in our setting as we
+are assuming all hypotheses and their p-value to be independent.
+
+While [14] proposed various investing rules, most of the proposed
+procedures might test a hypothesis again and overturn an initial re-
+jection of a null-hypothesis. Therefore, in the remainder of this
+section we propose different α-investing policies particular for Inter-
+active Data Exploration, which correspond to different exploration
+strategies and at exploiting different possible properties of the data.
+However it should be noted, that our first procedure, β-farsighted,
+is a generalization of the “Best-foot-forward policy” in [14].
+
+For this paper, we consider a setting for which we observe a
+(potentially infinite) stream of null hypotheses for which at each of
+the discretized time steps a new null hypothesis is observed on the
+stream. We denote as Hj the hypothesis being considered at the
+j-th step. We further assume that said hypotheses are independent.
+
+All our policies assign to each hypothesis a strictly positive budget
+αj > 0 as long as any α-wealth is available. If pj ≤ αj , the null
+hypothesis Hj is rejected (i.e., it is considered a discovery). Vice
+versa, if pj > αj is accepted. The current α-wealth W (j) is
+then updated according to the rule in (5) and because of it controls
+mFDR at level α as shown in [14].
+
+5.3 β-Farsighted Investing Rule
+Like with real investment, the question is if one should invest short
+
+or long-term. With β-farsighted we created a policy, which tries to
+preserve wealth over long exploration sessions. Given β ∈ [0, 1),
+we say that a policy is β-farsighted if it ensures that regardless of the
+outcome of the j-th test at least a fraction β of the current α-wealth
+W (j − 1) is preserved for future tests, that is for j = 1, 2, . . .:
+
+W (j) ≥ βW (j − 1),
+W (j)−W (j − 1) ≥ (β − 1)W (j − 1)
+
+(7)
+
+We therefore define the β-farsighted procedure to controlmFDRη
+at level α in the procedure for Investing Rule 1.
+
+Investing Rule 1 β-farsighted
+1: W (0) = ηα
+2: for j = 1, 2, ... do
+3: αj = min
+
+(
+α,
+
+W (j−1)(1−β)
+1+W (j−1)(1−β)
+
+)
+4: if p(Hj) < αj then
+5: W (j) = W (j − 1) + ω
+6: else
+7: W (j) = W (j − 1)−
+
+αj
+1−αj
+
+= βW (j − 1)
+8: end if
+9: end for
+
+Different choices for the parameter β ∈ [0, 1) characterize how
+conservative the investing policy is. If there is high confidence on
+
+the first observed hypotheses being true discoveries, small values of
+beta (i.e., 0.25) would be more effective. Vice versa, high values of
+β (i.e. 0.9) ensure that even if the first hypotheses are true null, a
+large part of the α-wealth is preserved.
+
+We say that an α investing policy is “thrifty” if it never fully com-
+mits its available α-wealth. The described β-farsighted is indeed
+thrifty. While the procedure will never halt due to the available
+α-wealth reaching zero, after a long series of acceptance of null
+hypotheses the available budget may be reduced so much that it will
+be effectively impossible to reject any more null hypotheses.
+
+Although these policies may appear wasteful as there is no re-
+ward for wealth which has not been invested, they are aimed to
+preserve some of their current budget for future tests in case the
+hypotheses considered in the beginning of the testing procedure are
+not particularly trustworthy.
+
+This investing rule is therefore particular suited for scenarios were
+the total number of false discoveries in long exploration sessions,
+potentially across multiple users, should be controlled.
+
+5.4 γ-Fixed Investing Rule
+A different non-thrifty procedure assigns to each hypothesis the
+
+same budget α∗. In particular, we call γ-fixed a procedure that
+assigns to each null hypothesis a fixed budget αj equal to a fraction
+of the initial α-wealth W (0), that is α∗ =W (0)/(W (0) + γ), as
+long as any α-wealth is available.
+
+The details of the γ-fixed procedure controllingmFDRη at level
+α can be found in the procedure for Investing Rule 2.
+
+Investing Rule 2 γ-fixed
+1: W (0) = ηα
+2: α∗ = W (0)
+
+γ+W (0)
+
+3: whileW (j − 1)− α∗
+1−α∗ ≥ 0, for j = 1, 2, . . . do
+
+4: if p(Hj) < α∗ then
+5: W (j) = W (j − 1) + ω
+6: else
+7: W (j) = W (j − 1)− α∗
+
+1−α∗ = W (j − 1)−
+W (0)
+γ
+
+8: end if
+9: end while
+
+Note that we define α∗ as W (0)/(γ +W (0)) to ensure that the
+subtraction of the wealth is constantly W (0)/γ. Different choices
+for the parameter γ characterize how conservative the investing
+policy is. If there is high confidence on the first observed hypotheses
+being actual discoveries small values of γ (i.e. 5,10,20) would make
+more sense. Vice versa a high value of γ ensures that even if the first
+hypotheses are true null, a large part of the α wealth is preserved.
+Good choices for that setting would be γ = 50, 100.
+
+5.5 δ-Hopeful Investing Rule
+In a slight variation of the γ-fixed investing rule, we say that
+
+a policy is δ-hopeful if the budget is assigned to each hypothesis
+“hoping” that at least one of the next δ hypotheses will be rejected.
+Each time a null hypothesis is rejected the budget obtained from
+the rejection is re-invested when assigning budget over the next δ
+null hypotheses. γ-fixed and δ-hopeful operate by spreading the
+amount of α-wealth over a fixed number of hypotheses (either γ
+or δ), δ-hopeful is however “less conservative” than γ-fixed as it
+always operates by investing all currently available α-wealth over
+the next δ hypotheses. So it is a much more optimistic procedure,
+which works well if most alternative hypotheses are expected to
+accepted. The details of the δ-fixed procedure controlling mFDRη
+at level α can be found in the procedure for Investing Rule 3.
+
+5.6 �-Hybrid Investing Rule
+Because α-investing allows contextual information to be incor-
+
+porated, the power of the resulting procedure is related to how well
+
+
+
+Investing Rule 3 δ-hopeful
+1: W (0) = ηα
+2: α∗ = W (0)
+
+δ+W (0)
+
+3: k∗ = 0
+4: whileW (j − 1)− α∗
+
+1−α∗ ≥ 0, for j = 1, 2, . . . do
+5: if p(Hj) < α∗ then
+6: W (j) = W (j − 1) + ω
+7: α∗ = min
+
+(
+α,
+
+W (j)
+δ+W (j)
+
+)
+8: k∗ = j
+9: else
+
+10: W (j) = W (j − 1)− α∗
+1−α∗ = W (j − 1)−
+
+W (k∗)
+α∗
+
+11: end if
+12: end while
+
+the design heuristic fits the actual data exploration scenario. For
+example, when the data exhibits more randomness, the γ-fixed rule
+tends to have more power than the δ-hopeful rule. Intuitively, the
+α-wealth decreases when testing a true null hypothesis, because the
+expectation of the change of wealth is negative when the p-value
+is uniformly distributed on [0, 1]. Thus the initial α-wealth is on
+average larger than the α-wealth available at subsequent steps. Fur-
+thermore, since the γ-fixed rule invests a constant fraction of the
+initial wealth, the power tends to be larger than δ-hopeful.
+
+On the contrary, when the data is less random, the γ-fixed rule
+becomes less powerful than δ-hopeful rule. The reason is that in
+this setting more significant discoveries tend to keep the subsequent
+α-wealth high, potentially even higher than the initial wealth. We
+study this difference in more detail in Section 7.
+
+In order to have a robust performance in terms of power and false
+discovery rate, we design �-hybrid investing rule that adjust the αj
+assigned to the various tests based on the estimated data randomness.
+Our estimation of the randomness of the data is based on the ratio of
+rejected null hypothesis over a sliding windowHd constituted by the
+last d null hypotheses observed on a stream. We then compare this
+ration with a “randomness threshold” � ∈ (0, 1) and we conclude
+whether the data exhibits high randomness or not. The procedures
+is outlined in Investing Rule 4.
+
+Investing Rule 4 �-hybrid
+1: W (0) = ηα
+2: k∗ = 0
+3: Hd = [] // Sliding window of size d
+4: whileW (j − 1) > 0, for j = 1, 2, . . . do
+5: if Rejected(Hd)≤ |Hd|� then
+6: αj =
+
+W (0)
+γ+W (0)
+
+7: else
+8: αj = min
+
+(
+α,
+
+W (k∗)
+δ+W (k∗)
+
+)
+9: end if
+
+10: ifW (j − 1)−
+αj
+
+1−αj
+≥ 0 then
+
+11: if p(Hj) < αj then
+12: W (j) = W (j − 1) + ω
+13: k∗ = j
+14: Hd[j] = Rj = 1
+15: else
+16: W (j) = W (j − 1)−
+
+αj
+1−αj
+
+17: Hd[j] = Rj = 0
+18: end if
+19: end if
+20: end while
+
+5.7 Investment based on Support Population
+In this section we discuss how to adjust the budget of each hy-
+
+pothesis according to the amount of data which is available in order
+to compute the p-value of that same hypothesis. The main intuition
+for this procedure is that, as it is most likely to observe high p-values
+for hypotheses which rely on a small number of data points, we
+
+should should not invest as much α-wealth on those hypotheses. In
+this section we discuss how to bias the amount budget assigned to
+each hypothesis so that hypotheses with more support data receive
+more “trust” (in terms of budget) from the procedure.
+
+Let us denote as |n| the total amount of data being used and
+by |j| the available data for testing the j-th null hypothesis Ht.
+A simple way of correcting the assignment of the budget αj in
+any of the previously mentioned hypothesis is to assign to the test
+of the hypothesis αjf( |j||n| ). Depending on the choice of f(·) the
+impact of the correction may be more or less severe. Some possible
+
+choices for f(·) would be f( |t||n| ) =
+(
+|t|
+|n|
+
+)ψ
+for possible values of
+
+ψ = 1, 2/3, 1/2, 1/3, . . .. We present an example policy based on
+the γ-fixed rule, the ψ-support rule in Investing Rule 5.
+
+Investing Rule 5 ψ-support
+1: W (0) = ηα
+2: α∗ = W (0)
+
+γ+W (0)
+
+3: whileW (j − 1) > 0, for j = 1, 2, . . . do
+
+4: αj = α∗
+(
+|t|
+|n|
+
+) 1
+2
+
+5: ifW (j − 1)−
+αj
+
+1−αj
+≥ 0 then
+
+6: if p(Hj) < αj then
+7: W (j) = W (j − 1) + ω
+8: else
+9: W (j) = W (j − 1)−
+
+αj
+1−αj
+
+10: end if
+11: end if
+12: end while
+
+5.8 What Happens If the Wealth is 0
+Among all our proposed investing policies, only β-farsighted
+
+is “thrifty”,that it is never fully commits its available α-wealth.
+Still, the available wealth for β-farsighted could eventually become
+extremely small, to the point that no more hypotheses can be rejected.
+All the remaining procedures are “non-thrifty” and can thus reach
+zero α-wealth, in which case the user (theoretically) should stop
+exploring.
+
+It is only natural to wonder if it would be possible for the user to
+somehow “recover” some of the lost α-wealth and thus continuing
+the testing procedure. One possible way to do so, would require
+the user to reconsider and possibly overturn some of the previous
+decisions on whether to reject or accept some null hypotheses us-
+ing alternative testing procedures (i.e., the Benjamini-Hochberg
+procedure).
+
+There are however several challenges to be faced when pursuing
+this strategy: 1) great care has to be put on haw to combine results
+from different testing procedures (i.e., control of FDR for a subsets
+of hypotheses and control of mFDR for a distinct subset of hypothe-
+ses) and 2) testing hypotheses for a second time given the outcomes
+of other test implies a clear (and strong) dependence between the
+outcome of the tests and the p-value associated with the null hy-
+potheses being considered. Therefore, depending on the context
+such control could only be achieved given additional assumptions
+about the level of control or would require adding additional data or
+the use of a hold-out dataset. We aim to study this problem in detail
+as part of future work.
+
+6 The Most Important Discoveries
+In Section 3 we argued, that the user should be able to mark
+
+the important hypotheses (e.g., the ones she wants to include in a
+publication). This is particularly important as AWARE uses default
+hypotheses, which the user might consider as less important. In the
+following we show that if these “important discoveries” are selected
+from all the discoveries given by a testing procedure that controls
+
+
+
+(a) 75% Null: Avg. Disc (b) 75% Null: Avg. FDR (c) 75% Null: Avg. Power (d) 100% Null: Avg. Disc (e) 100% Null: Avg. FDR
+
+Figure 3: Exp.1a: Static Procedures on Synthetic Data
+
+FDR at level α independently of their p-values , then the FDR for
+the set of important discoveries is controlled at level α as well.
+
+THEOREM 1. Assume that we executed a collection of hypoth-
+esis tests with a rejection rule that controls the FDR at α. As-
+sume that the procedure rejected the set of null hypotheses R =
+{R1, . . . , Rr}, and let V ⊆ V be the set of false discoveries. If the
+null hypothesis tests are independent then for any subset R′ ⊆ R
+we have E[|V ∩R′|/||R′] ≤ α.
+
+PROOF. Let p1, . . . , p|R| be the p-values of the rejected hypothe-
+ses. Since the rejection rule controls the FDR at α we have
+
+|R|∑
+i=1
+
+i
+
+|R|
+P (|V |= i | P1 = p1, . . . , Pr = pr) = α (8)
+
+Assume that |V |= i. A priori, the p-values of null hypothe-
+ses are i.i.d. uniformly distributed in [0, 1] []. Subject to P1 =
+p1, . . . , Pr = pr , the set of the i null hypotheses’ p-values is uni-
+formly distributed among all the i subsets of the r value {p1, . . . , pr}.
+Let p′1, . . . , p′|R′| be the p-values of the set of hypotheses R
+
+′, and
+let pVi , . . . p
+
+V
+|V | be the p-values of the rejected null hypotheses, then
+
+E[|V ∩ R′| | |V |= i] =
+
+E[|{p′1, . . . , p
+′
+|R′|} ∩ {p
+
+V
+1 . . . P
+
+V
+|V |}| | |V |= i] = i
+
+|R′|
+|R|
+
+.
+(9)
+
+Combining equations (8) and (9) we get: E
+[ |V ∩ R′|
+|R′|
+
+]
+=
+
+|R|∑
+i=1
+
+E
+
+[ |V ∩ R′|
+|R′|
+
+| |V |= i
+]
+P (|V |= i | P1 = p1, . . . , Pr = pr)
+
+=
+
+|R|∑
+i=1
+
+1
+
+|R′|
+i
+|R′|
+|R|
+
+P (|V |= i | P1 = p1, . . . , Pr = pr) = α
+
+(10)
+
+Consider a set R′ of important discoveries selected independently
+of the p-values of the corresponding null-hypothesis from a larger
+set of discoveries R for which then mFDR is controlled at level
+α. Using a proof similar to the one discussed in Theorem 1 it is
+possible to show that the mFDR of R′ is controlled at level α as
+well. This is an important result, as it implies that the user can select
+the important discoveries from a larger pool of discoveries while
+maintaining the control of FDR (or mFDR) at level α.
+
+7 Experimental Evaluation
+In this section, we evaluate the α-investing rules in different data
+
+exploration settings to answer the following questions:
+1. How do our α-investing rules compare to Sequential FDR?
+2. What is the average power (the proportion of truly significant
+
+discoveries that are correctly identified)?
+3. What is the average false discovery rate?
+Workload/Data: We first conduct the simulation analysis on
+
+synthetic data, and then run user-study workflows on a real-world
+dataset. The statistics community considers the simulation analysis
+on synthetic data to be the statistically sound methodology to evalu-
+ate a multiple hypothesis testing procedure (see for example [2, 4]),
+
+because on real-world datasets and workflows the proportion and
+signal-to-noise ratio of truly significant and insignificant hypotheses
+are hard to determine and control.
+
+Implementations and Setup: The procedures for all experi-
+ments are: (1) No multiple hypothesis control: Per-Comparison
+Error Rate (PCER) [4], (2) Static: Bonferroni Correction (Bonfer-
+roni) [6] and Benjamini-Hochberg (BHFDR) [4] (3) Incremental
+but non-interactive: Sequential FDR (SeqFDR) [15] (4) Incremental
+and interactive: α-investing rules of this paper.
+
+We modified our system to also execute static procedures. We
+emphasize that the static-versus-incremental comparison only serves
+as a reference as the static procedures are essentially not suitable for
+data exploration as discussed in Section 4.
+
+For all configurations, we set α to 0.05 and estimate the average
+false discoveries, the average FDR (i.e., the average of the ratios of
+the false discoveries over all discoveries), and the average power
+and their corresponding 95% confidence intervals.
+
+7.1 Exp.1a: Static Procedures
+In the first experiment we evaluate the static multiple hypothesis
+
+controlling procedures over synthetic data to motivate our choice of
+FDR (and similarly mFDR) over FWER and per-comparison error
+rate (PCER) (i.e. no multiple hypothesis control).
+
+We created a large simulation study similar to the one in [4] with
+m hypotheses, ranging from 4-64. Each hypothesis is comparing
+the expectations of two independently distributed normal random
+variables of variance 1 but different expectations varying from 5/4
+to 5. The true null hypotheses are generated uniformly distributed
+across all tests and the proportions of true null hypotheses are set
+to 75% and 100% (i.e., completely random data). We repeated the
+experiment 1,000 times.
+
+Figure 3 shows the results for the static procedures, the Bonferroni-
+Correction (Bonferroni), the Benjamini-Hochberg procedure (BHFDR)
+and per-comparison error rate (PCER). For each procedure, we show
+the average number of discoveries, the average false discovery rate
+(FDR) and the average power. Note that the power is 0 for all
+procedures over completely random data and thus, not shown.
+
+We observe that PCER has the highest power Figure 3(c), mean-
+ing that it can identify the highest proportion of truly significant
+discoveries. However, PCER has also the highest false discovery
+rate across all configurations (see (b) and (e)). On completely ran-
+dom data, PCER averages 60% false discoveries when testing 64
+hypotheses in Figure 3(e). Therefore PCER is not the right control-
+ling target in multiple hypothesis testing in data exploration.
+
+On the other hand, the Bonferroni procedure has the lowest av-
+erage false discovery rate (see (b) and (e)), but the number of dis-
+coveries is also the lowest and the power also degrades quickly with
+an increasing number of hypotheses. For this reason, FWER is too
+pessimistic for data exploration.
+
+As a result, we advocate to use FDR (and similarly mFDR) as the
+control target for data exploration since we observed that the static
+FDR procedure, BHFDR, achieves a lower average error rate than
+
+
+
+4 8 16 32 64
+number of hypotheses
+
+0
+
+5
+
+10
+
+15
+
+20
+
+25
+
+30
+
+35
+
+40
+
+(a) 25% Null: Avg. Discoveries
+
+4 8 16 32 64
+number of hypotheses
+
+0.00
+
+0.02
+
+0.04
+
+0.06
+
+0.08
+
+0.10
+
+(b) 25% Null: Avg. FDR
+
+4 8 16 32 64
+number of hypotheses
+
+0.0
+
+0.2
+
+0.4
+
+0.6
+
+0.8
+
+1.0
+
+(c) 25% Null: Avg. Power
+
+4 8 16 32 64
+number of hypotheses
+
+0.00
+
+0.05
+
+0.10
+
+0.15
+
+0.20
+
+0.25
+
+(g) 100% Null: Avg. Discoveries
+
+4 8 16 32 64
+number of hypotheses
+
+0
+
+1
+
+2
+
+3
+
+4
+
+5
+
+6
+
+7
+
+8
+
+9
+
+(d) 75% Null: Avg. Discoveries
+
+4 8 16 32 64
+number of hypotheses
+
+0.00
+
+0.02
+
+0.04
+
+0.06
+
+0.08
+
+0.10
+
+(e) 75% Null: Avg. FDR
+
+4 8 16 32 64
+number of hypotheses
+
+0.0
+
+0.2
+
+0.4
+
+0.6
+
+0.8
+
+1.0
+
+(f) 75% Null: Avg. Power
+
+4 8 16 32 64
+number of hypotheses
+
+0.00
+
+0.02
+
+0.04
+
+0.06
+
+0.08
+
+0.10
+
+(h) 100% Null: Avg. FDR
+
+Figure 4: Exp.1b: Incremental Procedures on Synthetic Data / Varying Number of Hypotheses
+
+10.0% 30.0% 50.0% 70.0% 90.0%
+sample size
+
+0
+
+10
+
+20
+
+30
+
+40
+
+50
+
+(a) 25% Null: Avg. Discov-
+eries
+
+10.0% 30.0% 50.0% 70.0% 90.0%
+sample size
+
+0.00
+
+0.02
+
+0.04
+
+0.06
+
+0.08
+
+0.10
+
+(b) 25% Null: Avg. FDR
+10.0% 30.0% 50.0% 70.0% 90.0%
+
+sample size
+
+0.0
+
+0.2
+
+0.4
+
+0.6
+
+0.8
+
+1.0
+
+(c) 25% Null: Avg. Power
+10.0% 30.0% 50.0% 70.0% 90.0%
+
+sample size
+
+0
+
+2
+
+4
+
+6
+
+8
+
+10
+
+12
+
+14
+
+16
+
+(d) 75% Null: Avg. Discov-
+eries
+
+10.0% 30.0% 50.0% 70.0% 90.0%
+sample size
+
+0.00
+
+0.02
+
+0.04
+
+0.06
+
+0.08
+
+0.10
+
+(e) 75% Null: Avg. FDR
+10.0% 30.0% 50.0% 70.0% 90.0%
+
+sample size
+
+0.0
+
+0.2
+
+0.4
+
+0.6
+
+0.8
+
+1.0
+
+(f) 75% Null: Avg. Power
+
+Figure 5: Exp.1c: Incremental Procedures on Synthetic Data / Varying Sample Size
+
+PCER and and higher power than FWER.
+
+7.2 Exp.1b: Incremental Procedures
+As discussed before it is not feasible to use the static procedures
+
+for interactive data exploration where the number of hypotheses
+are neither known upfront nor the p-values can all be computed
+beforehand. For the remainder of the evaluation, we therefore focus
+on incremental procedures.
+
+Figure 4 uses the same setup as in Section 7.1. The true null hy-
+potheses are generated uniformly distributed across all tests and the
+proportions of true null hypotheses are set to 25%, 75% and 100%
+(i.e., completely random data). In this experiment, we compare the
+different α-investing rules we developed, namely, β-farsighted with
+β = 0.25, γ-fixed with γ = 10, δ-hopeful with δ = 10, �-hybrid
+with � = 0.5, and ψ-support, against the non-interactive Sequential-
+FDR (SeqFDR) procedure. The α for each procedure is set to 0.05
+and the �-hybrid uses unlimited window size. The ψ-support rule
+is implemented on top of γ-fixed. We pre-set the values based on
+rule-of-thumb judgements and did not further tune them.
+
+Figure 4(b)(e)(h) show that all procedures control the FDR at level
+α = 0.05, barring some variation in the realization of the average
+FDR between the procedures (here lower is better). Sequential FDR
+has the highest average FDR close to 0.05, whereas the α-investing
+procedures on average make less mistakes. Next, we study the
+difference in FDR and the power of the α-investing rules, given
+different contexts of data exploration.
+7.2.1 Varying Number of Hypotheses
+
+With β = 0.25, β-farsighted simulates a scenario in which the
+user is more confident or cares more about early discoveries being
+significant. In this setting, β-farsighted is expected to make less sig-
+nificant discovers in a long run if the dataset has more randomness.
+Figure 4(f) shows that β-farsighted has very high power early on
+during the exploration, while it lowers gradually as more hypotheses
+
+are made. On the other hand, if the dataset has less randomness,
+such as in the 25% Null configuration, β-farsighted is rewarded with
+the many discoveries during the exploration, and thus maintain its
+power for a longer run.
+7.2.2 Varying Degree of Randomness
+
+Figure4f shows that when the data has more randomness, the
+γ-fixed rule tends to be more powerful than δ-hopeful as the number
+of hypotheses increases. When the data has less randomness, the
+δ-hopeful rule becomes more powerful than γ-fixed rule. The reason
+is that the ω return from more frequent significant discoveries tends
+to keep the α-wealth high, and since δ-hopeful invests a fraction of
+the α-wealth from the last rejected hypothesis, α per test tends to
+be high and hence the increase of power.
+
+In light of this observation, we developed the previously men-
+tioned �-hybrid that estimates the randomness in the dataset based
+on the history of hypothesis tests and picks between γ-fixed or δ-
+hopeful. Figure 4 shows that �-hybrid procedure using � = 50% of
+past rejections as the randomness threshold achieves overall a more
+robust performance in terms of power and FDR on varying degree of
+randomness than the aforementioned two procedures alone. When
+the dataset is completely random, our α-investing rules achieve
+similarly low false discovery rate as the Sequential FDR below 5%.
+This provides the simulation-based evidence that our α-investing
+rules correctly control the mFDR at α = 5%.
+
+Overall the results suggest that the performance of a given α-
+investing rule depends on how well its heuristic fits the context such
+as the importance of early discoveries and the data randomness. β-
+farsighted is suitable when the early hypotheses are more important
+than the later ones; whereas �-hybrid strategy provides more robust
+performance across varying degree of randomness.
+
+
+
+10% 30% 50% 70% 90%
+sample size
+
+0
+
+20
+
+40
+
+60
+
+80
+
+100
+
+(a) Census: Avg. Disc (b) Census: Avg. FDR
+
+10% 30% 50% 70% 90%
+sample size
+
+0.0
+
+0.2
+
+0.4
+
+0.6
+
+0.8
+
+1.0
+
+(c) Census: Avg. Power
+
+10% 30% 50% 70% 90%
+sample size
+
+0.00
+
+0.05
+
+0.10
+
+0.15
+
+0.20
+
+(d) Rand. Census: Avg. Disc
+
+10% 30% 50% 70% 90%
+sample size
+
+0.00
+
+0.02
+
+0.04
+
+0.06
+
+0.08
+
+0.10
+
+(e) Rand. Census: Avg. FDR
+
+Figure 6: Exp.2: Real Workflows on Census and Random Census Data
+
+7.2.3 Varying Support Size
+As part of interactive data exploration, the user usually applies
+
+various filter conditions, which change the support size for the
+different tests. To evaluate the impact of varying support sizes,
+we used the same setup as in Section 7.1, but fixed the number of
+hypotheses to 64 and varied the sample size from 10-90%. The
+results are shown in Figure 5.
+
+While again �-hybrid and ψ-support do well across all configu-
+rations, ψ-support achieves lower average FDR especially for less
+random datasets (see Figure 5(b) and (e)). This is expected as the
+merit of the ψ-support rule is that it factors the support size of the
+hypothesis into the budget. Thus the rule tends to lower the per-test
+significance level when a low test p-value is observed on data of
+suspiciously low support size.
+
+7.3 Exp.2: Real Workflows
+In this experiment we show the effectiveness of our proposed
+
+procedures with real user workflows on the Census dataset [25]. We
+collected the workflows of 115 hypothesis based on a user study
+we performed. The hypotheses were mostly formed by comparing
+histogram distributions by different filtering conditions, similar to
+the examples from Section 2. We fixed the order of the hypotheses
+throughout the experiment as many of the hypotheses may depend
+on each other.
+
+To determine ground truth, we run the Bonferroni procedure with
+the user workflow on the full-size Census dataset to label the signifi-
+cant observations. We then down-sample the full data repetition for
+additional uncertainty. Note that this evaluation method is a straw
+man as we do not know the actual truly significant observation on
+Census data. It is likely to be biased towards towards more conser-
+vative α-investing rules with more evenly distributed budgets, such
+as γ-fixed and ψ-support.
+
+Figure 6(a)-(c) shows the result of the user workflows over the
+Census data. The γ-fixed and ψ-support rules perform better with
+average FDR significantly below α = 0.05, as shown in Figure 6(b).
+For the other rules, the subtle side-effect of our label generation can
+be seen: the average false discovery rates for �-hybrid, β-farsighted
+and δ-hopeful slightly inflate as the sample size increases, and
+reach over α = 0.05 to 0.09 for 90% samples. The reason is two-
+fold: First, the mFDR as the ratio of expectations is not necessarily
+bounded for only a particular fixed set of workflows. Second, the
+Bonferroni procedure generates a ground truth with a bias towards
+conservative α-investing rules with more evenly distributed budgets.
+Hence the more optimistic α-investing rules tend to make more
+mistakes. This observation leads to interesting insight about the
+conservativeness of different α-investing rules.
+
+To better demonstrate how our procedures control the false dis-
+covery rate, we therefore repeat the same experiment based on the
+real-world workflows but on randomized Census data. Figure 6(d)
+and (e) show the results (note that the power for all procedures is
+by definition zero as all discoveries contribute to falsehood). We
+observe that the α-investing procedures remain comparable to the
+SeqFDR for higher sample sizes in terms of average FDR, although
+
+some variation exists such that some of the error rates have con-
+fidence intervals over the range 0.05 to 0.10. We attribute this
+variation to the characteristic of our set of user-study workflows.
+For smaller sample sizes, we see higher variations. We attribute this
+variation to the characteristic of our set of user-study workflows.
+
+8 Related Work
+There has been surprisingly little work in controlling the number
+
+of false discoveries during data exploration even. This is especially
+astonishing as the same type of false discovery can also happen with
+traditional analytical SQL-queries. To our knowledge this is one
+of the first works trying to achieve a more automatic approach in
+tracking the user steps.
+
+Most related to this work are all the various statistical methods for
+significance testing and multiple hypothesis control. Early works
+tried to improve the power of the Family Wide Error Rate using
+adaptive Bonferroni procedures such as Sǐdák [34], Holm [18],
+Hochberg [17], and Simes [35]. However, all these methods lack
+power in large scale multi-comparison tests.
+
+The alternative False Discovery Rate measure was first proposed
+by Benjamini and Hochberg [4], and soon became the statistical
+criteria of choice in the statical literature and in large scale data
+exploration analysis for genomic data [27]. The original FDR
+method decides which hypotheses to reject only after all hypotheses
+were tested. Data exploration motivated the study of more advance
+techniques, such as sequential FDR [15] and α-investing [14], that
+work in a scenario where hypotheses arrive sequentially and the
+procedure needs to decide "on the fly" whether to accept or reject
+each of the hypotheses before testing the next one, while maintaining
+a bound on the FDR. Depending on the observed order of hypotheses,
+Sequential FDR can overturn previously accepted hypotheses into
+rejections based on the subsequent hypotheses.
+α-investing procedure also has revisiting policies that can po-
+
+tentially overturn previous decisions. The implication is that these
+procedures are incremental but non-interactive, because they require
+observing all the hypotheses before finalizing the decisions. How-
+ever, it is often infeasible to obtain all the possible hypotheses a
+priori. Therefore our work concerns α-investing procedure with
+policies that are both incremental and interactive. In addition, none
+of the work addresses the issue on how to automatically integrate
+these techniques as part of an data exploration tool.
+
+9 Conclusion and Future Work
+In this paper we presented the first automatic approach to con-
+
+trolling the multiple hypothesis problem during data exploration.
+We showed how the AWARE systems integrates user feedback and
+presented several multiple hypothesis control techniques based on
+α-investing, which control mFDR, and are especially suited for con-
+trolling the error for interactive data exploration sessions. Finally,
+our evaluation showed that the techniques are indeed capable of
+controlling the number of false discoveries using synthetic and real
+world datasets. However, a lot of work remains to be done from
+creating and evaluating other types of default hypothesis over devel-
+
+
+
+oping new testing procedures (e.g., for interactive Bayesian tests) to
+investigating techniques to recover from cases where the user runs
+out of wealth. Yet, we consider this work as an important first step
+towards more sustainable discoveries in a time where more data is
+analyzed than ever before.
+
+10 References
+[1] E. Aharoni and S. Rosset. Generalized α-investing: definitions, optimality
+
+results and application to public databases. Journal of the Royal Statistical
+Society: Series B (Statistical Methodology), 76(4):771–794, 2014.
+
+[2] Y. Benjamini et al. Controlling the false discovery rate. Journal of the Royal
+Statistical Society, Series B, 57(5), 1995.
+
+[3] Y. Benjamini et al. The control of the false discovery rate in multiple testing
+under dependency. Ann. Statist., 29(4), 08 2001.
+
+[4] Y. Benjamini and Y. Hochberg. Controlling the false discovery rate: a practical
+and powerful approach to multiple testing. Journal of the royal statistical
+society. Series B (Methodological), pages 289–300, 1995.
+
+[5] D. A. Berry et al. Bayesian perspectives on multiple comparisons. Journal of
+Statistical Planning and Inference, 82(1–2), 1999.
+
+[6] C. E. Bonferroni. Teoria statistica delle classi e calcolo delle probabilita.
+Libreria internazionale Seeber, 1936.
+
+[7] A. Burgess, R. Wagner, R. Jennings, and H. B. Barlow. Efficiency of human
+visual signal discrimination. Science, 214(4516):93–94, 1981.
+
+[8] F. Chirigati et al. Data polygamy: The many-many relationships among urban
+spatio-temporal data sets. In SIGMOD, 2016.
+
+[9] A. Crotty et al. Vizdom: Interactive analytics through pen and touch. PVLDB,
+8(12), 2015.
+
+[10] J. Demšar. Statistical comparisons of classifiers over multiple data sets. J. Mach.
+Learn. Res., 7:1–30, Dec. 2006.
+
+[11] E. Dimara, A. Bezerianos, and P. Dragicevic. The attraction effect in
+information visualization. IEEE Transactions on Visualization and Computer
+Graphics, 23(1), 2016.
+
+[12] B. Efron and T. Hastie. Computer Age Statistical Inference, volume 5.
+Cambridge University Press, 2016.
+
+[13] R. Fisher. The design of experiments. Oliver and Boyd, Edinburgh, Scotland,
+1935.
+
+[14] D. P. Foster and R. A. Stine. α-investing: a procedure for sequential control of
+expected false discoveries. Journal of the Royal Statistical Society: Series B
+(Statistical Methodology), 70(2):429–444, 2008.
+
+[15] M. G. G’Sell et al. Sequential selection procedures and false discovery rate
+control. Journal of the Royal Statistical Society: Series B (Statistical
+Methodology), 78(2), 2016.
+
+[16] H. Guo, S. Gomez, C. Ziemkiewicz, and D. Laidlaw. A case study using
+visualization interaction logs and insight. IEEE Trans. Vis. Comput. Graph.,
+2016.
+
+[17] Y. Hochberg. A sharper bonferroni procedure for multiple tests of significance.
+Biometrika, 75(4):800–802, 1988.
+
+[18] S. Holm. A simple sequentially rejective multiple test procedure. Scandinavian
+journal of statistics, pages 65–70, 1979.
+
+[19] J. P. A. Ioannidis. Why most published research findings are false. Plos Med,
+2(8), 2005.
+
+[20] H. Jeffreys. The theory of probability. OUP Oxford, 1998.
+[21] M. I. Jordan. The era of big data. ISBA Bulletin, 18(2), 2011.
+[22] N. Kamat et al. Distributed and interactive cube exploration. In IEEE ICDE,
+
+2014.
+[23] A. Key et al. Vizdeck: self-organizing dashboards for visual analytics. In
+
+SIGMOD, 2012.
+[24] R. Kohavi. A study of cross-validation and bootstrap for accuracy estimation
+
+and model selection. In Proceedings of the 14th International Joint Conference
+on Artificial Intelligence - Volume 2, IJCAI’95, pages 1137–1143, San
+
+Francisco, CA, USA, 1995. Morgan Kaufmann Publishers Inc.
+[25] M. Lichman. UCI machine learning repository, 2013.
+[26] Z. Liu, B. Jiang, and J. Heer. immens: Real-time visual querying of big data. In
+
+Computer Graphics Forum, volume 32, pages 421–430. Wiley Online Library,
+2013.
+
+[27] J. H. McDonald. Handbook of Biological Statistics. Sparky House Publishing,
+Baltimore, Maryland, USA, second edition, 2009.
+
+[28] J. Neyman and E. L. Scott. Consistent estimates based on partially consistent
+observations. Econometrica: Journal of the Econometric Society, pages 1–32,
+1948.
+
+[29] P. Pirolli and S. Card. The sensemaking process and leverage points for analyst
+technology as identified through cognitive task analysis. In Proceedings of
+international conference on intelligence analysis, volume 5, pages 2–4, 2005.
+
+[30] P. Refaeilzadeh, L. Tang, H. Liu, and M. T. ÖZSU. Cross-Validation, pages
+532–538. Springer US, Boston, MA, 2009.
+
+[31] M. Schemper. A survey of permutation tests for censored survival data.
+Communications in Statistics-Theory and Methods, 13(13):1655–1665, 1984.
+
+[32] J. P. Shaffer. Multiple hypothesis testing. Annual review of psychology, 46,
+1995.
+
+[33] Y. B. Shrinivasan and J. J. van Wijk. Supporting the analytical reasoning
+process in information visualization. In Proceedings of the SIGCHI conference
+on human factors in computing systems, pages 1237–1246. ACM, 2008.
+
+[34] Z. Šidák. Rectangular confidence regions for the means of multivariate normal
+distributions. Journal of the American Statistical Association, 62(318):626–633,
+1967.
+
+[35] R. J. Simes. An improved bonferroni procedure for multiple tests of
+significance. Biometrika, 73(3):751–754, 1986.
+
+[36] M. Vartak et al. SEEDB: efficient data-driven visualization recommendations to
+support visual analytics. PVLDB, 8(13), 2015.
+
+[37] K. Wongsuphasawat et al. Voyager: Exploratory analysis via faceted browsing
+of visualization recommendations. IEEE Trans. Vis. Comput. Graph., 22(1),
+2016.
+
+[38] A. F. Zuur, E. N. Ieno, and C. S. Elphick. A protocol for data exploration to
+avoid common statistical problems. Methods in Ecology and Evolution,
+1(1):3–14, 2010.
+
+APPENDIX
+A Symbol table
+
+The following table summarizes the important symbols and nota-
+tions used in this paper.
+
+H The set {H1, . . . , Hm} of null hypothesis observed on the stream.
+H The set {H1, , . . . ,Hm} of corresponding “alternative hypotheis”.
+R The number of null hypothesis rejected by the testing procedure
+
+(i.e., the discoveries).
+V The number of erroneously rejected null hypothesis
+
+(i.e., false discoveries, false positives, Type I errors).
+S The number of correctly rejected null hypothesis
+
+(i.e., true discoveries, true positives,).
+R(j) The number of discoveries after j hypothesis have been tested.
+V (j) The number of false discoveries after j hypothesis have been tested.
+S(j) The number of false discoveries after j hypothesis have been tested.
+m The number of hypothesis being tested.
+pj The p-value corresponding to the null hypothsisHj .
+W (0) Initial wealth for the α-investing procedures.
+W (j) Wealth of the α-investing procedures after j tests.
+α Significance level for the test with α ∈ (0, 1).
+η Bias in the denominator formFDRη .
+
+Table 1: Notation Reference
+
+
+	1 Introduction
+	2 A Motivational Example
+	2.1 Hypothesis Testing
+	2.2 Visualizations as Hypotheses
+	2.3 Heuristics for Visualization Hypotheses
+	2.4 Heuristics Applied to the Example
+
+	3 The Aware User Interface
+	4 Background on Multiple Hypothesis Error
+	4.1 Hold-Out Dataset
+	4.2 Family-Wise Error Rate (FWER)
+	4.3 False Discovery Rate (FDR)
+	4.4 Other Approaches
+
+	5 Interactive Control using -Investing
+	5.1 Outline of the Procedure
+	5.2 -Investing for Data Exploration
+	5.3 -Farsighted Investing Rule
+	5.4 -Fixed Investing Rule
+	5.5 -Hopeful Investing Rule
+	5.6 -Hybrid Investing Rule
+	5.7 Investment based on Support Population
+	5.8 What Happens If the Wealth is 0
+
+	6 The Most Important Discoveries
+	7 Experimental Evaluation
+	7.1 Exp.1a: Static Procedures 
+	7.2 Exp.1b: Incremental Procedures
+	7.2.1 Varying Number of Hypotheses
+	7.2.2 Varying Degree of Randomness
+	7.2.3 Varying Support Size
+
+	7.3 Exp.2: Real Workflows
+
+	8 Related Work
+	9 Conclusion and Future Work
+	10 References
+	A Symbol table
+
