@@ -1,0 +1,2271 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Network Dissection: 
+Quantifying Interpretability of Deep Visual Representations 
+
+David Bau∗, Bolei Zhou∗, Aditya Khosla, Aude Oliva, and Antonio Torralba 
+CSAIL, MIT 
+
+{davidbau, bzhou, khosla, oliva, torralba}@csail.mit.edu 
+
+Abstract 
+
+We propose a general framework call Network Dissec- 
+tion for quantify the interpretability of latent representa- 
+tions of CNNs by evaluate the alignment between individ- 
+ual hidden unit and a set of semantic concepts. Given any 
+CNN model, the propose method draw on a broad data 
+set of visual concept to score the semantics of hidden unit 
+at each intermediate convolutional layer. The unit with 
+semantics be give label across a range of objects, parts, 
+scenes, textures, materials, and colors. We use the propose 
+method to test the hypothesis that interpretability of unit 
+be equivalent to random linear combination of units, then 
+we apply our method to compare the latent representation 
+of various network when train to solve different super- 
+vised and self-supervised training tasks. We further analyze 
+the effect of training iterations, compare network train 
+with different initializations, examine the impact of network 
+depth and width, and measure the effect of dropout and batch 
+normalization on the interpretability of deep visual represen- 
+tations. We demonstrate that the propose method can shed 
+light on characteristic of CNN model and training method 
+that go beyond measurement of their discriminative power. 
+
+1. Introduction 
+Observations of hidden unit in large deep neural net- 
+
+work have reveal that human-interpretable concept some- 
+time emerge a individual latent variable within those net- 
+works: for example, object detector unit emerge within net- 
+work train to recognize place [40]; part detector emerge 
+in object classifier [11]; and object detector emerge in gen- 
+erative video network [32] (Fig. 1). This internal structure 
+have appear in situation where the network be not con- 
+strain to decompose problem in any interpretable way. 
+
+The emergence of interpretable structure suggests that 
+deep network may be learn disentangle representation 
+spontaneously. While it be commonly understood that a net- 
+work can learn an efficient encode that make economical 
+use of hidden variable to distinguish it states, the appear- 
+
+lamp in place net wheel in object net people in video net 
+
+Figure 1. Unit 13 in [40] (classifying places) detects table lamps. 
+Unit 246 in [11] (classifying objects) detects bicycle wheels. A 
+unit in [32] (self-supervised for generate videos) detects people. 
+
+ance of a disentangle representation be not well-understood. 
+A disentangle representation aligns it variable with a 
+meaningful factorization of the underlie problem structure, 
+and encourage disentangle representation be a significant 
+area of research [5]. If the internal representation of a deep 
+network be partly disentangled, one possible path for under- 
+stand it mechanism be to detect disentangle structure, 
+and simply read out the separate factors. 
+
+However, this proposal raise question which we address 
+in this paper: 
+• What be a disentangle representation, and how can it 
+
+factor be quantify and detected? 
+• Do interpretable hidden unit reflect a special alignment 
+
+of feature space, or be interpretation a chimera? 
+• What condition in state-of-the-art training lead to rep- 
+
+resentations with great or lesser entanglement? 
+To examine these issues, we propose a general analytic 
+
+framework, network dissection, for interpret deep visual 
+representation and quantify their interpretability. Us- 
+ing Broden, a broadly and densely label data set, our 
+framework identifies hidden units’ semantics for any give 
+CNN, then aligns them with human-interpretable concepts. 
+We evaluate our method on various CNNs (AlexNet, VGG, 
+GoogLeNet, ResNet) train on object and scene recognition, 
+and show that emergent interpretability be an axis-aligned 
+property of a representation that can be destroyed by rotation 
+without affect discriminative power. We further examine 
+how interpretability be affected by training data sets, training 
+technique like dropout [28] and batch normalization [13], 
+and supervision by different primary tasks. 
+
+∗ indicates equal contribution 
+Source code and data available at http://netdissect.csail.mit.edu 
+
+1 
+
+http://netdissect.csail.mit.edu 
+
+
+1.1. Related Work 
+
+A grow number of technique have be developed to 
+understand the internal representation of convolutional neu- 
+ral network through visualization. The behavior of a CNN 
+can be visualize by sample image patch that maximize 
+activation of hidden unit [37, 40], or by use variant of 
+backpropagation to identify or generate salient image fea- 
+tures [17, 26, 37]. The discriminative power of hidden layer 
+of CNN feature can also be understood by isolate por- 
+tions of networks, transfer them or limit them, and 
+test their capability on specialized problem [35, 24, 2]. 
+Visualizations digest the mechanism of a network down to 
+image which themselves must be interpreted; this motivates 
+our work which aim to match representation of CNNs with 
+label interpretation directly and automatically. 
+
+Most relevant to our current work be exploration of the 
+role of individual unit inside neural networks. In [40] hu- 
+man evaluation be use to determine that individual unit 
+behave a object detector in a network that be train to 
+classify scenes. [20] automatically generate prototypical 
+image for individual unit by learn a feature inversion 
+mapping; this contrast with our approach of automatically 
+assign concept labels. Recently [3] suggest an ap- 
+proach to test the intermediate layer by training sim- 
+ple linear probes, which analyzes the information dynamic 
+among layer and it effect on the final prediction. 
+
+2. Network Dissection 
+How can we quantify the clarity of an idea? The notion of 
+
+a disentangle representation rest on the human perception 
+of what it mean for a concept to be mixed up. Therefore 
+when we quantify interpretability, we define it in term of 
+alignment with a set of human-interpretable concepts. Our 
+measurement of interpretability for deep visual representa- 
+tions proceeds in three steps: 
+
+1. Identify a broad set of human-labeled visual concepts. 
+
+2. Gather hidden variables’ response to know concepts. 
+
+3. Quantify alignment of hidden variable−concept pairs. 
+
+This three-step process of network dissection be reminiscent 
+of the procedure use by neuroscientist to understand simi- 
+lar representation question in biological neuron [23]. Since 
+our purpose be to measure the level to which a representation 
+be disentangled, we focus on quantify the correspondence 
+between a single latent variable and a visual concept. 
+
+In a fully interpretable local cod such a a one-hot- 
+encoding, each variable will match exactly with one human- 
+interpretable concept. Although we expect a network to learn 
+partially nonlocal representation in interior layer [5], and 
+past experience show that an emergent concept will often 
+align with a combination of a several hidden unit [11, 2], 
+
+street (scene) flower (object) headboard (part) 
+
+swirly (texture) pink (color) metal (material) 
+
+Figure 2. Samples from the Broden Dataset. The ground truth for 
+each concept be a pixel-wise dense annotation. 
+
+our present aim be to ass how well a representation be 
+disentangled. Therefore we measure the alignment between 
+single unit and single interpretable concepts. This do 
+not gauge the discriminative power of the representation; 
+rather it quantifies it disentangle interpretability. As we 
+will show in Sec. 3.2, it be possible for two representation 
+of perfectly equivalent discriminative power to have very 
+different level of interpretability. 
+
+To ass the interpretability of any give CNN, we draw 
+concept from a new broadly and densely label image data 
+set that unifies label visual concept from a heterogeneous 
+collection of label data sources, described in Sec. 2.1. We 
+then measure the alignment of each hidden unit of the CNN 
+with each concept by evaluate the feature activation of each 
+individual unit a a segmentation model for each concept. To 
+quantify the interpretability of a layer a a whole, we count 
+the number of distinct visual concept that be align with 
+a unit in the layer, a detailed in Sec. 2.2. 
+
+2.1. Broden: Broadly and Densely Labeled Dataset 
+
+To be able to ascertain alignment with both low-level 
+concept such a color and higher-level concept such a 
+objects, we have assemble a new heterogeneous data set. 
+
+The Broadly and Densely Labeled Dataset (Broden) uni- 
+fies several densely label image data sets: ADE [43], Open- 
+Surfaces [4], Pascal-Context [19], Pascal-Part [6], and the 
+Describable Textures Dataset [7]. These data set contain 
+example of a broad range of objects, scenes, object parts, 
+textures, and material in a variety of contexts. Most exam- 
+ples be segment down to the pixel level except texture 
+and scene which be give for full-images. In addition, 
+every image pixel in the data set be annotate with one of 
+the eleven common color name accord to the human 
+perception classify by van de Weijer [31]. A sample of 
+the type of label in the Broden dataset be show in Fig. 2. 
+
+The purpose of Broden be to provide a ground truth set of 
+exemplar for a broad set of visual concepts. The concept 
+label in Broden be normalize and merge from their orig- 
+inal data set so that every class corresponds to an English 
+word. Labels be merge base on share synonyms, disre- 
+garding positional distinction such a ‘left’ and ‘top’ and 
+
+2 
+
+
+
+Table 1. Statistics of each label type include in the data set. 
+Category Classes Sources Avg sample 
+
+scene 468 ADE [43] 38 
+object 584 ADE [43], Pascal-Context [19] 491 
+part 234 ADE [43], Pascal-Part [6] 854 
+
+material 32 OpenSurfaces [4] 1,703 
+texture 47 DTD [7] 140 
+color 11 Generated 59,250 
+
+avoid a blacklist of 29 overly general synonym (such 
+a ‘machine’ for ‘car’). Multiple Broden label can apply 
+to the same pixel: for example, a black pixel that have the 
+Pascal-Part label ‘left front cat leg’ have three label in Bro- 
+den: a unified ‘cat’ label represent cat across data sets; a 
+similar unified ‘leg’ label; and the color label ‘black’. Only 
+label with at least 10 image sample be included. Table 1 
+show the average number of image sample per label class. 
+
+2.2. Scoring Unit Interpretability 
+
+The propose network dissection method evaluates every 
+individual convolutional unit in a CNN a a solution to a 
+binary segmentation task to every visual concept in Broden 
+(Fig. 3). Our method can be apply to any CNN use a for- 
+ward pas without the need for training or backpropagation. 
+
+For every input image x in the Broden dataset, the acti- 
+vation map Ak(x) of every internal convolutional unit k be 
+collected. Then the distribution of individual unit activation 
+ak be computed. For each unit k, the top quantile level Tk 
+be determine such that P (ak > Tk) = 0.005 over every 
+spatial location of the activation map in the data set. 
+
+To compare a low-resolution unit’s activation map to 
+the input-resolution annotation mask Lc for some concept 
+c, the activation map be scale up to the mask resolution 
+Sk(x) from Ak(x) use bilinear interpolation, anchor 
+interpolants at the center of each unit’s receptive field. 
+Sk(x) be then thresholded into a binary segmentation: 
+
+Mk(x) ≡ Sk(x) ≥ Tk, select all region for which the 
+activation exceeds the threshold Tk. These segmentation 
+be evaluate against every concept c in the data set by com- 
+put intersection Mk(x) ∩ Lc(x), for every (k, c) pair. 
+
+The score of each unit k a segmentation for concept c be 
+report a a data-set-wide intersection over union score 
+
+IoUk,c = 
+
+∑ 
+|Mk(x) ∩ Lc(x)|∑ 
+|Mk(x) ∪ Lc(x)| 
+
+, (1) 
+
+where | · | be the cardinality of a set. Because the data set 
+contains some type of label which be not present on some 
+subset of inputs, the sum be compute only on the subset 
+of image that have at least one label concept of the same 
+category a c. The value of IoUk,c be the accuracy of unit k 
+in detect concept c; we consider one unit k a a detector 
+for concept c if IoUk,c exceeds a threshold. Our qualitative 
+result be insensitive to the IoU threshold: different thresh- 
+old denote different number of unit a concept detector 
+
+Table 2. Tested CNNs Models 
+Training Network Data set or task 
+
+none AlexNet random 
+
+Supervised 
+
+AlexNet ImageNet, Places205, Places365, Hybrid. 
+GoogLeNet ImageNet, Places205, Places365. 
+
+VGG-16 ImageNet, Places205, Places365, Hybrid. 
+ResNet-152 ImageNet, Places365. 
+
+Self AlexNet 
+
+context, puzzle, egomotion, 
+tracking, moving, videoorder, 
+audio, crosschannel,colorization. 
+objectcentric. 
+
+across all the network but relative ordering remain stable. 
+For our comparison we report a detector if IoUk,c > 0.04. 
+Note that one unit might be the detector for multiple con- 
+cepts; for the purpose of our analysis, we choose the top 
+ranked label. To quantify the interpretability of a layer, we 
+count the number unique concept align with units. We 
+call this the number of unique detectors. 
+
+The IoU evaluate the quality of the segmentation of a 
+unit be an objective confidence score for interpretability that 
+be comparable across networks. Thus this score enables u 
+to compare interpretability of different representation and 
+lay the basis for the experiment below. Note that network 
+dissection work only a well a the underlie data set: if a 
+unit match a human-understandable concept that be absent 
+in Broden, then it will not score well for interpretability. 
+Future version of Broden will be expand to include more 
+kind of visual concepts. 
+
+3. Experiments 
+
+For test we prepare a collection of CNN model with 
+different network architecture and supervision of primary 
+tasks, a list in Table 2. The network architecture include 
+AlexNet [15], GoogLeNet [29], VGG [27], and ResNet [12]. 
+For supervise training, the model be train from scratch 
+(i.e., not pretrained) on ImageNet [25], Places205 [42], and 
+Places365 [41]. ImageNet be an object-centric data set, which 
+contains 1.2 million image from 1000 classes. Places205 
+and Places365 be two subset of the Places Database, which 
+be a scene-centric data set with category such a kitchen, 
+living room, and coast. Places205 contains 2.4 million im- 
+age from 205 scene categories, while Places365 contains 
+1.6 million image from 365 scene categories. “Hybrid” 
+refers to a combination of ImageNet and Places365. For 
+self-supervised training tasks, we select several recent mod- 
+el train on predict context (context) [9], solve puz- 
+zles (puzzle) [21], predict ego-motion (egomotion) [14], 
+learn by move (moving) [1], predict video frame 
+order (videoorder) [18] or track (tracking) [33], detect- 
+ing object-centric alignment (objectcentric) [10], coloriz- 
+ing image (colorization) [38], predict cross-channel 
+(crosschannel) [39], and predict ambient sound from 
+frame (audio) [22]. The self-supervised model we ana- 
+lyze be comparable to each other in that they all use AlexNet 
+
+3 
+
+
+
+Input image Network be probed Pixel-wise segmentation 
+
+Freeze train network weight 
+
+C 
+o 
+
+n 
+v 
+
+C 
+o 
+
+n 
+v 
+
+C 
+o 
+
+n 
+v 
+
+C 
+o 
+
+n 
+v 
+
+C 
+o 
+
+n 
+v 
+
+Upsample target layer 
+
+O 
+n 
+
+e 
+U 
+
+n 
+it 
+
+A 
+c 
+ti 
+v 
+a 
+
+ti 
+o 
+
+n 
+
+C 
+o 
+
+lo 
+r 
+
+T 
+e 
+x 
+tu 
+
+re 
+s 
+
+M 
+a 
+
+te 
+ri 
+
+a 
+l 
+
+S 
+c 
+e 
+
+n 
+e 
+
+s 
+
+P 
+a 
+
+rt 
+s 
+
+Evaluate on segmentation task 
+
+O 
+b 
+
+je 
+c 
+t 
+
+Figure 3. Illustration of network dissection for measure semantic alignment of unit in a give CNN. Here one unit of the last convolutional 
+layer of a give CNN be probed by evaluate it performance on 1197 segmentation tasks. Our method can probe any convolutional layer. 
+
+or an AlexNet-derived architecture. 
+In the follow experiments, we begin by validate our 
+
+method use human evaluation. Then, we use random uni- 
+tary rotation of a learn representation to test whether 
+interpretability of CNNs be an axis-independent property; 
+we find that it be not, and we conclude that interpretability 
+be not an inevitable result of the discriminative power of a 
+representation. Next, we analyze all the convolutional layer 
+of AlexNet a train on ImageNet [15] and a train on 
+Places [42], and confirm that our method reveals detector 
+for higher-level concept at high layer and lower-level con- 
+cepts at low layers; and that more detector for higher-level 
+concept emerge under scene training. Then, we show that 
+different network architecture such a AlexNet, VGG, and 
+ResNet yield different interpretability, while differently su- 
+pervised training task and self-supervised training task also 
+yield a variety of level of interpretability. Finally we show 
+the impact of different training conditions, examine the rela- 
+tionship between discriminative power and interpretability, 
+and investigate a possible way to improve the interpretability 
+of CNNs by increase their width. 
+
+3.1. Human Evaluation of Interpretations 
+
+We evaluate the quality of the unit interpretation found 
+by our method use Amazon Mechanical Turk (AMT). 
+Raters be show 15 image with highlight patch 
+show the most highly-activating region for each unit in 
+AlexNet train on Places205, and ask to decide (yes/no) 
+whether a give phrase describes most of the image patches. 
+
+Table 3 summarizes the results. First, we determine 
+the set of interpretable unit a those unit for which raters 
+agree with ground-truth interpretation from [40]. Over this 
+set of units, we report the portion of interpretation generate 
+by our method that be rat a descriptive. Within this 
+set we also compare to the portion of ground-truth label 
+that be found to be descriptive by a second group of raters. 
+The propose method can find semantic label for unit that 
+be comparable to description write by human annotator 
+at the high layer. At the low layer, the low-level color 
+and texture concept available in Broden be only sufficient 
+
+Table 3. Human evaluation of our Network Dissection approach. 
+Interpretable unit be those where raters agree with ground-truth 
+interpretations. Within this set we report the portion of interpreta- 
+tions assign by our method that be rat a descriptive. Human 
+consistency be base on a second evaluation of ground-truth labels. 
+
+conv1 conv2 conv3 conv4 conv5 
+Interpretable unit 57/96 126/256 247/384 258/384 194/256 
+Human consistency 82% 76% 83% 82% 91% 
+Network Dissection 37% 56% 54% 59% 71% 
+
+to match good interpretation for a minority of units. Human 
+consistency be also high at conv5, which suggests that 
+human be good at recognize and agree upon high- 
+level visual concept such a object and parts, rather than 
+the shape and texture that emerge at low layers. 
+
+3.2. Measurement of Axis-Aligned Interpretability 
+
+We conduct an experiment to determine whether it be 
+meaningful to assign an interpretable concept to an individ- 
+ual unit. Two possible hypothesis can explain the emergence 
+of interpretability in individual hidden layer units: 
+
+Hypothesis 1. Interpretable unit emerge because inter- 
+pretable concept appear in most direction in repre- 
+sentation space. If the representation localizes related 
+concept in an axis-independent way, project to any 
+direction could reveal an interpretable concept, and in- 
+terpretations of single unit in the natural basis may not 
+be a meaningful way to understand a representation. 
+
+Hypothesis 2. Interpretable alignment be unusual, and in- 
+terpretable unit emerge because learn converges to 
+a special basis that aligns explanatory factor with indi- 
+vidual units. In this model, the natural basis represent 
+a meaningful decomposition learn by the network. 
+
+Hypothesis 1 be the default assumption: in the past it have 
+be found [30] that with respect to interpretability “there 
+be no distinction between individual high level unit and 
+random linear combination of high level units.” 
+
+Network dissection allows u to re-evaluate this hypothe- 
+sis. We apply random change in basis to a representation 
+
+4 
+
+
+
+baseline rotate 0.2 rotate 0.4 rotate 0.6 rotate 0.8 rotate 1 
+0 
+
+10 
+
+20 
+
+30 
+
+40 
+
+N 
+u 
+m 
+
+b 
+e 
+r 
+
+o 
+f 
+u 
+n 
+iq 
+
+u 
+e 
+d 
+
+e 
+te 
+
+c 
+to 
+
+r object 
+part 
+
+scene 
+
+material 
+
+texture 
+
+color 
+
+Figure 4. Interpretability over change in basis of the representation 
+of AlexNet conv5 train on Places. The vertical axis show the 
+number of unique interpretable concept that match a unit in the 
+representation. The horizontal axis show α, which quantifies the 
+degree of rotation. 
+
+learn by AlexNet. Under hypothesis 1, the overall level 
+of interpretability should not be affected by a change in ba- 
+sis, even a rotation cause the specific set of represent 
+concept to change. Under hypothesis 2, the overall level of 
+interpretability be expect to drop under a change in basis. 
+
+We begin with the representation of the 256 convolu- 
+tional unit of AlexNet conv5 train on Places205 and 
+examine the effect of a change in basis. To avoid any is- 
+sue of conditioning or degeneracy, we change basis us- 
+ing a random orthogonal transformation Q. The rotation 
+Q be drawn uniformly from SO(256) by apply Gram- 
+Schmidt on a normally-distributed QR = A ∈ R2562 with 
+positive-diagonal right-triangular R, a described by [8]. In- 
+terpretability be summarize a the number of unique visual 
+concept align with units, a define in Sec. 2.2. 
+
+Denoting AlexNet conv5 a f(x), we find that the num- 
+ber of unique detector in Qf(x) be 80% few than the 
+number of unique detector in f(x). Our find be inconsis- 
+tent with hypothesis 1 and consistent with hypothesis 2. 
+
+We also test small perturbation of basis use Qα for 
+0 ≤ α ≤ 1, where the fractional power Qα ∈ SO(256) be 
+chosen to form a minimal geodesic gradually rotate from 
+I to Q; these intermediate rotation be compute use a 
+Schur decomposition. Fig. 4 show that interpretability of 
+Qαf(x) decrease a large rotation be applied. 
+
+Each rotate representation have exactly the same discrim- 
+inative power a the original layer. Writing the original net- 
+work a g(f(x)), note that g′(r) ≡ g(QT r) defines a neural 
+network that process the rotate representation r = Qf(x) 
+exactly a the original g operates on f(x). We conclude that 
+interpretability be neither an inevitable result of discrimina- 
+tive power, nor be it a prerequisite to discriminative power. 
+Instead, we find that interpretability be a different quality that 
+must be measure separately to be understood. 
+
+3.3. Disentangled Concepts by Layer 
+
+Using network dissection, we analyze and compare the 
+interpretability of unit within all the convolutional layer 
+of Places-AlexNet and ImageNet-AlexNet. Places-AlexNet 
+be train for scene classification on Places205 [42], while 
+ImageNet-AlexNet be the identical architecture train for 
+object classification on ImageNet [15]. 
+
+The result be summarize in Fig. 5. A sample of unit 
+be show together with both automatically infer inter- 
+pretations and manually assign interpretation take from 
+[40]. We can see that the predict label match the human 
+annotation well, though sometimes they capture a differ- 
+ent description of a visual concept, such a the ‘crosswalk’ 
+predict by the algorithm compare to ‘horizontal lines’ 
+give by the human for the third unit in conv4 of Places- 
+AlexNet in Fig. 5. Confirming intuition, color and texture 
+concept dominate at low layer conv1 and conv2 while 
+more object and part detector emerge in conv5. 
+
+3.4. Network Architectures and Supervisions 
+
+How do different network architecture and training su- 
+pervisions affect disentangle interpretability of the learn 
+representations? We apply network dissection to evaluate a 
+range of network architecture and supervisions. For simplic- 
+ity, the follow experiment focus on the last convolutional 
+layer of each CNN, where semantic detector emerge most. 
+
+Results show the number of unique detector that 
+emerge from various network architecture train on Ima- 
+geNet and Places be plot in Fig. 7, with example show 
+in Fig. 6. In term of network architecture, we find that in- 
+terpretability of ResNet > VGG > GoogLeNet > AlexNet. 
+Deeper architecture appear to allow great interpretability. 
+Comparing training data sets, we find Places > ImageNet. 
+As discuss in [40], one scene be compose of multiple 
+objects, so it may be beneficial for more object detector to 
+emerge in CNNs train to recognize scenes. 
+
+Results from network train on various supervise and 
+self-supervised task be show in Fig. 8. Here the network 
+architecture be AlexNet for each model, We observe that 
+training on Places365 creates the large number of unique 
+detectors. Self-supervised model create many texture de- 
+tectors but relatively few object detectors; apparently, su- 
+pervision from a self-taught primary task be much weaker 
+at infer interpretable concept than supervise training 
+on a large annotate data set. The form of self-supervision 
+make a difference: for example, the colorization model be 
+train on colorless images, and almost no color detection 
+unit emerge. We hypothesize that emergent unit represent 
+concept require to solve the primary task. 
+
+Fig. 9 show some typical visual detector identify in 
+the self-supervised CNN models. For the model audio and 
+puzzle, some object and part detector emerge. Those de- 
+tectors may be useful for CNNs to solve the primary tasks: 
+
+5 
+
+
+
+conv1 conv2 conv3 conv4 conv5 
+0 
+
+5 
+
+10 
+
+15 
+
+20 
+
+25 
+
+30 
+
+35 
+
+40 
+
+N 
+u 
+
+m 
+b 
+
+e 
+r 
+
+o 
+f 
+
+u 
+n 
+
+iq 
+u 
+
+e 
+d 
+
+e 
+te 
+
+c 
+to 
+
+r 
+
+AlexNet on Places205 
+
+object 
+
+part 
+
+scene 
+
+material 
+
+texture 
+
+color 
+
+vein (texture) h:green 
+
+orange (color) h:color yellow 
+
+red (color) h:pink or red 
+
+sky (object) h:sky 
+
+lacelike (texture)h:black&white 
+
+line (texture) h:grid pattern 
+
+grass (object) h:grass 
+
+band (texture) h:corrugated 
+
+perforate (texture) h:pattern 
+
+chequer (texture) h:windows 
+
+tree (object) h:tree 
+
+crosswalk (part) h:horiz. line 
+
+bed (object) h:bed 
+
+car (object) h:car 
+
+mountain (scene) h:montain 
+
+conv1 conv2 conv3 conv4 conv5 
+0 
+
+5 
+
+10 
+
+15 
+
+20 
+
+25 
+
+30 
+
+35 
+
+40 
+
+N 
+u 
+
+m 
+b 
+
+e 
+r 
+
+o 
+f 
+
+u 
+n 
+
+iq 
+u 
+
+e 
+d 
+
+e 
+te 
+
+c 
+to 
+
+r 
+
+AlexNet on ImageNet 
+
+object 
+
+part 
+
+scene 
+
+material 
+
+texture 
+
+color 
+
+red (color) h:red 
+
+yellow (color) h:yellow 
+
+sky (object) h:blue 
+
+woven (texture) h:yellow 
+
+band (texture) h:striped 
+
+grid (texture) h:mesh 
+
+food (material) h:orange 
+
+sky (object) h:blue sky 
+
+dot (texture) h:nosed 
+
+muzzle (part) h:animal face 
+
+swirly (texture) h:round 
+
+head (part) h:face 
+
+wheel (part) h:wheels 
+
+cat (object) h:animal face 
+
+leg (part) h:leg 
+
+conv1 conv2 conv3 conv4 conv5 
+
+Figure 5. A comparison of the interpretability of all five convolutional layer of AlexNet, a train on classification task for Places (top) 
+and ImageNet (bottom). At right, three example of unit in each layer be show with identify semantics. The segmentation generate by 
+each unit be show on the three Broden image with high activation. Top-scoring label be show above to the left, and human-annotated 
+label be show above to the right. Some disagreement can be see for the dominant judgment of meaning. For example, human annotator 
+mark the first conv4 unit on Places a a ‘windows’ detector, while the algorithm match the ‘chequered’ texture. 
+
+House Dog Train Plant Airplane 
+
+R 
+e 
+N 
+et 
+-1 
+52 
+
+res5c unit 1410 IoU=0.142 res5c unit 1573 IoU=0.216 res5c unit 924 IoU=0.293 res5c unit 264 IoU=0.126 res5c unit 1243 IoU=0.172 
+
+res5c unit 301 IoU=0.087 res5c unit 1718 IoU=0.193 res5c unit 2001 IoU=0.255 res5c unit 766 IoU=0.092 res5c unit 1379 IoU=0.156 
+
+G 
+oo 
+gL 
+eN 
+
+et 
+
+inception_4e unit 789 IoU=0.137 inception_4e unit 750 IoU=0.203 inception_5b unit 626 IoU=0.145 inception_4e unit 56 IoU=0.139 inception_4e unit 92 IoU=0.164 
+
+inception_4e unit 175 IoU=0.115 inception_4e unit 225 IoU=0.152 inception_5b unit 415 IoU=0.143 inception_4e unit 714 IoU=0.105 inception_4e unit 759 IoU=0.144 
+
+VG 
+G 
+-1 
+6 
+
+conv5_3 unit 243 IoU=0.070 conv5_3 unit 142 IoU=0.205 conv5_3 unit 463 IoU=0.126 conv5_3 unit 85 IoU=0.086 conv5_3 unit 151 IoU=0.150 
+
+conv5_3 unit 102 IoU=0.070 conv5_3 unit 491 IoU=0.112 conv5_3 unit 402 IoU=0.058 conv4_3 unit 336 IoU=0.068 conv5_3 unit 204 IoU=0.077 
+
+Figure 6. A comparison of several visual concept detector identify by network dissection in ResNet, GoogLeNet, and VGG. Each network 
+be train on Places365. The two highest-IoU match among convolutional unit of each network be shown. The segmentation generate by 
+each unit be show on the four maximally activate Broden images. Some unit activate on concept generalizations, e.g., GoogLeNet 4e’s 
+unit 225 on horse and dogs, and 759 on white ellipsoid and jets. 
+
+the audio model be train to associate object with a sound 
+source, so it may be useful to recognize people and cars; 
+while the puzzle model be train to align the different part 
+of object and scene in an image. For colorization and 
+tracking, recognize texture might be good enough for 
+the CNN to solve primary task such a colorize a desatu- 
+rat natural image; thus it be unsurprising that the texture 
+detector dominate. 
+
+3.5. Training Conditions vs. Interpretability 
+
+Training condition such a the number of training iter- 
+ations, dropout [28], batch normalization [13], and random 
+initialization [16], be know to affect the representation 
+learn of neural networks. To analyze the effect of train- 
+ing condition on interpretability, we take the Places205- 
+AlexNet a the baseline model and prepare several variant 
+of it, all use the same AlexNet architecture. For the vari- 
+
+6 
+
+
+
+R 
+e 
+
+N 
+et 
+
+15 
+2- 
+
+Pl 
+ac 
+
+e 
+36 
+
+5 
+
+R 
+e 
+
+N 
+et 
+
+15 
+2- 
+
+Im 
+ag 
+
+eN 
+et 
+
+VG 
+G 
+-P 
+
+la 
+ce 
+
+s2 
+05 
+
+VG 
+G 
+-H 
+
+yb 
+rid 
+
+VG 
+G 
+-P 
+
+la 
+ce 
+
+s3 
+65 
+
+G 
+oo 
+
+gL 
+eN 
+
+et 
+-P 
+
+la 
+ce 
+
+s3 
+65 
+
+G 
+oo 
+
+gL 
+eN 
+
+et 
+-P 
+
+la 
+ce 
+
+s2 
+05 
+
+G 
+oo 
+
+gL 
+eN 
+
+et 
+-Im 
+
+ag 
+eN 
+
+et 
+
+VG 
+G 
+-Im 
+
+ag 
+eN 
+
+et 
+
+Al 
+ex 
+
+N 
+et 
+
+-P 
+la 
+ce 
+
+s3 
+65 
+
+Al 
+ex 
+
+N 
+et 
+
+-H 
+yb 
+
+rid 
+
+Al 
+ex 
+
+N 
+et 
+
+-P 
+la 
+ce 
+
+s2 
+05 
+
+Al 
+ex 
+
+N 
+et 
+
+-Im 
+ag 
+
+eN 
+et 
+
+Al 
+ex 
+
+N 
+et 
+
+-ra 
+nd 
+
+om 
+
+0 
+
+50 
+
+100 
+
+150 
+
+200 
+
+250 
+
+300 
+
+350 
+N 
+
+u 
+m 
+
+b 
+e 
+
+r 
+o 
+
+f 
+u 
+
+n 
+iq 
+
+u 
+e 
+
+d 
+e 
+
+te 
+c 
+to 
+
+r 
+object 
+
+part 
+
+scene 
+
+material 
+
+texture 
+
+color 
+
+Figure 7. Interpretability across different architecture and training. 
+
+Al 
+ex 
+
+N 
+et 
+
+-P 
+la 
+ce 
+
+s3 
+65 
+
+Al 
+ex 
+
+N 
+et 
+
+-H 
+yb 
+
+rid 
+
+Al 
+ex 
+
+N 
+et 
+
+-P 
+la 
+ce 
+
+s2 
+05 
+
+Al 
+ex 
+
+N 
+et 
+
+-Im 
+ag 
+
+eN 
+et 
+
+tra 
+ck 
+
+in 
+g 
+
+ob 
+je 
+ct 
+ce 
+
+nt 
+ric 
+
+au 
+di 
+o 
+
+m 
+ov 
+
+in 
+g 
+
+co 
+lo 
+riz 
+
+at 
+io 
+n 
+
+pu 
+zz 
+
+le 
+
+cr 
+o 
+
+sc 
+ha 
+
+nn 
+el 
+
+eg 
+om 
+
+ot 
+io 
+n 
+
+co 
+nt 
+
+ex 
+t 
+
+fra 
+m 
+
+eo 
+rd 
+
+er 
+
+Al 
+ex 
+
+N 
+et 
+
+-ra 
+nd 
+
+om 
+
+0 
+
+20 
+
+40 
+
+60 
+
+80 
+
+100 
+
+N 
+u 
+m 
+
+b 
+e 
+r 
+
+o 
+f 
+u 
+n 
+iq 
+
+u 
+e 
+d 
+
+e 
+te 
+
+c 
+to 
+
+r 
+
+object 
+
+part 
+
+scene 
+
+material 
+
+texture 
+
+color 
+
+Supervised Self-supervised 
+
+Figure 8. Semantic detector emerge across different supervision 
+of the primary training task. All these model use the AlexNet 
+architecture and be test at conv5. 
+audio puzzle colorization track 
+chequer (texture) 0.102 head (part) 0.091 dot (texture) 0.140 chequer (texture) 0.167 
+
+car (object) 0.063 perforate (texture) 0.085 head (part) 0.056 grass (object) 0.120 
+
+head (part) 0.061 sky (object) 0.069 sky (object) 0.048 red-c (color) 0.100 
+
+Figure 9. The top ranked concept in the three top category in four 
+self-supervised networks. Some object and part detector emerge 
+in audio. Detectors for person head also appear in puzzle and 
+colorization. A variety of texture concept dominate model with 
+self-supervised training. 
+
+10 
+0 
+
+10 
+2 
+
+10 
+4 
+
+10 
+6 
+
+Training iteration 
+
+0 
+
+10 
+
+20 
+
+30 
+
+40 
+
+N 
+u 
+
+m 
+b 
+
+e 
+r 
+
+o 
+f 
+
+u 
+n 
+
+iq 
+u 
+
+e 
+d 
+
+e 
+te 
+
+c 
+to 
+
+r 
+
+object 
+
+part 
+
+scene 
+
+material 
+
+texture 
+
+color 
+
+ba 
+se 
+
+lin 
+e 
+
+re 
+pe 
+
+at 
+1 
+
+re 
+pe 
+
+at 
+2 
+
+re 
+pe 
+
+at 
+3 
+
+N 
+oD 
+
+ro 
+po 
+
+ut 
+
+Ba 
+tc 
+hN 
+
+or 
+m 
+
+0 
+
+20 
+
+40 
+
+60 
+
+80 
+
+100 
+
+N 
+u 
+
+m 
+b 
+
+e 
+r 
+
+o 
+f 
+
+u 
+n 
+
+iq 
+u 
+
+e 
+d 
+
+e 
+te 
+
+c 
+to 
+
+r object 
+part 
+
+scene 
+
+material 
+
+texture 
+
+color 
+
+Figure 10. The evolution of the interpretability of conv5 of 
+Places205-AlexNet over 2,400,000 training iterations. The baseline 
+model be train to 300,000 iteration (marked at the red line). 
+
+Number of detector 
+
+ba 
+se 
+
+lin 
+e 
+
+re 
+pe 
+
+at 
+1 
+
+re 
+pe 
+
+at 
+2 
+
+re 
+pe 
+
+at 
+3 
+
+N 
+oD 
+
+ro 
+po 
+
+ut 
+
+Ba 
+tc 
+hN 
+
+or 
+m 
+
+0 
+
+50 
+
+100 
+
+150 
+
+200 
+object 
+
+part 
+
+scene 
+
+material 
+
+texture 
+
+color 
+
+Number of unique detector 
+
+ba 
+se 
+
+lin 
+e 
+
+re 
+pe 
+
+at 
+1 
+
+re 
+pe 
+
+at 
+2 
+
+re 
+pe 
+
+at 
+3 
+
+N 
+oD 
+
+ro 
+po 
+
+ut 
+
+Ba 
+tc 
+hN 
+
+or 
+m 
+
+0 
+
+20 
+
+40 
+
+60 
+
+80 
+
+100 
+object 
+
+part 
+
+scene 
+
+material 
+
+texture 
+
+color 
+
+Figure 11. Effect of regularization on the interpretability of CNNs. 
+
+ant Repeat1, Repeat2 and Repeat3, we randomly initialize 
+the weight and train them with the same number of itera- 
+tions. For the variant NoDropout, we remove the dropout in 
+the FC layer of the baseline model. For the variant Batch- 
+Norm, we apply batch normalization at each convolutional 
+layer of the baseline model. Repeat1, Repeat2, Repeat3 all 
+have nearly the same top-1 accuracy 50.0% on the validation 
+set. The variant without dropout have top-1 accuracy 49.2%. 
+The variant with batch norm have top-1 accuracy 50.5%. 
+
+In Fig. 10 we plot the interpretability of snapshot of the 
+baseline model at different training iterations. We can see 
+that object detector and part detector begin emerge at 
+about 10,000 iteration (each iteration process a batch of 
+256 images). We do not find evidence of transition across 
+different concept category during training. For example, 
+unit in conv5 do not turn into texture or material detector 
+before become object or part detectors. 
+
+Fig. 11 show the interpretability of unit in the CNNs 
+over different training conditions. We find several effects: 
+1) Comparing different random initializations, the model 
+converge to similar level of interpretability, both in term 
+of the unique detector number and the total detector number; 
+this match observation of convergent learn discuss 
+in [16]. 2) For the network without dropout, more texture 
+detector emerge but few object detectors. 3) Batch nor- 
+malization seem to decrease interpretability significantly. 
+
+The batch normalization result serf a a caution that 
+discriminative power be not the only property of a represen- 
+tation that should be measured. Our intuition for the loss of 
+interpretability under batch normalization be that the batch 
+normalization ‘whitens’ the activation at each layer, which 
+smooth out scale issue and allows a network to easily 
+rotate ax of intermediate representation during training. 
+While whiten apparently speed training, it may also have 
+an effect similar to random rotation analyze in Sec. 3.2 
+which destroy interpretability. As discuss in Sec. 3.2, how- 
+ever, interpretability be neither a prerequisite nor an obstacle 
+to discriminative power. Finding way to capture the benefit 
+of batch normalization without destroy interpretability be 
+an important area for future work. 
+
+3.6. Discrimination vs. Interpretability 
+
+Activations from the high layer of CNNs be often 
+use a generic visual features, show great discrimination 
+
+7 
+
+
+
+Colorization 
+
+0.1 0.3 0.5 0.7 
+Accuracy on action40 
+
+0 
+
+20 
+
+40 
+
+60 
+
+80 
+
+100 
+
+N 
+um 
+
+be 
+r 
+
+of 
+u 
+
+ni 
+qu 
+
+e 
+ob 
+
+je 
+ct 
+
+d 
+et 
+
+ec 
+to 
+
+r 
+
+Frameorder 
+
+ResNet152-Places365 
+
+VGG-Hybrid 
+
+VGG-Places205 
+
+VGG-Places365 
+ResNet152-ImageNet 
+
+VGG-ImageNet 
+
+GoogLeNet-ImageNet 
+
+AlexNet-Places365 
+
+AlexNet-ImageNet 
+
+AlexNet-Places205-BN 
+
+AlexNet-Hybrid 
+
+AlexNet-random Egomotion 
+
+ObjectcentricMoving 
+
+Puzzle 
+
+Tracking 
+Audio 
+Crosschannel 
+
+Context 
+
+AlexNet-Places205 
+GoogLeNet-Places205 
+
+GoogLeNet-Places365 
+
+Figure 12. The number of unique object detector in the last con- 
+volutional layer compare to each representation classification 
+accuracy on the action40 data set. Supervised and unsupervised 
+representation clearly form two clusters. 
+
+and generalization ability [42, 24]. Here we benchmark deep 
+feature from several network train on several standard 
+image classification data set for their discrimination abil- 
+ity on a new task. For each train model, we extract the 
+representation at the high convolutional layer, and train a 
+linear SVM withC = 0.001 on the training data for action40 
+action recognition task [34]. We compute the classification 
+accuracy average across class on the test split. 
+
+Fig. 12 plot the number of the unique object detector 
+for each representation, compare to that representation’s 
+classification accuracy on the action40 test set. We can see 
+there be positive correlation between them. Thus the super- 
+vision task that encourage the emergence of more concept 
+detector may also improve the discrimination ability of 
+deep features. Interestingly, the best discriminative repre- 
+sentation for action40 be the representation from ResNet152- 
+ImageNet, which have few unique object detector com- 
+par to ResNet152-Places365. We hypothesize that the 
+accuracy on a representation when apply to a task be de- 
+pendent not only on the number of concept detector in the 
+representation, but on the suitability of the set of represent 
+concept to the transfer task. 
+
+3.7. Layer Width vs. Interpretability 
+
+From AlexNet to ResNet, CNNs for visual recognition 
+have grown deeper in the quest for high classification 
+accuracy. Depth have be show to be important to high 
+discrimination ability, and we have see in Sec. 3.4 that 
+interpretability can increase with depth a well. However, 
+the width of layer (the number of unit per layer) have be 
+less explored. One reason be that increase the number of 
+convolutional unit at a layer significantly increase compu- 
+tational cost while yield only marginal improvement in 
+classification accuracy. Nevertheless, some recent work [36] 
+show that a carefully design wide residual network can 
+achieve classification accuracy superior to the commonly 
+use thin and deep counterparts. 
+
+To explore how the width of layer affect interpretability 
+of CNNs, we do a preliminary experiment to test how width 
+
+Number of detector 
+
+co 
+nv 
+
+1 
+
+co 
+nv 
+
+2 
+
+co 
+nv 
+
+3 
+
+co 
+nv 
+
+4 
+
+co 
+nv 
+
+5 
+
+co 
+nv 
+
+1 
+
+co 
+nv 
+
+2 
+
+co 
+nv 
+
+3 
+
+co 
+nv 
+
+4 
+
+co 
+nv 
+
+5 
+0 
+
+100 
+
+200 
+
+300 
+
+400 
+object 
+
+part 
+
+scene 
+
+material 
+
+texture 
+
+color 
+
+Number of unique detector 
+
+co 
+nv 
+
+1 
+
+co 
+nv 
+
+2 
+
+co 
+nv 
+
+3 
+
+co 
+nv 
+
+4 
+
+co 
+nv 
+
+5 
+
+co 
+nv 
+
+1 
+
+co 
+nv 
+
+2 
+
+co 
+nv 
+
+3 
+
+co 
+nv 
+
+4 
+
+co 
+nv 
+
+5 
+0 
+
+20 
+
+40 
+
+60 
+
+80 
+
+100 
+
+120 object 
+part 
+
+scene 
+
+material 
+
+texture 
+
+color 
+
+AlexNet AlexNet-GAP-WideAlexNetAlexNet-GAP-Wide 
+
+Figure 13. Comparison between standard AlexNet and AlexNet- 
+GAP-Wide (AlexNet with wider conv5 layer and GAP layer) 
+through the number of unique detector (the left plot) and the 
+number of detector (the right plot). Widening the layer brings the 
+emergence of more detectors. Networks be train on Places365. 
+
+affect emergence of interpretable detectors: we remove the 
+FC layer of the AlexNet, then triple the number of unit 
+at the conv5, i.e., from 256 unit to 768 units. Finally we 
+put a global average pool layer after conv5 and fully 
+connect the pool 768-feature activation to the final class 
+prediction. We call this model AlexNet-GAP-Wide. 
+
+After training on Places365, the AlexNet-GAP-Wide ob- 
+tains similar classification accuracy on the validation set a 
+the standard AlexNet ( 0.5% top1 accuracy lower), but it have 
+many more emergent concept detectors, both in term of the 
+number of unique detector and the number of detector unit 
+at conv5, a show in Fig. 13. We have also increase the 
+number of unit to 1024 and 2048 at conv5, but the number 
+of unique concept do not significantly increase further. 
+This may indicate a limit on the capacity of AlexNet to sep- 
+arate explanatory factors; or it may indicate that a limit on 
+the number of disentangle concept that be helpful to solve 
+the primary task of scene classification. 
+
+4. Conclusion 
+This paper propose a general framework, network dis- 
+
+section, for quantify interpretability of CNNs. We apply 
+network dissection to measure whether interpretability be an 
+axis-independent phenomenon, and we found that it be not. 
+This be consistent with the hypothesis that interpretable unit 
+indicate a partially disentangle representation. We apply 
+network dissection to investigate the effect on interpretabil- 
+ity of state-of-the art CNN training techniques. We have 
+confirm that representation at different layer disentangle 
+different category of meaning; and that different training 
+technique can have a significant effect on the interpretability 
+of the representation learn by hidden units. 
+
+Acknowledgements. This work be partly support by the National 
+Science Foundation under Grant No. 1524817 to A.T.; the Vannevar Bush 
+Faculty Fellowship program sponsor by the Basic Research Office of the 
+Assistant Secretary of Defense for Research and Engineering and fund 
+by the Office of Naval Research through grant N00014-16-1-3116 to A.O.; 
+the MIT Big Data Initiative at CSAIL, the Toyota Research Institute / 
+MIT CSAIL Joint Research Center, Google and Amazon Awards, and a 
+hardware donation from NVIDIA Corporation. B.Z. be support by a 
+Facebook Fellowship. 
+
+8 
+
+
+
+References 
+[1] P. Agrawal, J. Carreira, and J. Malik. Learning to see by moving. In 
+
+Proc. ICCV, 2015. 
+[2] P. Agrawal, R. Girshick, and J. Malik. Analyzing the performance of 
+
+multilayer neural network for object recognition. Proc. ECCV, 2014. 
+[3] G. Alain and Y. Bengio. Understanding intermediate layer use 
+
+linear classifier probes. arXiv:1610.01644, 2016. 
+[4] S. Bell, K. Bala, and N. Snavely. Intrinsic image in the wild. ACM 
+
+Trans. on Graphics (SIGGRAPH), 2014. 
+[5] Y. Bengio, A. Courville, and P. Vincent. Representation learning: A 
+
+review and new perspectives. IEEE transaction on pattern analysis 
+and machine intelligence, 35(8):1798–1828, 2013. 
+
+[6] X. Chen, R. Mottaghi, X. Liu, S. Fidler, R. Urtasun, and A. Yuille. 
+Detect what you can: Detecting and represent object use holistic 
+model and body parts. In Proc. CVPR, 2014. 
+
+[7] M. Cimpoi, S. Maji, I. Kokkinos, S. Mohamed, and A. Vedaldi. De- 
+scribe texture in the wild. In Proc. CVPR, 2014. 
+
+[8] P. Diaconis. What be a random matrix? Notices of the AMS, 
+52(11):1348–1349, 2005. 
+
+[9] C. Doersch, A. Gupta, and A. A. Efros. Unsupervised visual repre- 
+sentation learn by context prediction. In Proc. CVPR, 2015. 
+
+[10] R. Gao, D. Jayaraman, and K. Grauman. Object-centric representation 
+learn from unlabeled videos. arXiv:1612.00500, 2016. 
+
+[11] A. Gonzalez-Garcia, D. Modolo, and V. Ferrari. Do semantic part 
+emerge in convolutional neural networks? arXiv:1607.03738, 2016. 
+
+[12] K. He, X. Zhang, S. Ren, and J. Sun. Deep residual learn for image 
+recognition. In Proc. CVPR, 2016. 
+
+[13] S. Ioffe and C. Szegedy. Batch normalization: Accelerating deep net- 
+work training by reduce internal covariate shift. arXiv:1502.03167, 
+2015. 
+
+[14] D. Jayaraman and K. Grauman. Learning image representation tie 
+to ego-motion. In Proc. ICCV, 2015. 
+
+[15] A. Krizhevsky, I. Sutskever, and G. E. Hinton. Imagenet classification 
+with deep convolutional neural networks. In Advances in neural 
+information processing systems, page 1097–1105, 2012. 
+
+[16] Y. Li, J. Yosinski, J. Clune, H. Lipson, and J. Hopcroft. Convergent 
+learning: Do different neural network learn the same representations? 
+arXiv:1511.07543, 2015. 
+
+[17] A. Mahendran and A. Vedaldi. Understanding deep image representa- 
+tions by invert them. Proc. CVPR, 2015. 
+
+[18] I. Mikjjsra, C. L. Zitnick, and M. Hebert. Shuffle and learn: unsu- 
+pervised learn use temporal order verification. In Proc. ECCV, 
+2016. 
+
+[19] R. Mottaghi, X. Chen, X. Liu, N.-G. Cho, S.-W. Lee, S. Fidler, R. Ur- 
+tasun, and A. Yuille. The role of context for object detection and 
+semantic segmentation in the wild. In Proc. CVPR, 2014. 
+
+[20] A. Nguyen, A. Dosovitskiy, J. Yosinski, T. Brox, and J. Clune. Syn- 
+thesizing the prefer input for neuron in neural network via deep 
+generator networks. In Advances in Neural Information Processing 
+Systems, 2016. 
+
+[21] M. Noroozi and P. Favaro. Unsupervised learn of visual represen- 
+tations by solve jigsaw puzzles. In Proc. ECCV, 2016. 
+
+[22] A. Owens, J. Wu, J. H. McDermott, W. T. Freeman, and A. Torralba. 
+Ambient sound provide supervision for visual learning. In Proc. 
+ECCV, 2016. 
+
+[23] R. Q. Quiroga, L. Reddy, G. Kreiman, C. Koch, and I. Fried. Invariant 
+visual representation by single neuron in the human brain. Nature, 
+435(7045):1102–1107, 2005. 
+
+[24] A. S. Razavian, H. Azizpour, J. Sullivan, and S. Carlsson. Cnn 
+feature off-the-shelf: an astound baseline for recognition. 
+arXiv:1403.6382, 2014. 
+
+[25] O. Russakovsky, J. Deng, H. Su, J. Krause, S. Satheesh, S. Ma, 
+Z. Huang, A. Karpathy, A. Khosla, M. Bernstein, et al. Imagenet 
+large scale visual recognition challenge. Int’l Journal of Computer 
+Vision, 2015. 
+
+[26] K. Simonyan, A. Vedaldi, and A. Zisserman. Deep inside convolu- 
+tional networks: Visualising image classification model and saliency 
+maps. International Conference on Learning Representations Work- 
+shop, 2014. 
+
+[27] K. Simonyan and A. Zisserman. Very deep convolutional network 
+for large-scale image recognition. arXiv:1409.1556, 2014. 
+
+[28] N. Srivastava, G. E. Hinton, A. Krizhevsky, I. Sutskever, and 
+R. Salakhutdinov. Dropout: a simple way to prevent neural network 
+from overfitting. Journal of Machine Learning Research, 15(1):1929– 
+1958, 2014. 
+
+[29] C. Szegedy, W. Liu, Y. Jia, P. Sermanet, S. Reed, D. Anguelov, D. Er- 
+han, V. Vanhoucke, and A. Rabinovich. Going deeper with convolu- 
+tions. In Proc. CVPR, 2015. 
+
+[30] C. Szegedy, W. Zaremba, I. Sutskever, J. Bruna, D. Erhan, I. Good- 
+fellow, and R. Fergus. Intriguing property of neural networks. 
+arXiv:1312.6199, 2013. 
+
+[31] J. Van De Weijer, C. Schmid, J. Verbeek, and D. Larlus. Learning 
+color name for real-world applications. IEEE Transactions on Image 
+Processing, 18(7):1512–1523, 2009. 
+
+[32] C. Vondrick, H. Pirsiavash, and A. Torralba. Generating video with 
+scene dynamics. arXiv:1609.02612, 2016. 
+
+[33] X. Wang and A. Gupta. Unsupervised learn of visual representa- 
+tions use videos. In Proc. CVPR, 2015. 
+
+[34] B. Yao, X. Jiang, A. Khosla, A. L. Lin, L. Guibas, and L. Fei-Fei. 
+Human action recognition by learn base of action attribute and 
+parts. In Proc. ICCV, 2011. 
+
+[35] J. Yosinski, J. Clune, Y. Bengio, and H. Lipson. How transferable be 
+feature in deep neural networks? In Advances in Neural Information 
+Processing Systems, 2014. 
+
+[36] S. Zagoruyko and N. Komodakis. Wide residual networks. 
+arXiv:1605.07146, 2016. 
+
+[37] M. D. Zeiler and R. Fergus. Visualizing and understand convolu- 
+tional networks. Proc. ECCV, 2014. 
+
+[38] R. Zhang, P. Isola, and A. A. Efros. Colorful image colorization. In 
+Proc. ECCV. Springer, 2016. 
+
+[39] R. Zhang, P. Isola, and A. A. Efros. Split-brain autoencoders: Un- 
+supervise learn by cross-channel prediction. In Proc. CVPR, 
+2017. 
+
+[40] B. Zhou, A. Khosla, A. Lapedriza, A. Oliva, and A. Torralba. Object 
+detector emerge in deep scene cnns. International Conference on 
+Learning Representations, 2015. 
+
+[41] B. Zhou, A. Khosla, A. Lapedriza, A. Torralba, and A. Oliva. Places: 
+An image database for deep scene understanding. arXiv:1610.02055, 
+2016. 
+
+[42] B. Zhou, A. Lapedriza, J. Xiao, A. Torralba, and A. Oliva. Learning 
+deep feature for scene recognition use place database. In Advances 
+in Neural Information Processing Systems, 2014. 
+
+[43] B. Zhou, H. Zhao, X. Puig, S. Fidler, A. Barriuso, and A. Torralba. 
+Scene parse through ade20k dataset. Proc. CVPR, 2017. 
+
+9 
+
+

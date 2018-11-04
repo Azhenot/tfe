@@ -1,0 +1,1377 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Designing Energy-Efficient Convolutional Neural Networks 
+use Energy-Aware Pruning 
+
+Tien-Ju Yang, Yu-Hsin Chen, Vivienne Sze 
+Massachusetts Institute of Technology 
+
+{tjy, yhchen, sze}@mit.edu 
+
+Abstract 
+
+Deep convolutional neural network (CNNs) be indis- 
+pensable to state-of-the-art computer vision algorithms. 
+However, they be still rarely deployed on battery-powered 
+mobile devices, such a smartphones and wearable gad- 
+gets, where vision algorithm can enable many revolution- 
+ary real-world applications. The key limit factor be the 
+high energy consumption of CNN processing due to it high 
+computational complexity. While there be many previous 
+effort that try to reduce the CNN model size or the amount 
+of computation, we find that they do not necessarily result 
+in low energy consumption. Therefore, these target do 
+not serve a a good metric for energy cost estimation. 
+
+To close the gap between CNN design and energy con- 
+sumption optimization, we propose an energy-aware prun- 
+ing algorithm for CNNs that directly us the energy con- 
+sumption of a CNN to guide the prune process. The en- 
+ergy estimation methodology us parameter extrapolate 
+from actual hardware measurements. The propose layer- 
+by-layer prune algorithm also prune more aggressively 
+than previously propose prune method by minimize 
+the error in the output feature map instead of the filter 
+weights. For each layer, the weight be first prune and 
+then locally fine-tuned with a closed-form least-square so- 
+lution to quickly restore the accuracy. After all layer be 
+pruned, the entire network be globally fine-tuned use back- 
+propagation. With the propose prune method, the en- 
+ergy consumption of AlexNet and GoogLeNet be reduce by 
+3.7× and 1.6×, respectively, with less than 1% top-5 accu- 
+racy loss. We also show that reduce the number of target 
+class in AlexNet greatly decrease the number of weights, 
+but have a limited impact on energy consumption. 
+
+1. Introduction 
+
+In recent years, deep convolutional neural network 
+(CNNs) have become the state-of-the-art solution for many 
+computer vision application and be ripe for real-world de- 
+ployment [1]. However, CNN processing incurs high en- 
+ergy consumption due to it high computational complex- 
+
+ity [2]. As a result, battery-powered device still cannot af- 
+ford to run state-of-the-art CNNs due to their limited energy 
+budget. For example, smartphones nowadays cannot even 
+run object classification with AlexNet [3] in real-time for 
+more than an hour. Hence, energy consumption have become 
+the primary issue of bridging CNNs into practical computer 
+vision applications. 
+
+In addition to accuracy, the design of modern CNNs 
+be start to incorporate new metric to make it more 
+favorable in real-world environments. For example, the 
+trend be to simultaneously reduce the overall CNN model 
+size and/or simplify the computation while go deeper. 
+This be achieve either by prune the weight of exist- 
+ing CNNs, i.e., make the filter sparse by set some 
+of the weight to zero [4–14], or by design new CNNs 
+with (1) highly bitwidth-reduced weight and operation 
+(e.g., XNOR-Net and BWN [15]) or (2) compact lay- 
+er with few weight (e.g., Network-in-Network [16], 
+GoogLeNet [17], SqueezeNet [18], and ResNet [19]). 
+
+However, neither the number of weight nor the num- 
+ber of operation in a CNN directly reflect it actual energy 
+consumption. A CNN with a small model size or few 
+operation can still have high overall energy consump- 
+tion. This be because the source of energy consumption 
+in a CNN consist of not only computation but also memory 
+accesses. In fact, fetch data from the DRAM for an op- 
+eration consumes order of magnitude high energy than 
+the computation itself [20], and the energy consumption 
+of a CNN be dominate by memory access for both fil- 
+ter weight and feature maps. The total number of memory 
+access be a function of the CNN shape configuration [21] 
+(i.e., filter size, feature map resolution, number of channels, 
+and number of filters); different shape configuration can 
+lead to different amount of memory accesses, and thus en- 
+ergy consumption, even under the same number of weight 
+or operations. Therefore, there be still no evidence show- 
+ing that the aforementioned approach can directly opti- 
+mize the energy consumption of a CNN. In addition, there 
+be currently no way for researcher to estimate the energy 
+consumption of a CNN at design time. 
+
+ar 
+X 
+
+iv 
+:1 
+
+61 
+1. 
+
+05 
+12 
+
+8v 
+4 
+
+[ 
+c 
+
+.C 
+V 
+
+] 
+1 
+
+8 
+A 
+
+pr 
+2 
+
+01 
+7 
+
+
+
+The key to closing the gap between CNN design and en- 
+ergy efficiency optimization be to directly use energy, in- 
+stead of the number of weight or operations, a a metric 
+to guide the design. In order to obtain realistic estimate of 
+energy consumption at design time of the CNN, we use the 
+framework propose in [21] that model the two source 
+of energy consumption in a CNN (computation and mem- 
+ory accesses), and use energy number extrapolate from 
+actual hardware measurement [22]. We then extend it to 
+further model the impact of data sparsity and bitwidth re- 
+duction. The setup target battery-powered platforms, such 
+a smartphones and wearable devices, where hardware re- 
+source (i.e., computation and memory) be limited and en- 
+ergy efficiency be of utmost importance. 
+
+We further propose a new CNN prune algorithm with 
+the goal to minimize overall energy consumption with 
+marginal accuracy degradation. Unlike the previous prun- 
+ing methods, it directly minimizes the change to the out- 
+put feature map a oppose to the change to the filter 
+and achieves a high compression ratio (i.e., the number of 
+remove weight divide by the number of total weights). 
+With the ability to directly estimate the energy consumption 
+of a CNN, the propose prune method identifies the part 
+of a CNN where prune can maximally reduce the energy 
+cost, and prune the weight more aggressively than previ- 
+ously propose method to maximize the energy reduction. 
+
+In summary, the key contribution of this work include: 
+
+• Energy Estimation Methodology: Since the number 
+of weight or operation do not necessarily serve a a 
+good metric to guide the CNN design toward high en- 
+ergy efficiency, we directly use the energy consumption 
+of a CNN to guide it design. This methodology be base 
+on the framework propose in [21] for realistic battery- 
+power systems, e.g., smartphones, wearable devices, 
+etc. We then further extend it to model the impact of data 
+sparsity and bitwidth reduction. The correspond en- 
+ergy estimation tool be available at [23]. 
+
+• Energy-Aware Pruning: We propose a new layer-by- 
+layer prune method that can aggressively reduce the 
+number of non-zero weight by minimize change in 
+feature map a oppose to change in filters. To max- 
+imize the energy reduction, the algorithm start prune 
+the layer that consume the most energy instead of with 
+the large number of weights, since prune becomes 
+more difficult a more layer be pruned. Each layer be 
+first prune and the preserve weight be locally fine- 
+tune with a closed-form least-square solution to quickly 
+restore the accuracy and increase the compression ratio. 
+After all the layer be pruned, the entire network be fur- 
+ther globally fine-tuned by back-propagation. As a result, 
+for AlexNet, we can reduce energy consumption by 3.7× 
+after pruning, which be 1.7× low than prune with the 
+popular network prune method propose in [8]. Even 
+
+for a compact CNN, such a GoogLeNet, the propose 
+prune method can still reduce energy consumption by 
+1.6×. The prune model will be release at [23]. As 
+many embed application only require a limited set 
+of classes, we also show the impact of prune AlexNet 
+for a reduce number of target classes. 
+
+• Energy Consumption Analysis of CNNs: We evalu- 
+ate the energy versus accuracy trade-off of widely-used 
+or prune CNN models. Our key insight be that (1) 
+maximally reduce weight or the number of MACs in 
+a CNN do not necessarily result in optimize energy 
+consumption, and feature map need to be factor in, (2) 
+convolutional (CONV) layers, instead of fully-connected 
+(FC) layers, dominate the overall energy consumption 
+in a CNN, (3) deeper CNNs with few weights, e.g., 
+GoogLeNet and SqueezeNet, do not necessarily consume 
+less energy than shallower CNNs with more weights, 
+e.g., AlexNet, and (4) sparsifying the filter can pro- 
+vide equal or more energy reduction than reduce the 
+bitwidth (even to binary) of weights. 
+
+2. Energy Estimation Methodology 
+
+2.1. Background and Motivation 
+
+Multiply-and-accumulate (MAC) operation in CONV 
+and FC layer account for over 99% of total operation in 
+state-of-the-art CNNs [3, 17, 19, 24], and therefore domi- 
+nate both processing runtime and energy consumption. The 
+energy consumption of MACs come from computation 
+and memory access for the require data, include both 
+weight and feature maps. While the amount of compu- 
+tation increase linearly with the number of MACs, the 
+amount of require data do not necessarily scale accord- 
+ingly due to data reuse, i.e., the same data value be use for 
+multiple MACs. This implies that some data have a high 
+impact on energy than others, since they be access more 
+often. In other words, remove the data that be reuse 
+more have the potential to yield high energy reduction. 
+
+Data reuse in a CNN arises in many ways, and be de- 
+termined by the shape configuration of different layers. 
+In CONV layers, due to it weight share property, each 
+weight and input activation be reuse many time accord- 
+ing to the resolution of output feature map and the size of 
+filters, respectively. In both CONV and FC layers, each in- 
+put activation be also reuse across all filter for different 
+output channel within the same layer. When input batch- 
+ing be applied, each weight be further reuse across all input 
+feature map in both type of layers. Overall, CONV lay- 
+er usually present much more data reuse than FC layers. 
+Therefore, a a general rule of thumb, each weight and acti- 
+vation in CONV layer have a high impact on energy than 
+in FC layers. 
+
+While data reuse serf a a good metric for compare 
+
+
+
+# of access at mem. level 2 
+
+# of access at mem. level n 
+
+# of access at mem. level 1 
+
+CNN Shape Configuration 
+
+(# of channels, # of filters, etc.) 
+
+CNN Weights and Input Data 
+
+[0.3, 0, -0.4, 0.7, 0, 0, 0.1, …] CNN Energy Consumption 
+
+L1 L2 L3 
+
+Energy 
+
+… 
+
+Memory Access 
+
+Optimization 
+
+# of MACs 
+
+Calculation 
+
+… 
+
+# of MACs 
+
+Hardware Energy Costs of Each MAC and Memory Access 
+
+Ecomp 
+
+Edata 
+
+Figure 1. The energy estimation methodology be base on the framework propose in [21], which optimizes the memory access at 
+each level of the memory hierarchy to achieve the low energy consumption. We then further account for the impact of data sparsity 
+and bitwidth reduction, and use energy number extrapolate from actual hardware measurement of [22] to calculate the energy for both 
+computation and data movement. 
+
+relative energy impact of data, it do not directly translate 
+to the actual energy consumption. This be because modern 
+hardware processor implement multiple level of memory 
+hierarchy, e.g., DRAM and multi-level buffers, to amortize 
+the energy cost of memory accesses. The goal be to access 
+data more from the less energy-consuming memory levels, 
+which usually have less storage capacity, and thus mini- 
+mize data access to the more energy-consuming memory 
+levels. Therefore, the total energy cost to access a single 
+piece of data with many reuses can vary a lot depend on 
+how the access spread across different memory levels, and 
+minimize overall energy consumption use the memory 
+hierarchy be the key to energy-efficient processing of CNNs. 
+
+2.2. Methodology 
+
+With the idea of exploit data reuse in a multi-level 
+memory hierarchy, Chen et al. [21] have present a frame- 
+work that can estimate the energy consumption of a CNN 
+for inference. As show in Fig 1, for each CNN layer, the 
+framework calculates the energy consumption by divide 
+it into two parts: computation energy consumption, Ecomp, 
+and data movement energy consumption, Edata. Ecomp be 
+calculate by counting the number of MACs in the layer 
+and weigh it with the energy consume by run each 
+MAC operation in the computation core. Edata be calculate 
+by counting the number of memory access at each level of 
+the memory hierarchy in the hardware and weigh it with 
+the energy consume by each access of that memory level. 
+To obtain the number of memory accesses, [21] proposes 
+an optimization procedure to search for the optimal number 
+of access for all data type (feature map and weights) 
+at all level of memory hierarchy that result in the low- 
+est energy consumption. For energy number of each MAC 
+operation and memory access, we use number extrapolate 
+from actual hardware measurement of the platform target- 
+ing battery-powered device [22]. 
+
+Based on the aforementioned framework, we have cre- 
+ated a methodology that further account for the impact of 
+data sparsity and bitwidth reduction on energy consump- 
+tion. For example, we assume that the computation of a 
+MAC and it associate memory access can be skip 
+
+completely when either of it input activation or weight 
+be zero. Lossless data compression be also apply on the 
+sparse data to save the cost of both on-chip and off-chip data 
+movement. The impact of bitwidth be quantify by scale 
+the energy cost of different hardware component accord- 
+ingly. For instance, the energy consumption of a multiplier 
+scale with the bitwidth quadratically, while that of a mem- 
+ory access only scale it energy linearly. 
+
+2.3. Potential Impact 
+
+With this methodology, we can quantify the difference 
+in energy cost between various popular CNN model and 
+methods, such a increase data sparsity or aggressive 
+bitwidth reduction (discussed in Sec. 5). More importantly, 
+it provide a gateway for researcher to ass the energy 
+consumption of CNNs at design time, which can be use 
+a a feedback that lead to CNN design with significantly 
+reduce energy consumption. In Sec. 4, we will describe an 
+energy-aware prune method that us the propose energy 
+estimation method for decide the layer prune priority. 
+
+3. CNN Pruning: Related Work 
+
+Weight pruning. There be a large body of work that aim 
+to reduce the CNN model size by prune weight while 
+maintain accuracy. LeCun et al. [4] and Hassibi et al. [5] 
+remove the weight base on the sensitivity of the final ob- 
+jective function to that weight (i.e., remove the weight with 
+the least sensitivity first). However, the complexity of com- 
+put the sensitivity be too high for large networks, so the 
+magnitude-based prune method [6] use the magnitude 
+of a weight to approximate it sensitivity; specifically, the 
+small-magnitude weight be remove first. Han et al. [7, 8] 
+apply this idea to recent network and achieve large 
+model size reduction. They iteratively prune and globally 
+fine-tune the network, and the prune weight will always 
+be zero after be pruned. Jin et al. [9] and Guo et al. [10] 
+extend the magnitude-based method to allow the restora- 
+tion of the prune weight in the previous iterations, with 
+tightly couple prune and global fine-tuning stages, for 
+great model compression. However, all the above meth- 
+
+
+
+od evaluate whether to prune each weight independently 
+and do not account for correlation between weight [11]. 
+When the compression ratio be large, the aggregate impact 
+of many weight can have a large impact on the output; thus, 
+fail to consider the combine influence of the weight on 
+the output limit the achievable compression ratio. 
+
+Filter pruning. Rather than investigate the removal 
+of each individual weight (fine-grained pruning), there be 
+also work that investigates remove entire filter (coarse- 
+grain pruning). Hu et al. [12] propose remove filter 
+that frequently generate zero output after the ReLU layer 
+in the validation set. Srinivas et al. [13] propose merge 
+similar filter into one. Mariet et al. [14] propose merg- 
+ing filter in the FC layer with similar output activation 
+into one. Unfortunately, these coarse-grained prune ap- 
+proaches tend to have low compression ratio than fine- 
+grain prune for the same accuracy. 
+
+Previous work directly target reduce the model size. 
+However, a discuss in Sec. 1, the number of weight 
+alone do not dictate the energy consumption. Hence, the 
+energy consumption of the prune CNNs in the previous 
+work be not minimized. 
+
+To address issue highlight above, we propose a new 
+fine-grained prune algorithm that specifically target 
+energy-efficiency. It utilizes the estimate energy provide 
+by the methodology described in Sec. 2 to guide the pro- 
+pose prune algorithm to aggressively prune the layer 
+with the high energy consumption with marginal impact 
+on accuracy. Moreover, the prune algorithm considers the 
+joint influence of weight on the final output feature maps, 
+thus enable both a high compression ratio and a large 
+energy reduction. The combination of these two approach 
+result in CNNs that be more energy-efficient and compact 
+than previously propose approaches. 
+
+The propose energy-efficient prune algorithm can be 
+combine with other technique to further reduce the en- 
+ergy consumption, such a bitwidth reduction of weight 
+or feature map [15, 25, 26], weight share and Huffman 
+cod [8], student-teacher learn [27], filter decomposi- 
+tion [28, 29] and prune feature map [30]. 
+
+4. Energy-Aware Pruning 
+Our goal be to reduce the energy consumption of a give 
+
+CNN by sparsifying the filter without significant impact 
+on the network accuracy. The key step in the propose 
+energy-aware prune be show in Fig. 2, where the input 
+be a CNN model and the output be a sparser CNN model with 
+low energy consumption. 
+
+In Step 1, the prune order of the layer be determine 
+base on the energy a described in Sec. 2. Step 2, 3 and 
+4 removes, restores and locally fine-tunes weights, respec- 
+tively, for one layer in the network; this inner loop be re- 
+peated for each layer in the network. Pruning and restore 
+
+① Determine Order of Layers Based on Energy 
+
+② Remove Weights Based on Magnitude 
+
+③ Restore Weights to Reduce Output Error 
+
+④ Locally Fine-tune Weights 
+
+Other Unpruned 
+Layers? 
+
+⑤ Globally Fine-tune Weights 
+
+Accuracy Below 
+Threshold? 
+
+Input Model 
+
+Output Model 
+
+No 
+(Start Next Iteration) 
+
+Yes 
+
+No 
+
+Yes 
+(Prune Next Layer) 
+
+Figure 2. Flow of energy-aware pruning. 
+
+weight involve choose weights, while locally fine-tuning 
+weight involves change the value of the weights, all 
+while minimize the output feature map error. In Step 2, a 
+simple magnitude-based prune method be use to quickly 
+remove the weight above the target compression ratio (e.g., 
+if the target compression ratio be 30%, 35% of the weight 
+be remove in this step). The number of extra weight re- 
+move be determine empirically. In Step 3, the correlate 
+weight that have the great impact on reduce the output 
+error be restore to their original non-zero value to reach 
+the target compression ratio (e.g., restore 5% of weights). 
+In Step 4, the preserve weight be locally fine-tuned with 
+a closed-form least-square solution to further decrease the 
+output feature map error. Each of these step be described 
+in detail in Sec. 4.1 to Sec. 4.4. 
+
+Once each individual layer have be prune use Step 2 
+to 4, Step 5 performs global fine-tuning of weight across 
+the entire network use back-propagation a described in 
+Sec. 4.5. All these step be iteratively perform until the 
+final network can no longer maintain a give accuracy, e.g., 
+1% accuracy loss. 
+
+Compared to the previous magnitude-based prune ap- 
+proaches [6–10], the main difference of this work be the in- 
+troduction of Step 1, 3, and 4. Step 1 enables prune to 
+minimize the energy consumption. Step 3 and 4 increase 
+the compression ratio and reduce the energy consumption. 
+
+4.1. Determine Order of Layers Based on Energy 
+
+As more layer be pruned, it becomes increasingly dif- 
+ficult to remove weight because the accuracy approach 
+the give accuracy threshold. Accordingly, layer that be 
+prune early on tend to have high compression ratio than 
+the layer that follow. Thus, in order to maximize the over- 
+
+
+
+all energy reduction, we prune the layer that consume the 
+most energy first. Specifically, we use the energy estima- 
+tion from Sec. 2 and determine the prune order of layer 
+base on their energy consumption. As a result, the layer 
+that consume the most energy achieve high compression 
+ratio and energy reduction. At the begin of each outer 
+loop iteration in Fig. 2, the new prune order be redeter- 
+mine accord to the new energy estimation of each layer. 
+
+4.2. Remove Weights Based on Magnitude 
+
+For a FC layer, Yi ∈ Rk×1 be the ith output feature map 
+across k image and be compute from 
+
+Yi = XiAi + Bi1, (1) 
+
+where Ai ∈ Rm×1 be the ith filter among all n filter 
+(A ∈ Rm×n) with m weights, and Xi ∈ Rk×m denotes 
+the correspond k input feature maps, Bi ∈ R be the ith 
+bias, and 1 ∈ Rk×1 be a vector where all entry be one. 
+For a CONV layer, we can convert the convolutional oper- 
+ation into a matrix multiplication operation, by convert 
+the input feature map into a Toeplitz matrix, and compute 
+the output feature map with a similar equation a Eq.(1). 
+
+To sparsify the filter without impact the accuracy, 
+the simplest method be prune weight with magnitude 
+small than a threshold, which be refer to a magnitude- 
+base prune [6–10]. The advantage of this approach be 
+that it be fast, and work well when a few weight be re- 
+moved, and thus the correlation between weight only have a 
+minor impact on the output. However, a more weight be 
+pruned, this method introduces a large output error a the 
+correlation between weight becomes more critical. For ex- 
+ample, if most of the small-magnitude weight be negative, 
+the output error will become large once many of these small 
+negative weight be remove use the magnitude-based 
+pruning. In this case, it would be desirable to remove a 
+large positive weight to compensate for the introduce error 
+instead of remove more small negative weights. Thus, 
+we only use magnitude-based prune for fast initial prun- 
+ing of each layer. We then introduce additional step that 
+account for the correlation between weight to reduce the 
+output error due to the magnitude-based pruning. 
+
+4.3. Restore Weights to Reduce Output Error 
+
+It be the error in the output feature maps, and not the 
+filters, that affect the overall network accuracy. Therefore, 
+we focus on minimize the error of the output feature map 
+instead of that of the filters. To achieve this, we model the 
+problem a the follow `0-minimization problem: 
+
+Ãi = arg min 
+Âi 
+
+∥∥∥Ŷi −XiÂi∥∥∥p 
+p 
+, 
+
+subject to 
+∥∥∥Â∥∥∥ 
+
+0 
+6 q, i = 1, ..., n, 
+
+(2) 
+
+where Ŷi denotes Yi −Bi1, ‖·‖p be the p-norm, and q be the 
+number of non-zero weight we want to retain in all filters. 
+
+p can be set to 1 or 2, and we use 1. Unfortunately, solv- 
+ing this `0-minimization problem be NP-hard. Therefore, a 
+greedy algorithm be propose to approximate it. 
+
+The algorithm start from prune filter Ă ∈ Rm×n, ob- 
+tained from the magnitude-based prune in Step 2. These 
+filter be prune at a high compression ratio than the tar- 
+get compression ratio. Each filter Ai have the correspond- 
+ing support Si, where Si be a set of the index of non-zero 
+weight in the filter. It then iteratively restores weight until 
+the number of non-zero weight be equal to q, which reflect 
+the target compression ratio. 
+
+The residual of each filter, which indicates the current 
+output feature map difference we need to minimize, be ini- 
+tialized a Ŷi −XiĂi. In each iteration, out of the weight 
+not in the support of a give filter Si, we select the weight 
+that reduces the `1-norm of the correspond residual the 
+most, and add it to the support Si. The residual then be up- 
+date by take this new weight into account. 
+
+We restore weight from the filter with the large resid- 
+ual in each iteration. This prevents the algorithm from 
+restore weight in filter with small residuals, which will 
+likely have less effect on the overall output feature map er- 
+ror. This could occur if the weight be select base 
+solely on the large `1-norm improvement for any filter. 
+
+To speed up this restoration process, we restore multiple 
+weight within a give filter in each iteration. The g weight 
+with the top-g maximum `1-norm improvement be chosen. 
+As a result, we reduce the frequency of compute resid- 
+ual improvement for each weight, which take a significant 
+amount of time. We adopt g equal to 2 in our experiments, 
+but a high g can be used. 
+
+4.4. Locally Fine-tune Weights 
+
+The previous two step select a subset of weight to pre- 
+serve, but do not change the value of the weights. In this 
+step, we perform the least-square optimization on each filter 
+to change the value of their weight to further reduce the 
+output error and restore the network accuracy: 
+
+Āi,Si = arg min 
+Âi,Si 
+
+∥∥∥Ŷi −Xi,Si Âi,Si∥∥∥2 
+2 
+, Āi,SCi 
+
+= 0, (3) 
+
+where the subscript Si mean choose the non-pruned 
+weight from the ith filter and the correspond column 
+from Xi. The least-square problem have a closed-form solu- 
+tion, which can be efficiently solved. 
+
+4.5. Globally Fine-tune Weights 
+
+After all the layer be pruned, we fine-tune the whole 
+network use back-propagation with the prune weight 
+fix at zero. This step can be use to globally fine-tune the 
+weight to achieve a high accuracy. Fine-tuning the whole 
+network be time-consuming and require careful tune of 
+several hyper-parameters. In addition, back-propagation 
+
+
+
+can only restore the accuracy within certain accuracy loss. 
+However, since we first locally fine-tune weights, part of 
+the accuracy have already be restored, which enables more 
+weight to be prune under a give accuracy loss tolerance. 
+As a result, we increase the compression ratio in each it- 
+eration, reduce the total number of globally fine-tuning 
+iteration and the correspond time. 
+
+5. Experiment Results 
+5.1. Pruning Method Evaluation 
+
+We evaluate our energy-aware prune on AlexNet [3], 
+GoogLeNet v1 [17] and SqueezeNet v1 [18] and compare 
+it with the state-of-the-art magnitude-based prune method 
+with the publicly available model [8].1 The accuracy and 
+the energy consumption be measure on the ImageNet 
+ILSVRC 2014 dataset [31]. Since the energy-aware prune 
+method relies on the output feature maps, we use the train- 
+ing image for both prune and fine-tuning. All accuracy 
+number be measure on the validation images. To esti- 
+mate the energy consumption with the propose methodol- 
+ogy in Sec. 2, we assume all value be represent with 
+16-bit precision, except where otherwise specified, to fairly 
+compare the energy consumption of networks. The hard- 
+ware parameter use be similar to [22]. 
+
+Table 1 summarizes the results.2 The batch size be 44 for 
+AlexNet and 48 for other two networks. All the energy- 
+aware prune network have less than 1% accuracy loss 
+with respect to the other correspond networks. For 
+AlexNet and SqueezeNet, our method achieves good re- 
+sults in all metric (i.e., number of weights, number of 
+MACs, and energy consumption) than the magnitude-based 
+prune [8]. For example, the number of MACs be reduce 
+by another 3.2× and the estimate energy be reduce by an- 
+other 1.7× with a 15% small model size on AlexNet. Ta- 
+ble 2 show a comparison of the energy-aware prune and 
+the magnitude-based prune across each layer; our method 
+give a high compression ratio for all layers, especially for 
+CONV1 to CONV3, which consume most of the energy. 
+
+Our approach be also effective on compact models. For 
+example, on GoogLeNet, the achieve reduction factor be 
+2.9× for the model size, 3.4× for the number of MACs and 
+1.6× for the estimate energy consumption. 
+
+5.2. Energy Consumption Analysis 
+
+We also evaluate the energy consumption of popular 
+CNNs. In Fig. 3, we summarize the estimate energy con- 
+sumption of CNNs relative to their top-5 accuracy. The re- 
+sults reveal the follow key observations: 
+
+1The propose energy-aware prune can be easily combine with 
+other technique in [8], such a weight share and Huffman coding. 
+
+2We use the model provide by MatConvNet [32] or convert from 
+Caffe [33] or Torch [34], so the accuracy may be slightly different from 
+that report by other works. 
+
+• Convolutional layer consume more energy than 
+fully-connected layers. Fig. 4 show the energy break- 
+down of the original AlexNet and two prune AlexNet 
+models. Although most of the weight be in the FC lay- 
+ers, CONV layer account for most of the energy con- 
+sumption. For example, in the original AlexNet, the 
+CONV layer contain 3.8% of the total weights, but con- 
+sume 72.6% of the total energy. There be two reason for 
+this: (1) In CONV layers, the energy consumption of the 
+input and output feature map be much high than that 
+of FC layers. Compared to FC layers, CONV layer re- 
+quire a large number of MACs, which involves load 
+input from memory and write the output to memory. 
+Accordingly, a large number of MACs lead to a large 
+amount of weight and feature map movement and hence 
+high energy consumption; (2) The energy consumption 
+of weight for all CONV layer be similar to that of all 
+FC layers. While CONV layer have few weight than 
+FC layers, each weight in CONV layer be use more fre- 
+quently than that in FC layers; this be the reason why the 
+number of weight be not a good metric for energy con- 
+sumption – different weight consume different amount 
+of energy. Accordingly, prune a weight from CONV 
+layer contributes more to energy reduction than prun- 
+ing a weight from FC layers. In addition, a a network 
+go deeper, e.g., ResNet [19], CONV layer dominate 
+both the energy consumption and the model size. The 
+energy-aware prune prune CONV layer effectively, 
+which significantly reduces energy consumption. 
+
+• Deeper CNNs with few weight do not necessarily 
+consume less energy than shallower CNNs with more 
+weights. One network design strategy for reduce the 
+size of a network without sacrifice the accuracy be to 
+make a network thinner but deeper. However, do this 
+mean the energy consumption be also reduced? Table 1 
+show that a network architecture have a small model 
+size do not necessarily have low energy consump- 
+tion. For instance, SqueezeNet be a compact model and a 
+good fit for memory-limited applications; it be thinner and 
+deeper than AlexNet and achieves a similar accuracy with 
+50× size reduction, but consumes 33% more energy. The 
+increase in energy be due to the fact that SqueezeNet us 
+more CONV layer and the size of the feature map can 
+only be greatly reduce in the final few layer to preserve 
+the accuracy. Hence, the newly add CONV layer in- 
+volve a large amount of computation and data movement, 
+result in high energy consumption. 
+
+• Reducing the number of weight can provide low 
+energy consumption than reduce the bitwidth of 
+weights. From Fig. 3, the AlexNet prune by the pro- 
+pose method consumes less energy than BWN [15]. 
+BWN us an AlexNet-like architecture with binarized 
+weights, which only reduces the weight-related and 
+
+
+
+Table 1. Performance metric of various dense and prune models. 
+
+Model Top-5Accuracy 
+# of Non-zero 
+
+Weights (×106) 
+# of Non-skipped 
+
+MACs (×108)1 
+Normalized 
+
+Energy (×109)1,2 
+AlexNet (Original) 80.43% 60.95 (100%) 3.71 (100%) 3.97 (100%) 
+AlexNet ([8]) 80.37% 6.79 (11%) 1.79 (48%) 1.85 (47%) 
+AlexNet (Energy-Aware Pruning) 79.56% 5.73 (9%) 0.56 (15%) 1.06 (27%) 
+
+GoogLeNet (Original) 88.26% 6.99 (100%) 7.41 (100%) 7.63 (100%) 
+GoogLeNet (Energy-Aware Pruning) 87.28% 2.37 (34%) 2.16 (29%) 4.76 (62%) 
+SqueezeNet (Original) 80.61% 1.24 (100%) 4.51 (100%) 5.28 (100%) 
+SqueezeNet ([8]) 81.47% 0.42 (33%) 3.30 (73%) 4.61 (87%) 
+SqueezeNet (Energy-Aware Pruning) 80.47% 0.35 (28%) 1.93 (43%) 3.99 (76%) 
+
+1 Per image. 
+2 The unit of energy be normalize in term of the energy for a MAC operation (i.e., 102 = energy of 100 MACs). 
+
+AlexNet SqueezeNet 
+
+GoogLeNet 
+
+BWN (1-bit) 
+
+ResNet-50 
+VGG-16 
+
+AlexNet 
+
+SqueezeNet 
+
+AlexNet SqueezeNet 
+
+GoogLeNet 
+
+77% 
+
+79% 
+
+81% 
+
+83% 
+
+85% 
+
+87% 
+
+89% 
+
+91% 
+
+93% 
+
+5E+08 5E+09 5E+10 
+
+To 
+p 
+
+-5 
+A 
+
+cc 
+u 
+
+ra 
+cy 
+
+Normalized Energy Consumption 
+
+Original CNN Magnitude-based Pruning [8] Energy-aware Pruning (This Work) 
+
+Figure 3. Accuracy versus energy trade-off of popular CNN models. Models prune with the energy-aware prune provide a good 
+accuracy versus energy trade-off (steeper slope). 
+
+Table 2. Compression ratio1 of each layer in AlexNet. 
+
+[8] This Work 
+# of 
+
+Classes 1000 1000 100 
+10 
+
+(Random) 
+10 
+
+(Dog) 
+CONV1 16% 83% 86% 89% 89% 
+CONV2 62% 92% 97% 97% 96% 
+CONV3 65% 91% 97% 98% 97% 
+CONV4 63% 81% 88% 97% 95% 
+CONV5 63% 74% 79% 98% 98% 
+
+FC1 91% 92% 93% ∼100% ∼100% 
+FC2 91% 91% 94% ∼100% ∼100% 
+FC3 74% 78% 78% ∼100% ∼100% 
+
+1 The number of remove weight divide by the number of 
+total weights. The higher, the better. 
+
+computation-related energy consumption. However, 
+prune reduces the energy of both weight and feature 
+map movement, a well a computation. In addition, the 
+weight in CONV1 and FC3 of BWN be not binarized 
+to preserve the accuracy; thus BWN do not reduce the 
+energy consumption of CONV1 and FC3. Moreover, 
+to compensate for the accuracy loss of binarizing the 
+weights, CONV2, CONV4 and CONV5 layer in BWN 
+use 2× the number of weight in the correspond lay- 
+
+CO 
+NV 
+
+1 
+
+CO 
+NV 
+
+2 
+
+CO 
+NV 
+
+3 
+
+CO 
+NV 
+
+4 
+
+CO 
+NV 
+
+5 
+FC 
+
+1 
+FC 
+
+2 
+FC 
+
+3 
+0 
+
+2 
+
+4 
+
+6 
+
+8 
+
+10 
+
+12 
+
+N 
+or 
+
+m 
+al 
+
+iz 
+ed 
+
+E 
+ne 
+
+rg 
+y 
+
+C 
+on 
+
+su 
+m 
+
+pt 
+io 
+
+n 
+
+×10 8 
+
+Input Feature Map Movement 
+Output Feature Map Movement 
+Weight Movement 
+Computation 
+
+Figure 4. Energy consumption breakdown of different AlexNets in 
+term of the computation and the data movement of input feature 
+maps, output feature map and filter weights. From left to right: 
+original AlexNet, AlexNet prune by [8], AlexNet prune by the 
+propose energy-aware pruning. 
+
+er of the original AlexNet, which increase the energy 
+consumption. 
+
+• A low number of MACs do not necessarily lead 
+to low energy consumption. For example, the prune 
+GoogleNet have a few MACs but consumes more en- 
+ergy than the SqueezeNet prune by [8]. That be because 
+they have different data reuse, which be determine by the 
+shape configurations, a discuss in Sec. 2.1. 
+
+
+
+1000 100 10R 10D 
+0 
+
+2 
+
+4 
+
+6 ×10 
+6 
+
+(a) # of weight 
+1000 100 10R 10D 
+
+0 
+
+2 
+
+4 
+
+6 ×10 
+7 
+
+(b) # of MACs 
+1000 100 10R 10D 
+
+0 
+
+2 
+
+4 
+
+6 
+
+8 
+
+10 
+×108 
+
+(c) Estimated energy 
+Figure 5. The impact of reduce the number of target class on 
+the three metrics. The x-axis be the number of target classes. 10R 
+and 10D denote the 10-random-class model and the 10-dog-class 
+model, respectively. 
+
+1000 100 10R 10D 
+0 
+
+1 
+
+2 
+
+3 
+
+4 
+
+5 ×10 
+8 
+
+(a) Input feature map 
+1000 100 10R 10D 
+
+0 
+
+1 
+
+2 
+
+3 
+
+4 
+
+5 ×10 
+8 
+
+(b) Output feature map 
+1000 100 10R 10D 
+
+0 
+
+1 
+
+2 
+
+3 
+
+4 
+
+5 ×10 
+8 
+
+(c) Weight 
+Figure 6. The energy breakdown of model with different number 
+of target classes. 
+
+From Fig. 3, we also observe that the energy consump- 
+tion scale exponentially with linear increase in accuracy. 
+For instance, GoogLeNet consumes 2× energy of AlexNet 
+for 8% accuracy improvement, and ResNet-50 consumes 
+3.3× energy of GoogLeNet for 3% accuracy improvement. 
+
+In summary, the model size (i.e., the number of weight 
+× the bitwidth) and the number of MACs do not directly 
+reflect the energy consumption of a layer or a network. 
+There be other factor like the data movement of the fea- 
+ture maps, which be often overlooked. Therefore, with the 
+propose energy estimation methodology, researcher can 
+have a clearer view of CNNs and more effectively design 
+low-energy-consumption networks. 
+
+5.3. Number of Target Class Reduction 
+
+In many applications, the number of class can be sig- 
+nificantly few than 1000. We study the influence of re- 
+ducing the number of target class by prune weight on 
+the three metrics. AlexNet be use a the start point. The 
+number of target class be reduce from 1000 to 100 to 10. 
+The target class of the 100-class model and one of the 
+10-class model be randomly picked, and that of another 
+10-class model be different dog breeds. These model be 
+prune with less than 1% top-5 accuracy loss for the 100- 
+class model and less than 1% top-1 accuracy loss for the 
+two 10-class models. 
+
+Fig. 5 show that a the number of target class reduces, 
+the number of weight and MACs and the estimate energy 
+consumption decrease. However, they reduce at different 
+rate with the model size drop the fastest, follow by 
+the number of MACs the second, and the estimate energy 
+reduces the slowest. 
+
+According to Table 2, for the 10-class models, almost 
+
+all the weight in the FC layer be pruned, which lead to 
+a very small model size. Because the FC layer work a 
+classifiers, most of the weight that be responsible for clas- 
+sifying the remove class be pruned. The higher-level 
+CONV layers, such a CONV4 and CONV5, which contain 
+filter for extract more specialized feature of objects, 
+be also significantly pruned. CONV1 be prune less since it 
+extract basic feature that be share among all classes. As 
+a result, the number of MACs and the energy consumption 
+do not reduce a rapidly a the number of weights. Thus, we 
+hypothesize that the layer closer to the output of a network 
+shrink more rapidly with the number of classes. 
+
+As the number of class reduces, the energy consump- 
+tion becomes less sensitive to the filter sparsity. From the 
+energy breakdown (Fig. 6), the energy consumption of fea- 
+ture map gradually saturates due to data reuse and the 
+memory hierarchy. For example, each time one input activa- 
+tion be load from the DRAM onto the chip, it be use mul- 
+tiple time by several weights. If any one of these weight 
+be not pruned, the activation still need to be fetch from 
+the DRAM. Moreover, we observe that sometimes the spar- 
+sity of feature map decrease after we reduce the number 
+of target classes, which cause high energy consumption 
+for move the feature maps. 
+
+Table 2 and Fig. 5 and 6 show that the compression ratio 
+and the performance of the two 10-class model be simi- 
+lar. Hence, we hypothesize that the prune performance 
+mainly depends on the number of target classes, and the 
+type of the preserve class be less influential. 
+
+6. Conclusion 
+This work present an energy-aware prune algorithm 
+
+that directly us the energy consumption of a CNN to 
+guide the prune process in order to optimize for the best 
+energy-efficiency. The energy of a CNN be estimate by 
+a methodology that model the computation and memory 
+access of a CNN and us energy number extrapolate 
+from actual hardware measurements. It enables more ac- 
+curate energy consumption estimation compare to just us- 
+ing the model size or the number of MACs. With the esti- 
+mat energy for each layer in a CNN model, the algorithm 
+performs layer-by-layer pruning, start from the layer 
+with the high energy consumption to the layer with the 
+low energy consumption. For prune each layer, it re- 
+move the weight that have the small joint impact on the 
+output feature maps. The experiment show that the pro- 
+pose prune method reduces the energy consumption of 
+AlexNet and GoogLeNet, by 3.7× and 1.6×, respectively, 
+compare to their original dense models. The influence of 
+prune the AlexNet with the number of target class re- 
+duced be explore and discussed. The result show that by 
+reduce the number of target classes, the model size can be 
+greatly reduce but the energy reduction be limited. 
+
+
+
+References 
+[1] Y. LeCun, Y. Bengio, and G. Hinton, “Deep learning,” Na- 
+
+ture, vol. 521, pp. 436–444, May 2015. 
+
+[2] “GPU-Based Deep Learning Inference: A Performance and 
+Power Analysis.” Nvidia Whitepaper, 2015. 
+
+[3] A. Krizhevsky, I. Sutskever, and G. E. Hinton, “ImageNet 
+Classification with Deep Convolutional Neural Networks,” 
+in NIPS, 2012. 
+
+[4] Y. LeCun, J. S. Denker, and S. A. Solla, “Optimal Brain 
+Damage,” in NIPS, 1990. 
+
+[5] B. Hassibi and D. G. Stork, “Second order derivaties for net- 
+work prunning: Optimal brain surgeon,” in NIPS, 1993. 
+
+[6] J. Hertz, A. Krogh, and R. G. Palmer, Introduction to the 
+Theory of Neural Computation. Addison-Wesley Longman 
+Publishing Co., Inc., 1991. 
+
+[7] S. Han, J. Pool, J. Tran, and W. J. Dally, “Learning both 
+weight and connection for efficient neural networks,” in 
+NIPS, 2015. 
+
+[8] S. Han, H. Mao, and W. J. Dally, “Deep Compression: 
+Compressing Deep Neural Networks with Pruning, Trained 
+Quantization and Huffman Coding,” in ICLR, 2016. 
+
+[9] X. Jin, X. Yuan, J. Feng, and S. Yan, “Training Skinny Deep 
+Neural Networks with Iterative Hard Thresholding Meth- 
+ods,” arXiv preprint arXiv:1607.05423, 2016. 
+
+[10] Y. Guo, A. Yao, and Y. Chen, “Dynamic Network Surgery 
+for Efficient DNNs,” in NIPS, 2016. 
+
+[11] R. Reed, “Pruning algorithm - a survey,” IEEE Transactions 
+on Neural Networks, vol. 4, no. 5, pp. 740–747, 1993. 
+
+[12] H. Hu, R. Peng, Y.-W. Tai, and C.-K. Tang, “Net- 
+work Trimming: A Data-Driven Neuron Pruning Ap- 
+proach towards Efficient Deep Architectures,” arXiv preprint 
+arXiv:1607.03250, 2016. 
+
+[13] S. Srinivas and R. V. Babu, “Data-free parameter prune for 
+Deep Neural Networks,” in BMVC, 2015. 
+
+[14] Z. Mariet and S. Sra, “Diversity Networks,” in ICLR, 2016. 
+
+[15] M. Rastegari, V. Ordonez, J. Redmon, and A. Farhadi, 
+“XNOR-Net: ImageNet Classification Using Binary Convo- 
+lutional Neural Networks,” in ECCV, 2016. 
+
+[16] M. Lin, Q. Chen, and S. Yan, “Network in Network,” in 
+ICLR, 2014. 
+
+[17] C. Szegedy, W. Liu, Y. Jia, P. Sermanet, S. Reed, 
+D. Anguelov, D. Erhan, V. Vanhoucke, and A. Rabinovich, 
+“Going Deeper With Convolutions,” in CVPR, 2015. 
+
+[18] F. N. Iandola, S. Han, M. W. Moskewicz, K. Ashraf, W. J. 
+Dally, and K. Keutzer, “Squeezenet: Alexnet-level accu- 
+racy with 50x few parameter and <0.5mb model size,” 
+arXiv:1602.07360, 2016. 
+
+[19] K. He, X. Zhang, S. Ren, and J. Sun, “Deep Residual Learn- 
+ing for Image Recognition,” in CVPR, 2016. 
+
+[20] M. Horowitz, “Computing’s energy problem (and what we 
+can do about it),” in ISSCC, 2014. 
+
+[21] Y. Chen, J. Emer, and V. Sze, “Eyeriss: A Spatial Architec- 
+ture for Energy-Efficient Dataflow for Convolutional Neural 
+Networks,” in ISCA, 2016. 
+
+[22] Y. Chen, T. Krishna, J. Emer, and V. Sze, “Eyeriss: An 
+Energy-Efficient Reconfigurable Accelerator for Deep Con- 
+volutional Neural Networks,” in ISSCC, 2016. 
+
+[23] “CNN Energy Estimation Website.” http://eyeriss. 
+mit.edu/energy.html. 
+
+[24] K. Simonyan and A. Zisserman, “Very Deep Convolutional 
+Networks for Large-Scale Image Recognition,” in ICLR, 
+2014. 
+
+[25] M. Courbariaux, Y. Bengio, and J.-P. David, “Binaryconnect: 
+Training deep neural network with binary weight during 
+propagations,” in NIPS, 2015. 
+
+[26] J. Wu, C. Leng, Y. Wang, Q. Hu, and J. Cheng, “Quan- 
+tized Convolutional Neural Networks for Mobile Devices,” 
+in CVPR, 2016. 
+
+[27] J. Ba and R. Caruana, “Do deep net really need to be deep?,” 
+in NIPS, 2014. 
+
+[28] Y.-D. Kim, E. Park, S. Yoo, T. Choi, L. Yang, and D. Shin, 
+“Compression of Deep Convolutional Neural Networks for 
+Fast and Low Power Mobile Applications,” in ICLR, 2016. 
+
+[29] B. Liu, M. Wang, H. Foroosh, M. Tappen, and M. Penksy, 
+“Sparse Convolutional Neural Networks,” in CVPR, 2015. 
+
+[30] B. Reagen, P. Whatmough, R. Adolf, S. Rama, H. Lee, 
+S. Kyu, L. José, G.-y. W. D. Brooks, and W. Power, “Min- 
+erva : Enabling Low-Power, Highly-Accurate Deep Neural 
+Network Accelerators,” in ISCA, 2016. 
+
+[31] O. Russakovsky, J. Deng, H. Su, J. Krause, S. Satheesh, 
+S. Ma, Z. Huang, A. Karpathy, A. Khosla, M. Bernstein, 
+A. C. Berg, and L. Fei-Fei, “ImageNet Large Scale Visual 
+Recognition Challenge,” IJCV, vol. 115, no. 3, pp. 211–252, 
+2015. 
+
+[32] A. Vedaldi and K. Lenc, “MatConvNet – Convolutional Neu- 
+ral Networks for MATLAB,” in Proceeding of the ACM Int. 
+Conf. on Multimedia, 2015. 
+
+[33] Y. Jia, E. Shelhamer, J. Donahue, S. Karayev, J. Long, R. Gir- 
+shick, S. Guadarrama, and T. Darrell, “Caffe: Convolutional 
+Architecture for Fast Feature Embedding,” arXiv preprint 
+arXiv:1408.5093, 2014. 
+
+[34] R. Collobert, K. Kavukcuoglu, and C. Farabet, “Torch7: A 
+matlab-like environment for machine learning,” in BigLearn, 
+NIPS Workshop, 2011. 
+
+http://eyeriss.mit.edu/energy.html 
+http://eyeriss.mit.edu/energy.html 
+
+1 . Introduction 
+2 . Energy Estimation Methodology 
+2.1 . Background and Motivation 
+2.2 . Methodology 
+2.3 . Potential Impact 
+
+3 . CNN Pruning: Related Work 
+4 . Energy-Aware Pruning 
+4.1 . Determine Order of Layers Based on Energy 
+4.2 . Remove Weights Based on Magnitude 
+4.3 . Restore Weights to Reduce Output Error 
+4.4 . Locally Fine-tune Weights 
+4.5 . Globally Fine-tune Weights 
+
+5 . Experiment Results 
+5.1 . Pruning Method Evaluation 
+5.2 . Energy Consumption Analysis 
+5.3 . Number of Target Class Reduction 
+
+6 . Conclusion 
+

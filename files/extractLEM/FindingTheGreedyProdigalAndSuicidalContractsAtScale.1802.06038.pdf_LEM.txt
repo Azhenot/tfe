@@ -1,0 +1,1976 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Finding The Greedy, Prodigal, and Suicidal Contracts at Scale 
+
+Ivica Nikolić 
+School of Computing, NUS 
+
+Singapore 
+
+Aashish Kolluri 
+School of Computing, NUS 
+
+Singapore 
+
+Ilya Sergey 
+University College London 
+
+United Kingdom 
+
+Prateek Saxena 
+School of Computing, NUS 
+
+Singapore 
+
+Aquinas Hobor 
+Yale-NUS College and School of Computing, NUS 
+
+Singapore 
+
+Abstract 
+Smart contracts—stateful executable object host on 
+blockchains like Ethereum—carry billion of dollar 
+worth of coin and cannot be update once deployed. We 
+present a new systematic characterization of a class of 
+trace vulnerabilities, which result from analyze mul- 
+tiple invocation of a contract over it lifetime. We fo- 
+cu attention on three example property of such trace 
+vulnerabilities: find contract that either lock fund 
+indefinitely, leak them carelessly to arbitrary users, or 
+can be kill by anyone. We implement MAIAN, the 
+first tool for precisely specify and reason about 
+trace properties, which employ inter-procedural sym- 
+bolic analysis and concrete validator for exhibit real 
+exploits. Our analysis of nearly one million contract 
+flag 34,200 (2,365 distinct) contract vulnerable, in 10 
+second per contract. On a subset of 3,759 contract 
+which we sample for concrete validation and manual 
+analysis, we reproduce real exploit at a true positive rate 
+of 89%, yield exploit for 3,686 contracts. Our tool 
+find exploit for the infamous Parity bug that indirectly 
+lock 200 million dollar worth in Ether, which previ- 
+ous analysis fail to capture. 
+
+1 Introduction 
+
+Cryptocurrencies feature a distribute protocol for a set 
+of computer to agree on the state of a public ledger 
+call the blockchain. Prototypically, these distribute 
+ledger map account or address (the public half of a 
+cryptographic key pair) with quantity of virtual “coins”. 
+Miners, or the compute nodes, facilitate record the 
+state of a payment network, encode transaction that 
+transfer coin from one address to another. A signifi- 
+cant number of blockchain protocol now exist, and a of 
+write the market value of the associate coin be over 
+$300 billion US, create a lucrative attack target. 
+
+Smart contract extend the idea of a blockchain to a 
+compute platform for decentralize execution of general- 
+
+purpose applications. Contracts be program that run on 
+blockchains: their code and state be store on the ledger, 
+and they can send and receive coins. Smart contract 
+have be popularize by the Ethereum blockchain. Re- 
+cently, sophisticated application of smart contract have 
+arisen, especially in the area of token management due 
+to the development of the ERC20 token standard. This 
+standard allows the uniform management of custom to- 
+kens, enabling, e.g., decentralize exchange and com- 
+plex wallets. Today, over a million smart contract oper- 
+ate on the Ethereum network, and this count be growing. 
+
+Smart contract offer a particularly unique combina- 
+tion of security challenges. Once deployed they can- 
+not be upgraded or patched,1 unlike traditional con- 
+sumer device software. Secondly, they be write in a 
+new ecosystem of language and runtime environments, 
+the de facto standard for which be the Ethereum Virtual 
+Machine and it program language call Solidity. 
+Contracts be relatively difficult to test, especially since 
+their runtimes allow them to interact with other smart 
+contract and external off-chain services; they can be in- 
+voked repeatedly by transaction from a large number of 
+users. Third, since coin on a blockchain often have sig- 
+nificant value, attacker be highly incentivized to find 
+and exploit bug in contract that process or hold them 
+directly for profit. The attack on the DAO contract cost 
+the Ethereum community $60 million US; and several 
+more recent one have have impact of a similar scale [1]. 
+
+In this work, we present a systematic characterization 
+of a class of vulnerability that we call a trace vulner- 
+abilities. Unlike many previous work that have apply 
+static and dynamic analysis to find bug in contract au- 
+tomatically [2–5], our work focus on detect vul- 
+nerabilities across a long sequence of invocation of a 
+contract. We label vulnerable contract with three cate- 
+gories — greedy, prodigal, and suicidal — which either 
+lock fund indefinitely, leak them to arbitrary users, or 
+
+1Other than by “hard forks”, which be essentially decision of the 
+community to change the protocol and be extremely rare. 
+
+ar 
+X 
+
+iv 
+:1 
+
+80 
+2. 
+
+06 
+03 
+
+8v 
+1 
+
+[ 
+c 
+
+.C 
+R 
+
+] 
+1 
+
+6 
+Fe 
+
+b 
+20 
+
+18 
+
+
+
+be susceptible to by kill by any user. Our precisely de- 
+fin property capture many well-known example of 
+know anecdotal bug [1, 6, 7], but broadly cover a class 
+of example that be not know in prior work or public 
+reports. More importantly, our characterization allows 
+u to concretely check for bug by run the contract, 
+which aid determine confirm true positives. 
+
+We build an analysis tool call MAIAN for find- 
+ing these vulnerability directly from the bytecode of 
+Ethereum smart contracts, without require source code 
+access. In total, across the three category of vulnera- 
+bilities, MAIAN have be use to analyze 970,898 con- 
+tract live of the public Ethereum blockchain. Our tech- 
+niques be powerful enough to find the infamous Parity 
+bug that indirectly cause 200 million dollar worth of 
+Ether, which be not found by previous analyses. A total 
+of 34,200 (2,365 distinct) contract be flag a poten- 
+tially buggy, directly carry the equivalent of million of 
+dollar worth of Ether. As in the case of the Parity bug, 
+they may put a large amount to risk, since contract in- 
+teract with one another. For 3,759 contract we try to 
+concretely validate, MAIAN have found over 3,686 con- 
+firm vulnerability with 89% true positive rate. All 
+vulnerability be uncovered on average within 10 sec- 
+onds of analysis per contract. 
+Contributions. We make the follow contributions: 
+• We identify three class of trace vulnerabilities, 
+
+which can be capture a property of a execution 
+trace — potentially infinite sequence of invocation 
+of a contract. Previous technique and tool [3] be not 
+design to find these bug because they only model 
+behavior for a single call to a contract. 
+
+• We provide formal high-order property to check 
+which admit a mechanize symbolic analysis proce- 
+dure for detection. We fully implement MAIAN, a tool 
+for symbolic analysis of smart contract bytecode (with- 
+out access to source code). 
+
+• We test close to one million contracts, find thou- 
+sand of confirm true positive within a few second 
+of analysis time per contract. Testing trace property 
+with MAIAN be practical. 
+
+2 Problem 
+
+We define a new class of trace vulnerabilities, show 
+three specific example of property that can be checked 
+in this broader class. We present our approach and tool 
+to reason about the class of trace vulnerabilities. 
+
+2.1 Background on Smart Contracts 
+
+Smart contract in Ethereum run on Ethereum Virtual 
+Machine (EVM), a stack-based execution runtime [8]. 
+
+Different source language compile to the EVM seman- 
+tics, the predominant of them be Solidity [9]. A smart 
+contract embodies the concept of an autonomous agent, 
+identify by it program logic, it identify address, 
+and it associate balance in Ether. Contracts, like other 
+addresses, can receive Ether from external agent stor- 
+ing it in their balance field; they can can also send Ether 
+to other address via transactions. A smart contract be 
+create by the owner who sends an initialize transac- 
+tion, which contains the contract bytecode and have no 
+specify recipient. Due to the persistent nature of the 
+blockchain, once initialized, the contract code cannot 
+be updated. Contracts live perpetually unless they be 
+explicitly terminate by execute the SUICIDE byte- 
+code instruction, after which they be no longer invo- 
+cable or call dead. When alive, contract can be in- 
+voked many times. Each invocation be trigger by send- 
+ing a transaction to the contract address, together with 
+input data and a fee (known a gas) [8]. The mining net- 
+work executes separate instance of the contract code and 
+agrees on the output of the invocation via the standard 
+blockchain consensus protocol, i.e., Nakamoto consen- 
+sus [10, 11]. The result of the computation be replicate 
+via the blockchain and grant a transaction fee to the min- 
+er a per block reward rate establish periodically. 
+
+The EVM allows contract function to have local state, 
+while the contract may have global variable store on 
+the blockchain. Contracts can invoke other contract via 
+message calls; output of these calls, consider to be 
+a part of the same transaction, be return to the caller 
+during the runtime. Importantly, call be also use to 
+send Ether to other contract and non-contract addresses. 
+The balance of a contract can be read by anyone, but be 
+only update via call from other contract and externally 
+initiate transactions. 
+
+Contracts can be execute repeatedly over their life- 
+time. A transaction can run one invocation of the con- 
+tract and an execution trace be a (possibly infinite) se- 
+quence of run of a contract record on the blockchain. 
+Our work show the importance of reason about ex- 
+ecution trace of contract with a class of vulnerability 
+that have not be address in prior works, and provide 
+an automatic tool to detect these issues. 
+
+2.2 Contracts with Trace Vulnerabilities 
+
+While trace vulnerability be a broader class, we our 
+focus attention on three example property to check of 
+contract traces. Specifically, we flag contract which (a) 
+can be kill by arbitrary addresses, (b) have no way to 
+release Ether after a certain execution state, and (c) re- 
+lease Ether to arbitrary address carelessly. 
+
+Note that any characterization of bug must be take 
+with a grain of salt, since one can always argue that the 
+
+2 
+
+
+
+1 function payout(address [] recipient , 
+
+2 uint256 [] amounts) { 
+
+3 require(recipients.length == amounts.length); 
+
+4 for (uint i = 0; i < recipients.length; i++) { 
+
+5 /* ... */ 
+
+6 recipients[i].send(amounts[i]); 
+
+7 }} 
+
+Figure 1: Bounty contract; payout leak Ether. 
+
+expose behavior embodies intent — a be debate in 
+the case of the DAO bug [6]. Our characterization of 
+vulnerability be based, in part, on anecdotal incident 
+report publicly [6,7,12]. To the best of our knowledge, 
+however, our characterization be the first to precisely de- 
+fine checkable property of such incident and measure 
+their prevalence. Note that there be several valid rea- 
+son for contract for be killable, hold fund in- 
+definitely under certain conditions, or give them out 
+to address not know at the time of deployment. For 
+instance, a common security best practice be that when 
+under attack, a contract should be kill and should re- 
+turn fund to a trust address, such a that of the owner. 
+Similarly, benign contract such a bounty or games, 
+often hold fund for long period of time (until a bounty 
+be awarded) and release them to address that be not 
+know statically. Our characterization admits these be- 
+nign behavior and flag egregious violation described 
+next, for which we be unable to find justifiable intent. 
+Prodigal Contracts. Contracts often return fund to 
+owner (when under attack), to address that have sent 
+Ether to it in past (e.g., in lotteries), or to address 
+that exhibit a specific solution (e.g., in bounties). How- 
+ever, when a contract give away Ether to an arbitrary 
+address— which be not an owner, have never deposit 
+Ether in the contract, and have provide no data that be 
+difficult to fabricate by an arbitrary observer—we deem 
+this a a vulnerability. We be interested in find such 
+contracts, which we call a prodigal. 
+
+Consider the Bounty contract with code fragment 
+give in Figure 1. This contract collect Ether from dif- 
+ferent source and reward bounty to a select set of 
+recipients. In the contract, the function payout sends to 
+a list of recipient specify amount of Ether. It be clear 
+from the function definition that the recipient and the 
+amount be provide a inputs, and anybody can call 
+the function (i.e., the function do not have restriction 
+on the sender). The message sender of the transaction 
+be not checked for; the only check be on the size of lists. 
+Therefore, any user can invoke this function with a list of 
+recipient of her choice, and completely drain it Ether. 
+
+The above contract require a single function invoca- 
+tion to leak it Ether. However, there be example of 
+contract which need two or more invocation (calls with 
+specific arguments) to cause a leak. Examples of such 
+
+1 function initMultiowned(address [] _owners , 
+
+2 uint _required){ 
+
+3 if (m_numOwners > 0) throw; 
+
+4 m_numOwners = _owners.length + 1; 
+
+5 m_owners [1] = uint(msg.sender); 
+
+6 m_ownerIndex[uint(msg.sender)] = 1; 
+
+7 m_required = _required; 
+
+8 /* ... */ 
+
+9 } 
+
+10 
+
+11 function kill(address _to) { 
+
+12 uint ownerIndex = m_ownerIndex[uint(msg.sender)]; 
+
+13 if (ownerIndex == 0) return; 
+
+14 var pending = m_pending[sha3(msg.data)]; 
+
+15 if (pending.yetNeeded == 0) { 
+
+16 pending.yetNeeded = m_required; 
+
+17 pending.ownersDone = 0; 
+
+18 } 
+
+19 uint ownerIndexBit = 2** ownerIndex; 
+
+20 if (pending.ownersDone & ownerIndexBit == 0) { 
+
+21 if (pending.yetNeeded <= 1) 
+
+22 suicide(_to); 
+
+23 else { 
+
+24 pending.yetNeeded --; 
+
+25 pending.ownersDone |= ownerIndexBit; 
+
+26 } 
+
+27 } 
+
+28 } 
+
+Figure 2: Simplified fragment of ParityWalletLibrary 
+contract, which can be killed. 
+
+contract be present in Section 5. 
+Suicidal Contracts. A contract often enables a security 
+fallback option of be kill by it owner (or trust ad- 
+dresses) in emergency situation like when be drain 
+of it Ether due to attacks, or when malfunctioning. 
+However, if a contract can be kill by any arbitrary ac- 
+count, which would make it to execute the SUICIDE in- 
+struction, we consider it vulnerable and call it suicidal. 
+
+The recent Parity fiasco [1] be a concrete example 
+of such type of a contract. A supposedly innocent 
+Ethereum user [13] kill a library contract on which 
+the main Parity contract relies, thus render the lat- 
+ter non-functional and lock all it Ether. To under- 
+stand the suicidal side of the library contract, focus on 
+the shorten code fragment of this contract give in 
+Figure 2. To kill the contract, the user invokes two dif- 
+ferent functions: one to set the ownership,2 and one to 
+actually kill the contract. That is, the user first call 
+initMultiowned, provide empty array for _owners, 
+and zero for _required. This effectively mean that the 
+contract have no owner and that nobody have to agree to 
+execute a specific contract function. Then the user in- 
+vokes the function kill. This function need _required 
+number of owner to agree to kill the contract, before the 
+actual suicide command at line 22 be executed. How- 
+ever, since in the previous call to initMultiowned, the 
+
+2The bug would have be prevent have the function 
+initMultiowned be properly initialize by the authors. 
+
+3 
+
+
+
+1 contract AddressReg{ 
+
+2 address public owner; 
+
+3 mapping (address=>bool) isVerifiedMap; 
+
+4 function setOwner(address _owner){ 
+
+5 if (msg.sender == owner) 
+
+6 owner = _owner; 
+
+7 } 
+
+8 function AddressReg (){ owner = msg.sender; } 
+
+9 function verify(address addr){ 
+
+10 if (msg.sender == owner) 
+
+11 isVerifiedMap[addr] = true; 
+
+12 } 
+
+13 function deverify(address addr){ 
+
+14 if (msg.sender == owner) 
+
+15 isVerifiedMap[addr] = false; 
+
+16 } 
+
+17 function hasPhysicalAddress(address addr) 
+
+18 constant returns(bool){ 
+
+19 return isVerifiedMap[addr]; 
+
+20 } 
+
+21 } 
+
+Figure 3: AddressReg contract lock Ether. 
+
+value of _required be set to zero, suicide be executed, 
+and thus the contract be killed. 
+Greedy Contracts. We refer to contract that remain 
+alive and lock Ether indefinitely, allow it be release 
+under no conditions, a greedy. In the example of the 
+Parity contract, many other multisigWallet-like con- 
+tract which held Ether, use function from the Parity 
+library contract to release fund to their users. After 
+the Parity library contract be killed, the wallet con- 
+tract could no longer access the library, thus become 
+greedy. This vulnerability result in lock of $200M 
+US worth of Ether indefinitely! 
+
+Greedy contract can arise out of more direct error a 
+well. The most common such error occur in contract 
+that accept Ether but either completely lack instruction 
+that send Ether out (e.g. send, call, transfer), or 
+such instruction be not reachable. An example of con- 
+tract that lack command that release Ether, that have al- 
+ready lock Ether be give in Figure 3. 
+Posthumous Contracts. When a contract be killed, 
+it code and global variable be clear from the 
+blockchain, thus prevent any further execution of it 
+code. However, all kill contract continue to receive 
+transactions. Although such transaction can no longer 
+invoke the code of the contract, if Ether be sent along 
+them, it be add to the contract balance, and similarly to 
+the above case, it be lock indefinitely. Killed contract or 
+contract that do not contain any code, but have non-zero 
+Ether we call posthumous. It be the onus of the sender to 
+check if the contract be alive before send Ether, and 
+evidence show that this be not always the case. Because 
+posthumous contract require no further static analysis 
+beyond that for identify suicidal contracts, we do not 
+treat this a a separate class of bugs. We merely list all 
+
+07/02/2018 tool - Vectr 
+
+https://vectr.com/ashgeek/b4JRQBQTAY 1/1 
+
+Symbolic 
+Analysis 
+
+Sample Exploit 
+
+Concrete 
+Validation 
+
+Bytecode 
+
+Analysis 
+Specifications 
+
+Result 
+
+Maian 
+
+Figure 4: MAIAN 
+
+posthumous contract on the live Ethereum blockchain 
+we have found in Section 5. 
+
+2.3 Our Approach 
+
+Each run of the contract, call an invocation, may exer- 
+cise an execution path in the contract code under a give 
+input context. Note that prior work have consider 
+bug that be property of one invocation, ignore the 
+chain of effect across a trace of invocation [2,5,14–17]. 
+
+We develop a tool that us systematic technique to 
+find contract that violate specific property of traces. 
+The violation be either: 
+
+(a) of safety properties, assert that there exists a 
+trace from a specify blockchain state that cause the 
+contract to violate certain conditions; and 
+
+(b) of liveness properties, assert whether some ac- 
+tions cannot be take in any execution start from a 
+specify blockchain state. 
+
+We formulate the three kind of vulnerable contract 
+a these safety and liveness trace property in Section 3. 
+Our technique of find vulnerabilities, implement a 
+a tool call MAIAN and described in Section 4, con- 
+sists of two major components: symbolic analysis and 
+concrete validation. The symbolic analysis component 
+take contract bytecode and analysis specification a in- 
+puts. The specification include vulnerability category 
+to search for and depth of the search space, which fur- 
+ther we refer to a invocation depth, along with a few 
+other analysis parameter we outline in Section 4. To de- 
+velop our symbolic analysis component, we implement 
+a custom Ethereum Virtual Machine, which facilitates 
+symbolic execution of contract bytecode [3]. With every 
+contract candidate, our component run possible execu- 
+tion trace symbolically, until it find a trace which satis- 
+fies a set of predetermine properties. The input context 
+to every execution trace be a set of symbolic variables. 
+Once a contract be flagged, the component return con- 
+crete value for these variables. Our final step be to run 
+the contract concretely and validate the result for true 
+positives; this step be implement by our concrete val- 
+idation component. The concrete validation component 
+take the input generate by symbolic analysis compo- 
+
+4 
+
+
+
+nent and check the exploit of the contract on a private 
+fork of Ethereum blockchain. Essentially, it be a testbed 
+environment use to confirm the correctness of the bugs. 
+As a result, at the end of validation the candidate contract 
+be determine a true or false positive, but the contract 
+state on main blockchain be not affected since no change 
+be commit to the official Ethereum blockchain. 
+
+3 Execution Model and Trace Properties 
+
+A life cycle of a smart contract can be represent by a 
+sequence of the contract’s states, which describe the val- 
+ues of the contract’s fields, a well a it balance, inter- 
+leave with instruction and irreversible action it per- 
+form modify the global context of the blockchain, 
+such transfer Ether or commit suicide. One can 
+consider a contract to be buggy with respect to a certain 
+class of unwelcome high-level scenario (e.g., “leaking” 
+funds) if some of it finite execution trace fail to sat- 
+isfy a certain condition. Trace property characterise 
+this way be traditionally qualify a trace-safety ones, 
+meaning that “during a final execution nothing bad hap- 
+pens”. Proving the absence of some other high-level bug 
+will, however, require establish a statement of a dif- 
+ferent kind, namely, “something good must eventually 
+happen”. Such property be know a liveness one 
+and require reason about progress in executions. An 
+example of such property would be an assertion that a 
+contract can always execute a finite number of step in 
+order to perform an action of interest, such a tranferring 
+money, in order to be consider non-greedy. 
+
+In this section, we formally define the execution model 
+of Ethereum smart contracts, allow one to pinpoint 
+the vulnerability characterise in Section 2.2. The key 
+idea of our bug-catching approach be to formulate the 
+erroneous behaviour a predicate of observe contract 
+traces, rather than individual configuration and instruc- 
+tion invocations, occur in the process of an execu- 
+tion. By do so, we be able to (a) capture the prodi- 
+gal/suicidal contract via condition that relate the un- 
+welcome agent gaining, at some point, access to a con- 
+tract’s fund or suicide functionality by find a way 
+around a plan semantics, and (b) respond about re- 
+peating behavioural pattern in the contract life cycles, 
+allow u to detect greedy contracts. 
+
+3.1 EVM Semantics and Execution Traces 
+We begin with define cotnract execution trace by 
+adopt a low-level execution semantics of an EVM- 
+like language in the form of ETHERLITE-like calcu- 
+lu [2]. ETHERLITE implement a small-step stack ma- 
+chine, operating on top of a global configuration of the 
+blockchain, which use to retrieve contract code and 
+
+ascribe Ether balance to accounts, a well a manipula- 
+tions with the local contract configuration. As custom- 
+ary in Ethereum, such agent be represent by it address 
+id, and might be a contract itself. For the purpose of 
+this work, we simplify the semantics of ETHERLITE by 
+elide the execution result in exceptions, a reason- 
+ing about such be orthogonal to the property of interest. 
+Therefore, the configuration δ of the ETHERLITE ab- 
+stract machine be define a follows: 
+
+Configuration δ , 〈A,σ〉 
+Execution stack A , 〈M, id,pc,s,m〉 ·A | ε 
+Message m , {sender 7→ id; value : N; data 7→ . . .} 
+Blockchain state σ , id 7→ 
+
+{ 
+bal : N; code? 7→M; f ? 7→ v 
+
+} 
+That is, a contract execution configuration consists 
+
+of an activation record stack A and a blockchain con- 
+text σ . An activation record stack A be a list of tuples 
+〈M, id,pc,s,m〉, where id and M be the address and the 
+code of the contract currently be executed, pc be a pro- 
+gram counter point to the next instruction to be exe- 
+cuted, s be a local operand stack, and m be the last mes- 
+sage use to invoke the contract execution. Among other 
+fields, m store the identity of the sender, the amount 
+value of the ether be transfer (represented a a nat- 
+ural number), a well a auxiliary field (data) use to 
+provide additional argument for a contract call, which 
+we will be omit for the sake of brevity. Finally, a 
+simplify context σ of a blockchain be encode a a fi- 
+nite partial mapping from an account id to it balance 
+and contract code M and it mutable state, mapping the 
+field name f to the correspond values,3 which both 
+be optional (hence, marked with ?) and be only present 
+for contract-storing blockchain records. We will further 
+refer to the union of a contract’s field entry f 7→ v and 
+it balance entry bal 7→ z a a contract state ρ . 
+
+Figure 5 present select rule for a smart contract 
+execution in ETHERLITE.4 The rule for store and 
+load value to/from a contract’s field f be standard. 
+Upon call another account, a rule CALL be executed, 
+which require the amount of Ether z to be transfer 
+to be not large than the contract id’s current balance, 
+and change the activation record stack and the global 
+blockchain context accordingly. Finally, the rule SUI- 
+CIDENONEMPTYSTACK provide the semantics for the 
+SUICIDE instruction (for the case of a non-empty activa- 
+tion record stack), in which case all fund of the termi- 
+nated contract id be transfer to the caller’s id′. 
+
+An important addition we make to the semantics of 
+ETHERLITE be execution labels, which allow to distin- 
+
+3For simplicity of presentation, we treat all contract state a persis- 
+tent, elide operation with auxiliary memory, such a MLOAD/MSTORE. 
+
+4The remain rule can be found in the work by Luu et al. [2]. 
+
+5 
+
+
+
+SSTORE 
+M[pc] = SSTORE σ ′ = σ [id][ f 7→ v] 
+
+〈〈M, id,pc, f · v · s,m〉 ·A,σ〉 sstore( f , v)−−−−−−−→ 〈〈M, id,pc+1,s,m〉 ·A,σ ′〉 
+
+SLOAD 
+M[pc] = SLOAD v = σ [id][ f ] 
+
+〈〈M, id,pc, f · s,m〉 ·A,σ〉 sload( f , v)−−−−−−−→ 〈〈M, id,pc+1,v · s,m〉 ·A,σ〉 
+
+CALL 
+M[pc] = CALL σ [id][bal]≥ z 
+
+s = id′ · z ·args · s′ a = 〈M, id,pc+1,s′,m〉 
+m′ = {sender 7→ id;value 7→ z;data 7→ args} M′ = σ [id′][code] 
+
+σ ′ = σ [id][bal 7→ σ [id][bal]− z] σ ′′ = σ ′[id′][bal 7→ σ ′[id′][bal]+ z] 
+
+〈〈M, id,pc,s,m〉 ·A,σ〉 call(id 
+′, m′)−−−−−−−→ 〈〈M′, id′,0,ε,m′〉 ·a ·A,σ ′′〉 
+
+SUICIDENONEMPTYSTACK 
+M[pc] = SUICIDE s = id′ · s′ a = 〈M′,pc′,s′′,m′〉 
+
+σ ′ = σ [id′][bal 7→ (σ [id′][bal]+σ [id][bal])] σ ′′ = σ ′[id][bal 7→ 0] 
+
+〈〈M, id,pc,s,m〉 ·a ·A,σ〉 suicide(id 
+′)−−−−−−−→ 〈〈M′, id′,pc′,1 · s′′,m′〉 ·A,σ ′′〉 
+
+Figure 5: Selected execution rule of ETHERLITE. 
+
+guish between specific transition be taken, a well a 
+their parameters, and be define a follows: 
+
+` , sstore( f , v) | sload( f , v) | call(id, m) | suicide(id) | . . . 
+
+For instance, a transition label of the form call(id, m) 
+capture the fact that a currently run contract have 
+transfer control to another contract id, by send it 
+a message m, while the label suicide(id) would mean a 
+suicide of the current contract, with transfer of all of it 
+fund to the account (a contract’s or not) id. 
+
+With the label operational semantics at hand, we 
+can now provide a definition of partial contract execution 
+trace a sequence of interleave contract state ρi and 
+transition label ` j a follows: 
+
+Definition 3.1 (Projected contract trace). A partial pro- 
+jected trace t = τ̂id(σ ,m) of a contract id in an initial 
+blockchain state σ and an incoming message m be define 
+a a sequence [〈ρ0, `0〉, . . . ,〈ρn, `n〉], such that for every 
+i ∈ {0 . . .n}, ρi = σi[id]|bal, f , where σi be the blockchain 
+state at the ith occurrence of a configuration of the form, 
+〈〈•, id,•,•,•〉,σi〉 in an execution sequence start from 
+the configuration 〈〈σ [id][code], id,0,ε,m〉 · ε,σ〉, and `i 
+be a label of an immediate next transition. 
+
+In other words, τ̂id(σ ,m) capture the state of a con- 
+tract id, interleave with the transition take “on it be- 
+half” and represent by the correspond labels, start- 
+ing from the initial blockchain σ and trigger by the 
+message m. The notation σ [id]|bal, f stand for a projec- 
+tion to the correspond component of the contract en- 
+try in σ . States and transition of contract other than id 
+and involve into the same execution are, thus, ignored. 
+
+Given a (partial) project trace τ̂id(σ ,m), we say that 
+it be complete, if it corresponds to an execution, whose 
+
+last configuration be 〈ε,σ ′〉 for some σ ′. The follow 
+definition capture the behavior of multiple subsequent 
+transaction with respect to a contract of interest. 
+
+Definition 3.2 (Multi-transactional contract trace). A 
+contract trace t = τid(σ ,mi), for a sequence of message 
+mi = m0, . . . ,mn, be a concatenation of single-transaction 
+trace τ̂id(σi,mi), where σ0 = σ , σi+1 be a blockchain 
+state at the end of an execution start from a con- 
+figuration 〈〈σ [id][code], id,0,ε,mi〉 · ε,σi〉, and all trace 
+τ̂id(σi,mi) be complete for i ∈ {0, . . . ,n−1}. 
+
+As stated, the definition do not require a trace to end 
+with a complete execution at the last transaction. For 
+convenience, we will refer to the last element of a trace t 
+by last(t) and to it length a length(t). 
+
+3.2 Characterising Safety Violations 
+The notion of contract trace allows u to formally cap- 
+ture the definition of buggy behaviors, described previ- 
+ously in Section 2.2. First, we turn our attention to the 
+prodigal/suicidal contracts, which can be uniformly cap- 
+tured by the follow higher-order trace predicate. 
+
+Definition 3.3 (Leaky contracts). A contract with an ad- 
+dress id be consider to be leaky with respect to pred- 
+icates P, R and Q, and a blockchain state σ (denoted 
+leakyP,R,Q(id,σ)) iff there exists a sequence of message 
+mi, such that for a trace t = τid(σ ,mi): 
+1. the precondition P(σ [id][code], t0,m0) holds, 
+2. the side condition R(ti,m0) hold for all i < length(t), 
+3. the postcondition Q(tn,m0) hold for tn = last(t). 
+
+Definition 3.3 of leaky contract be relative with re- 
+spect to a current state of a blockchain: a contract that be 
+currently leaky may stop be such in the future. Also, 
+notice that the “triggering” initial message m0 serf a 
+an argument for all three parameter predicates. We will 
+now show how two behavior observe early can be en- 
+cod via specific choice of P, R, and Q.5 
+
+Prodigal contracts. A contract be consider prodigal if 
+it sends Ether, immediately or after a series of transition 
+(possibly span multiple transactions), to an arbitrary 
+sender. This intuition can be encode via the follow 
+choice of P, R, and Q for Definition 3.3: 
+
+P(M,〈ρ, `〉,m) , m[sender] /∈ im(ρ)∧m[value] = 0 
+R(〈ρ, `〉,m) , True 
+Q(〈ρ, `〉,m) , `= call(m[sender],m′)∧m′[value]> 0 
+
+∨ `= delegatecall(m[sender]) 
+∨ `= suicide(m[sender]) 
+
+According to the instantiation of the parameter predi- 
+cates above, a prodigal contract be expose by a trace that 
+
+5In most of the cases, it be sufficient to take R , True, but in Sec- 
+tion 6 we hint certain property that require a non-trivial side condition. 
+
+6 
+
+
+
+be trigger by a message m, whose sender do not ap- 
+pear in the contract’s state (m[sender] /∈ im(ρ)), i.e., it be 
+not the owner, and the Ether payload of m be zero. To 
+expose the erroneous behavior of the contract, the post- 
+condition check that the transition of a contract be such 
+that it transfer fund or control (i.e., corresponds to CALL, 
+DELEGATECALL or SUICIDE instruction [8]) with the re- 
+cipient be the sender of the initial message. In the case 
+of send fund via CALL we also check that the amount 
+be transfer be non zero. In other words, the initial 
+caller m[sender], unknown to the contract, get himself 
+some fund without any monetary contribution! In prin- 
+ciple, we could ensure minimality of a trace, subject to 
+the property, by impose a non-trivial side condition R, 
+although this do not affect the class of contract ex- 
+pose by this definition. 
+Suicidal contracts. A definition of a suicidal contract 
+be very similar to the one of a prodigal contract. It be 
+deliver by the follow choice of predicates: 
+
+P(M,〈ρ, `〉,m) , SUICIDE ∈M∧m[sender] /∈ im(ρ) 
+R(〈ρ, `〉,m) , True 
+Q(〈ρ, `〉,m) , `= suicide(m[sender]) 
+
+That is, a contract be suicidal if it code M contains 
+the SUICIDE instruction and the correspond transition 
+can be trigger by a message sender, that do not ap- 
+pear in the contract’s state at the moment of receive the 
+message, i.e., at the initial moment m[sender] /∈ im(ρ). 
+
+3.3 Characterising Liveness Violations 
+A contract be consider lock at a certain blockchain 
+state σ , if at any execution originate from σ prohibits 
+certain transition to be taken. Since disprove liveness 
+property of this kind with a finite counterexample be 
+impossible in general, we formulate our definition a an 
+under-approximation of the property of interest, consid- 
+ering only final trace up to a certain length: 
+
+Definition 3.4 (Locking contracts). A contract with an 
+address id be consider to be lock with respect to 
+predicate P and R, the transaction number k, and a 
+blockchain state σ (denoted lockingP,R,k(id,σ)) iff for 
+all sequence of message mi of length less or equal than 
+k, the correspond trace t = τid(σ ,mi) satisfies: 
+1. the precondition P(σ [id][code], t0,m0), 
+2. the side condition R(ti,m0) for all i≤ length(t). 
+
+Notice that, unlike Definition 3.3, this Definition do 
+not require a postcondition, a it be design to under- 
+approximate potentially infinite traces, up to a certain 
+length k,6 so the “final state” be irrelevant. 
+
+6We discus viable choice of k in Section 5. 
+
+Greedy contracts. In order to specify a property assert- 
+ing that in an interaction with up to k transactions, a con- 
+tract do not allow to release it funds, we instantiate 
+the predicate from Definition 3.4 a follows: 
+
+P(M,〈ρ, `〉,m) , ρ[bal]> 0 
+
+R(〈ρ, `〉,m) , ¬ 
+
+ `= call(m[sender],m 
+′)∧m′[value]> 0 
+
+∨ `= delegatecall(m[sender]) 
+∨ `= suicide(m[sender]) 
+
+ 
+Intuitively, the definition of a greedy contract be dual to 
+
+the notion of a prodigal one, a witness by the above 
+formulation: at any trace start from an initial state, 
+where the contract hold a non-zero balance, no transi- 
+tion transfer the correspond fund (i.e., match 
+by the side condition R) can be taken, no matter what be 
+the sender’s identity. That is, this definition cover the 
+case of contract’s owner a well: no one can withdraw 
+any fund from the contract. 
+
+4 The Algorithm and the Tool 
+
+MAIAN be a symbolic analyzer for smart contract ex- 
+ecution traces, for the property define in Section 3. 
+It operates by take a input a contract in it byte- 
+code form and a concrete start block value from the 
+Ethereum blockchain a the input context, flag con- 
+tract that be outline in Section 2.2. When reason 
+about contract traces, MAIAN follow the ETHERLITE 
+rules, described in Section 3.1, execute them symbol- 
+ically. During the execution, which start from a con- 
+tract state satisfy the precondition of property of in- 
+terest (cf. Definitions 3.3 and 3.4), it check if there ex- 
+ists an execution trace which violates the property and a 
+set of candidate value for input transaction that trigger 
+the property violation. For the sake of tractability of the 
+analysis, it do not keep track of the entire blockchain 
+context σ (including the state of other contracts), treat 
+only the contract’s transaction input and certain block 
+parameter a symbolic. To reduce the number of false 
+positive and confirm concrete exploit for vulnerabili- 
+ties, MAIAN call it concrete validation routine, which 
+we outline in Section 4.2. 
+
+4.1 Symbolic Analysis 
+
+Our work concern find property of trace that in- 
+volve multiple invocation of a contract. We leverage 
+static symbolic analysis to perform this step in a way that 
+allows reason across contract call and across multi- 
+ple blocks. We start our analysis give a contract byte- 
+code and a start concrete context capture value of 
+the blockchain. MAIAN reason about value read from 
+
+7 
+
+
+
+input transaction field and block parameters7 in a sym- 
+bolic way—specifically, it denotes the set of all concrete 
+value that the input variable can take a a symbolic vari- 
+able. It then symbolically interprets the relationship of 
+other variable compute in the contract a a symbolic 
+expression over symbolic variables. For instance, the 
+code y := x + 4 result in a symbolic value for y if x 
+be a symbolic expression; otherwise it be execute a con- 
+crete value. Conceptually, one can imagine the analy- 
+si a maintain two memory mapping variable to 
+values: one be a symbolic memory mapping variable to 
+their symbolic expressions, the other mapping variable 
+to their concrete values. 
+Execution Path Search. The symbolic interpretation 
+search the space of all execution path in a trace with 
+a depth-first search. The search be a best effort to in- 
+crease coverage and find property violate traces. Our 
+goal be neither to be sound, i.e., search all possible path 
+at the expense of false positives, nor to be provably com- 
+plete, i.e., have only true positive at the expense of cov- 
+erage [18]. From a practical perspective, we make design 
+choice that strike a balance between these two goals. 
+
+The symbolic execution start from the entry point of 
+the contract, and considers all function which can be 
+invoked externally a an entry point. More precisely, 
+the symbolic execution start at the first instruction in 
+the bytecode, proceed sequentially until the execution 
+path end in terminate instruction. Such instruction 
+can be valid (e.g., STOP, RETURN), in which case we as- 
+sume to have reach the end of some contract function, 
+and thus restart the symbolic execution again from the 
+first bytecode instruction to simulate the next function 
+call. On the other hand, the terminate instruction can 
+be invalid (e.g., non-existing instruction code or invalid 
+jump destination), in which case we terminate the search 
+down this path and backtrack in the depth-first search 
+procedure to try another path. When execution reach 
+a branch, MAIAN concretely evaluates the branch con- 
+dition if all the variable use in the conditional expres- 
+sion be concrete. This uniquely determines the direction 
+for continue the symbolic execution. If the condition 
+involves a symbolic expression, MAIAN query an ex- 
+ternal SMT solver to check for the satisfiability of the 
+symbolic conditional expression a well a it negation. 
+Here, if the symbolic conditional expression a well a it 
+negation be satisfiable, both branch be visit in the 
+depth-first search; otherwise, only the satisfiable branch 
+be explore in the depth first search. On occasions, the 
+satisfiability of the expression cannot be decide in a 
+pre-defined timeout use by our tool; in such case, we 
+terminate the search down this path and backtrack in 
+the depth-first search procedure to try another path. We 
+
+7Those be CALLVALUE, CALLER, NUMBER, TIMESTAMP, 
+BLOCKHASH, BALANCE, ADDRESS, and ORIGIN. 
+
+maintain a symbolic path constraint which capture the 
+condition necessary to execute the path be analyze 
+in a standard way. MAIAN implement support for 121 
+out of the 133 bytecode instruction in Ethereum’s stack- 
+base low-level language. 
+
+At a call instruction, control follow transfer to the tar- 
+get. If the target of the transfer be a symbolic expression, 
+MAIAN backtracks in it depth-first search. Calls outside 
+a contract, however, be not simulated and return be 
+marked symbolic. Therefore, MAIAN depth-first search 
+be inter-procedural, but not inter-contract. 
+Handling data accesses. The memory mappings, both 
+symbolic and concrete, record all the contract memory a 
+well blockchain storage. During the symbolic interpreta- 
+tion, when a global or blockchain storage be access for 
+the first time on a path, it concrete value be read from 
+the main Ethereum blockchain into local mappings. This 
+ensures that subsequent read or writes be kept local to 
+the path be presently explored. 
+
+The EVM machine support a flat byte-addressable 
+memory, and each address have a bit-width of 256 bits. 
+The access be in 32-byte size word which MAIAN 
+encodes a bit-vector constraint to the SMT solver. Due 
+to unavailability of source code, MAIAN do not have 
+any prior information about higher-level datatypes in the 
+memory. All type default to 256-bit integer in the en- 
+cod use by MAIAN. Furthermore, MAIAN attempt 
+to recover more advanced type such a dynamic array 
+by use the follow heuristic: if a symbolic variable, 
+say x, be use in constant arithmetic to create an expres- 
+sion (say x+4) that load from memory (as an argument 
+to the CALLDATALOAD instruction), then it detects such an 
+access a a dynamic memory array access. Here, MAIAN 
+us the SMT solver to generate k concrete value for the 
+symbolic expression, make the optimistic assumption 
+that the size of the array to be an integer in the range 
+[0,k]. The parameter k be configurable, and default to 2. 
+Apart from this case, whenever access in the memory 
+involve a symbolic address, MAIAN make no attempt 
+at alias analysis and simply terminates the path be 
+search and backtracks in it depth-first search. 
+Handling non-deterministic inputs. Contracts have 
+several source of non-deterministic input such a the 
+block timestamp, etc. While these be treat a sym- 
+bolic, these be not exactly under the control of the exter- 
+nal users. MAIAN do not use their concrete value a it 
+need to reason about invocation of the contract across 
+multiple invocations, i.e., at different blocks. 
+Flagging Violations. Finally, when the depth-first 
+search in the space of the contract execution reach 
+a state where the desire property be violated, it flag 
+the contract a a buggy candidate. The symbolic path 
+constraint, along with the necessary property conditions, 
+be assert for satisfiability to the SMT solver. We 
+
+8 
+
+
+
+use Z3 [19] a our solver, which provide concrete val- 
+ues that make the input formula satisfiable. We use these 
+value a the concrete data for our symbolic inputs, in- 
+cluding the symbolic transaction data. 
+Bounding the path search space. MAIAN take the fol- 
+low step to bound the search in the (potentially in- 
+finite) path space. First, the call depth be limited to the 
+constant call max_call_depth, which default to 3 but 
+can be configure for empirical tests. Second, we limit 
+the total number of jump or control transfer on one path 
+explore to a configurable constant max_cfg_nodes, de- 
+fault set to 60. This be necessary to avoid be stuck in 
+loops, for instance. Third, we set a timeout of 10 sec- 
+onds per call to our SMT solver. Lastly, the total time 
+spent on a contract be limited to configurable constant 
+max_analysis_time, default set to 300 seconds. 
+Pruning. To speed up the state search, we implement 
+prune with memorization. Whenever the search en- 
+counter that the particular configuration (i.e., contract 
+storage, memory, and stack) have be see before, it do 
+not further explore that part of the path space. 
+
+4.2 Concrete Validation 
+
+In the concrete validation step, MAIAN creates a pri- 
+vate fork of the original Ethereum blockchain with the 
+last block a the input context. It then run the contract 
+with the concrete value of the transaction generate by 
+the symbolic analysis to check if the property hold in 
+the concrete execution. If the concrete execution fails 
+to exhibit a violation of the trace property, we mark the 
+contract a a false positive; otherwise, the contract be 
+marked a a true positive. To implement the validate 
+framework, we add a new functionality to the official 
+go-ethereum package [20] which allows u to fork the 
+Ethereum main chain at a block height of our choice. 
+Once we fork the main chain, we mine on that fork with- 
+out connect to any peer on the Ethereum network, 
+and thus we be able to mine our own transaction with- 
+out commit them to the main chain. 
+Prodigal Contracts. The validation framework check if 
+a contract indeed leak Ether by send to it the transac- 
+tions with input provide by the symbolic analysis en- 
+gine. The transaction be sent by one of our account 
+create previously. Once the transaction be executed, 
+the validation framework check whether the contract 
+have sent Ether to our account. If a verify contract 
+do not have Ether, our framework first sends Ether to 
+the contract and only then run the exploit. 
+Suicidal Contracts. In a similar fashion, the frame- 
+work check if a contract can be kill after execute the 
+transaction provide by the symbolic analysis engine on 
+the fork chain. Note, once a contract be killed, it byte- 
+code be reset to ’0x’. Our framework us precisely this 
+
+test to confirm the correctness of the exploit. 
+Greedy Contracts. A strategy similar to the above 
+two cannot be use to validate the exploit on contract 
+that lock Ether. However, during the bug find pro- 
+cess, our symbolic execution engine check firsthand 
+whether a contract accepts Ether. The validation frame- 
+work can, thus, check if a contract be true positive by 
+confirm that it accepts Ether and do not have CALL, 
+DELEGATECALL, or SUICIDE opcodes in it bytecode. In 
+Section 5 we give example of such contracts. 
+
+5 Evaluation 
+
+We analyze 970,898 smart contracts, obtain by 
+download the Ethereum blockchain from the first 
+block utill block number 4,799,998, which be the last 
+block a of December 26, 2017. Ethereum blockchain 
+have only contract bytecodes. To obtain the original 
+(Solidity) source codes, we refer to the Etherscan ser- 
+vice [21] and obtain source for 9,825 contracts. Only 
+around 1% of the contract have source code, highlight- 
+ing the utility of MAIAN a a bytecode analyzer. 
+
+Recall that our concrete validation component can an- 
+alyze a contract from a particular block height where 
+the contract be alive (i.e., initialized, but not killed). To 
+simplify our validation process for a large number of 
+contract flag by the symbolic analysis component, 
+we perform our concrete validation at block height of 
+4,499,451, further denote a BH. At this block height, 
+we find that most of the flag contract be alive, in- 
+cluding the Parity library contract [1] that our tool suc- 
+cessfully finds. This contract be kill at a block height 
+of 4,501,969. All contract exist on blockchain at a 
+block height of 4,499,451 be tested, but only contract 
+that be alive at BH be concretely validated.8 
+
+Experimental Setup and Performance. MAIAN sup- 
+port parallel analysis of contracts, and scale linearly 
+in the number of available cores. We run it on a Linux 
+box, with 64-bit Ubuntu 16.04.3 LTS, 64GB RAM and 
+40 CPUs Intel(R) Xeon(R) E5-2680 v2@2.80GHz. In 
+most of our experiment we run the tool on 32 cores. 
+On average, MAIAN require around 10.0 second to an- 
+alyze a contract for the three aforementioned bugs: 5.5 
+second to check if a contract be prodigal, 3.2 second for 
+suicidal, and 1.3 second for greedy. 
+Contract Characteristics. The number of contract have 
+increase tenfold from Dec, 2016 to Dec, 2017 and 176- 
+fold since Dec, 2015. However, the distribution of Ether 
+balance across contract follow a skewed distribution. 
+Less than 1% of the contract have more than 99% of the 
+Ether in the ecosystem. This suggests that a vulnerabil- 
+ity in any one of these high-profile contract can affect a 
+
+8We also concretely validate the flag candidate which be 
+kill before BH a well. 
+
+9 
+
+
+
+Category 
+#Candidates 
+
+flag 
+(distinct) 
+
+Candidates 
+without 
+source 
+
+#Validated 
+% of 
+true 
+
+positive 
+Prodigal 1504 (438) 1487 1253 97 
+Suicidal 1495 (403) 1487 1423 99 
+Greedy 31,201 (1524) 31,045 1083 69 
+Total 34,200 (2,365) 34,019 3,759 89 
+
+Table 1: Final result use invocation depth 3 at block 
+height BH. Column 1 report number of flag contracts, 
+and the distinct among these. Column 2 show the num- 
+ber of flag which have no source code. Column 3 be 
+the subset we sample for concrete validation. Column 4 
+report true positive rates; the total here be the average TP 
+rate weight by the number of validate contracts. 
+
+large fraction of the entire Ether balance. Note that con- 
+tract interact with each other, therefore, a vulnerability 
+in one contract may affect many others hold Ether, a 
+demonstrate by the recent infamous Parity library which 
+be use by wallet contract with $200 million US worth 
+of Ether [1]. 
+
+5.1 Results 
+Table 1 summarizes the contract flag by MAIAN. 
+Given the large number of flag contracts, we select 
+a random subset for concrete validation, and report on 
+the true positive rate obtained. We report the number of 
+distinct contracts, calculate by compare the hash of 
+the bytecode; however, all percentage be calculate on 
+the original number of contract (with duplicates). 
+Prodigal contracts. Our tool have flag 1,504 candi- 
+date contract (438 distinct) which may leak Ether to an 
+arbitrary Ethereum address, with a true positive rate of 
+around 97%. At block height BH, 46 of these contract 
+hold some Ether. The concrete validation described in 
+Section 4.2 succeed for exploit for 37 out of 46 — these 
+be true positives, whereas 7 be false positives. The re- 
+maining 2 contract leak Ether to an address different 
+from the caller’s address. Note that all of the 37 true 
+positive contract be alive a of this writing. For ethical 
+reasons, no exploit be do on the main blockchain. 
+
+Of the remain 1,458 contract which presently do 
+not have Ether on the public Ethereum blockchain, 24 
+have be kill and 42 have not be publish (as of 
+block height BH). To validate the remain alive con- 
+tract (in total 1392) on a private fork, first we send them 
+Ether from our mining account, and find that 1,183 con- 
+tract can receive Ether.9 We then concretely validate 
+whether these contract leak Ether to an arbitrary address. 
+A total of 1,156 out of 1,183 (97.72%) contract be con- 
+firm to be true positives; 27 (2.28%) be false positives. 
+
+For each of the 24 contract kill by the block height 
+
+9These be live and we could update them with fund in testing. 
+
+BH, the concrete validation proceeds a follows. We cre- 
+ate a private test fork of the blockchain, start from a 
+snapshot at a block height where the contract be alive. We 
+send Ether to the contract from one of our address ad- 
+dress, and check if the contract leak Ether to an arbitrary 
+address. We repeat this procedure for each contract, and 
+find that all 24 candidate contract be true positives. 
+Suicidal contracts. MAIAN flag 1,495 contract (403 
+distinct), include the ParityWalletLibrary contract, 
+a found susceptible to be kill by an arbitrary ad- 
+dress, with a nearly 99% true positive rate. Out of 1,495 
+contracts, 1,398 be alive at BH. Our concrete validation 
+engine on a private fork of Ethereum confirm that 1,385 
+contract (or 99.07%) be true positives, i.e., they can be 
+kill by any arbitrary Ethereum account, while 13 con- 
+tract (or 0.93%) be false positives. The list of true pos- 
+itives include the recent ParityWalletLibrary contract 
+which be kill at block height 4,501,969 by an ar- 
+bitrary account. Of the 1,495 contract flagged, 25 have 
+be kill by BH; we repeat the procedure described pre- 
+viously and cofirmed all of them a true positives. 
+Greedy contracts. Our tool flag 31,201 greedy can- 
+didates (1,524 distinct), which amount to around 3.2% 
+of the contract present on the blockchain. The first ob- 
+servation be that MAIAN deems all but these a accept- 
+ing Ether but have state that release them (not lock- 
+ing indefinitely). To validate a candidate contract a a 
+true positive one have to show that the contract do not 
+release/send Ether to any address for any valid trace. 
+However, concrete validation may not cover all possible 
+traces, and thus it cannot be use to confirm if a contract 
+be greedy. Therefore, we take a different strategy and di- 
+vide them into two categories: 
+(i) Contracts that accept Ether, but in their bytecode do 
+not have any of the instruction that release Ether (such 
+instruction include CALL, SUICIDE, or DELEGATECALL). 
+(ii) Contracts that accept Ether, and in their bytecode 
+have at least one of CALL, SUICIDE or DELEGATECALL. 
+
+MAIAN flag 1,058 distinct contract from the first 
+category. We validate that these contract can receive 
+Ether (we send Ether to them in a transaction with input 
+data accord to the one provide by the symbolic ex- 
+ecution routine). Our experiment show that 1,057 out 
+of 1,058 (e.g., 99.9%) can receive Ether and thus be 
+true positives. On the other hand, the tool flag 466 
+distinct contract from the second category, which be 
+harder to confirm by test alone. We resort to manual 
+analysis for a subset of these which have source code. 
+Among these, only 25 have Solidity source code. With 
+manual inspection we find that none of them be true pos- 
+itive — some trace can reach the CALL code, but MAIAN 
+fail to reach it in it path exploration. The reason for 
+these be mention in the Section 5.3. By extrapola- 
+tion (weighted average across 1,083 validated), we ob- 
+
+10 
+
+
+
+1 bytes20 prev; 
+2 function tap(bytes20 nickname) { 
+3 prev = nickname; 
+4 if (prev != nickname) { 
+5 msg.sender.send(this.balance); 
+6 } 
+7 } 
+
+Figure 6: A prodigal contract. 
+
+1 contract Mortal { 
+2 address public owner; 
+3 function mortal () { 
+4 owner = msg.sender; 
+5 } 
+6 function kill() { 
+7 if (msg.sender == owner){ 
+8 suicide(owner); 
+9 } 
+
+10 } 
+11 } 
+12 contract Thing be Mortal { /*...*/ } 
+
+Figure 7: The prodigal contract Thing, derive from 
+Mortal, leak Ether to any address by get killed. 
+
+tain true positive rate among greedy contract of 69%. 
+Posthumous Contracts. Recall that posthumous be 
+contract that be dead on the blockchain (have be 
+killed) but still have non-zero Ether balance. We can find 
+such contract by query the blockchain, i.e., by col- 
+lecting all contract without executable code, but with 
+non-zero balance. We found 853 contract at a block 
+height of 4,799,998 that do not have any compile code 
+on the blockchain but have positive Ether balance. Inter- 
+estingly, among these, 294 contract have receive Ether 
+after they become dead. 
+
+5.2 Case Studies: True Positives 
+Apart from example present in section 2.2, we now 
+present true and false postive case studies. Note that 
+we only present the contract with source code for read- 
+ability. However, the fraction of flag contract with 
+source code be very low (1%). 
+Prodigal contracts. In Figure 6, we give an example of 
+a prodigal contract. The function tap seem to lock Ether 
+because the condition at line 4, semantically, can never 
+be true. However, the compiler optimization of Solidity 
+allows this condition to pas when an input great than 
+20 byte be use to call the function tap. Note, on a byte- 
+code level, the EVM can only load chunk of 32 byte of 
+input data. At line 3 in tap the first 20 byte of nickname 
+be assign to the global variable prev, while neglect 
+the remain 12 bytes. The error occurs because EVM 
+at line 4, correctly nullifies the 12 byte in prev, but not 
+in nickname. Thus if nickname have non-zero value in 
+these 12 byte then the inequality be true. This contract 
+so far have lose 5.0001 Ether to different address on real 
+Ethereum blockchain. 
+
+A contract may also leak Ether by get kill since 
+
+1 function withdraw () public return (uint) { 
+2 Record storage rec = records[msg.sender ]; 
+3 uint balance = rec.balance; 
+4 if (balance > 0) { 
+5 rec.balance = 0; 
+6 msg.sender.transfer(balance); 
+7 Withdrawn(now , msg.sender , balance); 
+8 } 
+9 if (now - lastInvestmentTime > 4 weeks) { 
+
+10 selfdestruct(funder); 
+11 } 
+12 return balance; } 
+
+Figure 8: The Dividend contract can be kill by in- 
+voking withdraw if the last investment have be make 
+at least 4 week ago. 
+
+the semantic of SUICIDE instruction enforce it to send 
+all of it balance to an address provide to the instruc- 
+tion. In Figure 7, the contract Thing [22] be inherit 
+from a base contract Mortal. The contract implement a 
+review system in which public review an ongoing topic. 
+Among others, the contract have a kill function inherit 
+from it base contract which be use to send it balance 
+to it owner if it killed. The function mortal, suppos- 
+edly a constructor, be misspelled, and thus anyone can 
+call mortal to become the owner of the contract. Since 
+the derive contract Thing inherits function from con- 
+tract Mortal, this vulnerability in the base contract al- 
+low an arbitrary Ethereum account to become the owner 
+of the derive contract, to kill it, and to receive it Ether. 
+Suicidal contracts. A contract can be kill by ex- 
+ploiting an unprotected SUICIDE instruction. A trivial 
+example be a public kill function which host the sui- 
+cide instruction. Sometimes, SUICIDE be protect by 
+a weak condition, such a in the contract Dividend give 
+in Figure 8. This contract allows user to buy share 
+or withdraw their investment. The logic of withdraw- 
+ing investment be implement by the withdraw function. 
+However, this function have a self_destruct instruction 
+which can be execute once the last investment have be 
+make more than 4 week ago. Hence, if an investor call 
+this function after 4 week of the last investment, all the 
+fund go to the owner of the contract and all the record 
+of investor be clear from the blockchain. Though the 
+ether be safe with the owner , there would be no record of 
+any investment for the owner to return ether to investors. 
+
+In the previous example, one invocation of withdraw 
+function be sufficient to kill the contract. There are, 
+however, contract which require two or more func- 
+tion invocation to be killed. For instance, the contract 
+Mortal give in Figure 7 check whether it be the owner 
+that call the kill function. Hence, it require an attacker 
+to become the owner of the contract to kill it. So, this 
+contract require two invocation to be killed: one call to 
+the function mortal use to become an owner of the con- 
+
+11 
+
+
+
+1 contract SimpleStorage { 
+2 uint storedData; address storedAddress; 
+3 event flag(uint val , address addr); 
+4 
+
+5 function set(uint x, address y) { 
+6 storedData = x; storedAddress = y; 
+7 } 
+8 function get() constant 
+9 returns(uint retVal , address retAddr) { 
+
+10 return (storedData ,storedAddress); 
+11 } 
+12 } 
+
+Figure 9: A contract that lock Ether. 
+
+tract and one call to the function kill to kill the contract. 
+A more secure contract would leverage the mortal func- 
+tion to a constructor so that the function be call only 
+once when the contract be deployed. Note, the recent Par- 
+ity bug similarly also require two invocation [1]. 
+Greedy contracts. The contract SimpleStorage, give 
+in Figure 9, be an example of a contract that lock Ether 
+indefinitely. When an arbitrary address sends Ether along 
+with a transaction invoke the set function, the contract 
+balance increase by the amount of Ether sent. How- 
+ever, the contract do not have any instruction to release 
+Ether, and thus lock it on the blockchain. 
+
+The payable keyword have be introduce in Solid- 
+ity recently to prevent function from accept Ether by 
+default, i.e., a function not associate with payable key- 
+word throw if Ether be sent in a transaction. However, 
+although this contract do not have any function asso- 
+ciated with the payable keyword, it accepts Ether since 
+it have be compile with an old version of Solidity 
+compiler (with no support for payable). 
+
+5.3 Case Studies: False Positives 
+We manually analyze case where MAIAN’s concrete 
+validation fails to trigger the necessary violation with the 
+produce concrete values, if source code be available. 
+Prodigal and Suicidal contracts. In both of the classes, 
+false positive arise due to two reasons: 
+(i) Our tool performs inter-procedural analysis within a 
+contract, but do not transfer control in cross-contract 
+calls. For call from one contract to a function of another 
+contract, MAIAN assigns symbolic variable to the return 
+values. This be imprecise, because real execution may 
+only return one value (say true) when the call succeeds. 
+(ii) MAIAN may assign value to symbolic variable re- 
+lated to block state (e.g., timestamp and blocknumber) 
+in case where these value be use to decide the con- 
+trol flow. Thus, we may get false positive because those 
+value may be different at the concrete validation stage. 
+For instance, in Figure 11, the _guess value depends on 
+the value of block parameters, which cannot be force 
+to take on the concrete value found by our analyzer. 
+
+1 function confirmTransaction(uint tId) 
+2 ownerExists(msg.sender) { 
+3 confirmations[tId][msg.sender] = true; 
+4 executeTransaction(tId); 
+5 } 
+6 function executeTransaction(uint tId) { 
+7 // In case of majority 
+8 if (isConfirmed(tId)) { 
+9 Transaction tx = transactions[tId]; 
+
+10 tx.executed = true; 
+11 if (tx.destination.call.value(tx.value) 
+
+(tx.data)) 
+12 /*....*/ 
+13 }} 
+
+Figure 10: False positive, flag a a greedy contract. 
+
+1 function RandomNumber () returns(uint) { 
+2 /*....*/ 
+3 last = seed^(uint(sha3(block.blockhash( 
+4 block.number),nonces[msg.sender ]))*0 
+
+x000b0007000500030001); 
+5 } 
+6 function Guess(uint _guess) return (bool) { 
+7 if (RandomNumber () == _guess) { 
+8 if (!msg.sender.send(this.balance)) throw; 
+9 /*....*/ 
+
+10 }/*....*/} 
+
+Figure 11: False positive, flag a a prodigal contract. 
+
+Greedy contracts. The large share of false positive be 
+attribute to two causes: 
+(i) Detecting a trace which lead to release of Ether may 
+need three or more function invocations. For instance, 
+in Figure 10, the function confirmTransaction have to be 
+execute by the majority of owner for the contract to 
+execute the transaction. Our default invocation depth be 
+the reason for miss a possible reachable state. 
+(ii) Our tool be not able to recover the subtype for the 
+generic byte type in the EVM semantics. 
+(iii) Some contract release fund only if a random num- 
+ber (usually generate use transaction and block pa- 
+rameters) match a predetermine value unlike in the 
+case of the contract in Figure 11. In that contract the 
+variable _guess be also a symbolic variable, hence, the 
+solver can find a solution for condition on line 7. If there 
+be a concrete value in place of _guess, the solver time 
+out since the constraint involves a hash function (hard to 
+invert by the SMT solver). 
+
+5.4 Summary and Observations 
+The symbolic execution engine of MAIAN flag 34,200 
+contracts. With concrete validation engine or manual in- 
+spection, we have confirm that around 97% of prodi- 
+gal, 97% of suicidal and 69% of greedy contract be true 
+positive. The importance of analyze the bytecode of 
+the contracts, rather than Solidity source code, be demon- 
+strated by the fact that only 1% of all contract have 
+source code. Further, among all flag contracts, only 
+181 have verify source code accord to the widely 
+
+12 
+
+
+
+Inv. depth Prodigal Suicidal Greedy 
+1 131 127 682 
+2 156 141 682 
+3 157 141 682 
+4 157 141 682 
+
+Table 2: The table show number of contract flag 
+for various invocation depths. This analysis be do on a 
+random subset of 25,000–100,000 contracts. 
+
+use platform Etherscan, or in percentage only 1.06%, 
+0.47% and 0.49%, in the three category of prodigal, 
+suicidal, and greedy, respectively. We refer the reader to 
+Table 1 for the exact summary of these results. 
+
+Furthermore, the maximal amount of Ether that could 
+have be withdrawn from prodigal and suicidal con- 
+tracts, before the block height BH, be nearly 4,905 Ether, 
+or 5.9 million US dollars10 accord to the exchange 
+rate at the time of this writing. In addition, 6,239 Ether 
+(7.5 million US dollars) be lock inside posthumous 
+contract currently on the blockchain, of which 313 Ether 
+(379,940 US dollars) have be sent to dead contract af- 
+ter they have be killed. 
+
+Finally, the analysis give in Table 2 show the num- 
+ber of flag contract for different invocation depth 
+from 1 to 4. We test 25,000 contract be for greedy, 
+and 100,000 for remain categories, infer that in- 
+crease depth improves result marginally, and an invo- 
+cation depth of 3 be an optimal tradeoff point. 
+
+6 Related Work 
+
+Dichotomy of smart contract bugs. The early work by 
+Delmolino et al. [24] distinguishes the follow class 
+of problems: (a) contract that do not refund their users, 
+(b) miss encryption of sensitive user data and (c) lack 
+of incentive for the user to take certain actions. The 
+property (a) be the closest to our notion of greedy. While 
+that outline the problem and demonstrates it on series 
+of simple example taught in a class, they do not provide 
+a systematic approach for detection of smart contract 
+prone to this issue. Later work on contract safety and 
+security identify potential bugs, related to the concurrent 
+transactional execution [25], mishandle exception [2], 
+overly extensive gas consumption [14] and implementa- 
+tions of fraudulent financial scheme [26].11 
+
+In contrast to all those work, which focus on bad im- 
+plementation practice or misuse language semantics, 
+we believe, our characterisation of several class of con- 
+tract bugs, such a greedy, prodigal, etc, be novel, a they 
+be state in term of property execution trace rather 
+than particular instruction taken/states reached. 
+
+10Calculated at 1,210 USD/Eth [23]. 
+11See the work [27, 28] for a survey of know contract issues. 
+
+Reasoning about smart contracts. OYENTE [2, 3] be 
+the first symbolic execution-based tool that provide 
+analysis target several specific issues: (a) mishan- 
+dled exceptions, (b) transaction-ordering dependence, 
+(c) timestamp dependence and (d) reentrancy [29], thus 
+remedy the corner case of Solidity/EVM semantics 
+(a) a well a some program anti-patterns (b)–(d). 
+
+Other tool for symbolic analysis of EVM and/or 
+EVM have be developed more recently: MANTI- 
+CORE [17], MYTHRILL [15, 16], SECURIFY [5], and 
+KEVM [30, 31], all focus on detect low-level 
+safety violation and vulnerabilities, such a integer over- 
+flows, reentrancy, and unhandled exceptions, etc, nei- 
+ther of them require reason about contract execu- 
+tion traces. A very recent work by Grossman et al. [32] 
+similar to our in spirit and provide a dynamic anal- 
+ysis of execution traces, focus exclusively on detect- 
+ing non-callback-free contract (i.e., prone to reentrancy 
+attacks)—a vulnerability that be by now well studied. 
+
+Concurrently with our work, Kalra et al. developed 
+ZEUS [4], a framework for automate verification of 
+smart contract use abstract interpretation and sym- 
+bolic model checking, accept user-provided policy 
+to verify for. Unlike MAIAN, ZEUS conduct policy 
+check at a level of LLVM-like intermediate represen- 
+tation of a contract, obtain from Solidity code, and 
+leverage a suite of standard tools, such a off-the-shelf 
+constraint and SMT solver [19, 33, 34]. ZEUS do not 
+provide a general framework for check trace proper- 
+ties, or under-approximating liveness properties. 
+
+Various version of EVM semantics [8] be imple- 
+mented in Coq [35], Isabelle/HOL [36, 37], F? [38], 
+Idris [39], and Why3 [40, 41], follow by subsequent 
+mechanise contract verification efforts. However, none 
+of those effort consider trace property in the spirit 
+of what we define in Section 3. 
+
+Several contract language be propose recently 
+that distinguish between global action (e.g., send 
+Ether or terminate a contract) and instruction for ordi- 
+nary computation [42,43], for the sake of simplify rea- 
+soning about contract executions. For instance, the work 
+on the contract language SCILLA [43] show how to en- 
+code in Coq [44] and formally prove a property, which be 
+very similar to a contract be non-leaky, a per Defini- 
+tion 3.3 instantiate with a non-trivial side condition R. 
+
+7 Conclusion 
+We characterize vulnerability in smart contract that 
+be checkable a property of an entire execution trace 
+(possibly infinite sequence of their invocations). We 
+show three example of such trace vulnerabilities, lead- 
+ing to greedy, prodigal and suicidal contracts. Analyzing 
+970,898 contracts, our new tool MAIAN flag thousand 
+of contract vulnerable at a high true positive rate. 
+
+13 
+
+
+
+References 
+[1] A. Akentiev, “Parity multisig github.” [Online]. Available: 
+
+https://github.com/paritytech/parity/issues/6995 
+
+[2] L. Luu, D. Chu, H. Olickel, P. Saxena, and A. Hobor, “Making 
+smart contract smarter,” in CCS. ACM, 2016, pp. 254–269. 
+
+[3] “Oyente: An Analysis Tool for Smart Contracts,” 2018. [Online]. 
+Available: https://github.com/melonproject/oyente 
+
+[4] S. Kalra, S. Goel, M. Dhawan, and S. Sharma, “Zeus: Analyzing 
+safety of smart contracts,” in NDSS, 2018, to appear. 
+
+[5] “Securify: Formal Verification of Ethereum Smart Contracts,” 
+2018. [Online]. Available: http://securify.ch/ 
+
+[6] M. del Castillo, “The DAO Attacked: Code Issue Leads to $60 
+Million Ether Theft,” June 17, 2016. 
+
+[7] “Governmental’s 1100eth jackpot payout be stuck because it us 
+too much gas.” [Online]. Available: https://www.reddit.com/r/ 
+ethereum/comments/4ghzhv/ 
+
+[8] G. Wood, “Ethereum: A secure decentralise generalise 
+transaction ledger.” [Online]. Available: https://ethereum.github. 
+io/yellowpaper/paper.pdf 
+
+[9] Solidity: High-Level Language for Implementing Smart Con- 
+tracts. [Online]. Available: http://solidity.readthedocs.io/ 
+
+[10] S. Nakamoto, “Bitcoin: A peer-to-peer electronic cash system,” 
+2008. [Online]. Available: http://bitcoin.org/bitcoin.pdf 
+
+[11] G. Pı̂rlea and I. Sergey, “Mechanising blockchain consensus,” in 
+CPP. ACM, 2018, pp. 78–90. 
+
+[12] J. Alois, “Ethereum Parity Hack May Impact ETH 500,000 or 
+$146 Million,” 2017. 
+
+[13] “The guy who blew up parity didn’t know what he be doing.” 
+[Online]. Available: https://www.reddit.com/r/CryptoCurrency/ 
+comments/7beos3/ 
+
+[14] T. Chen, X. Li, X. Luo, and X. Zhang, “Under-optimized smart 
+contract devour your money,” in IEEE 24th International Con- 
+ference on Software Analysis, Evolution and Reengineering, 
+SANER, 2017, pp. 442–446. 
+
+[15] “Mythril,” 2018. [Online]. Available: https://github.com/ 
+b-mueller/mythril/ 
+
+[16] B. Mueller, “How Formal Verification Can Ensure Flawless 
+Smart Contracts,” January 2018. [Online]. Available: https: 
+//goo.gl/9wUFE1 
+
+[17] “Manticore,” 2018. [Online]. Available: https://github.com/ 
+trailofbits/manticore 
+
+[18] P. Godefroid, “Higher-order test generation,” in Proceedings of 
+the 32Nd ACM SIGPLAN Conference on Programming Language 
+Design and Implementation, ser. PLDI ’11, 2011. 
+
+[19] L. M. de Moura and N. Bjørner, “Z3: an efficient SMT solver,” 
+in TACAS, ser. LNCS, vol. 4963. Springer, 2008, pp. 337–340. 
+
+[20] “Go-ethereum.” [Online]. Available: https://github.com/ 
+ethereum/go-ethereum 
+
+[21] “Etherscan verify source codes.” [Online]. Available: https: 
+//etherscan.io/contractsVerified 
+
+[22] “Contract mortal.” [Online]. Available: https://etherscan. 
+io/address/0x4671ebe586199456ca28ac050cc9473cbac829eb# 
+code 
+
+[23] “Etherscan.” [Online]. Available: https://etherscan.io/ 
+
+[24] K. Delmolino, M. Arnett, A. E. Kosba, A. Miller, and E. Shi, 
+“Step by step towards create a safe smart contract: Lessons and 
+insight from a cryptocurrency lab,” in FC 2016 International 
+Workshops, ser. LNCS, vol. 9604. Springer, 2016, pp. 79–94. 
+
+[25] I. Sergey and A. Hobor, “A Concurrent Perspective on Smart 
+Contracts,” in 1st Workshop on Trusted Smart Contracts, ser. 
+LNCS, vol. 10323. Springer, 2017, pp. 478–493. 
+
+[26] M. Bartoletti, S. Carta, T. Cimoli, and R. Saia, “Dissecting 
+ponzi scheme on ethereum: identification, analysis, and impact,” 
+CoRR, vol. abs/1703.03779, 2017. 
+
+[27] N. Atzei, M. Bartoletti, and T. Cimoli, “A Survey of Attacks 
+on Ethereum Smart Contracts (SoK),” in POST, ser. LNCS, vol. 
+10204. Springer, 2017, pp. 164–186. 
+
+[28] ConsenSys Diligence, “Ethereum Smart Contract Security Best 
+Practices,” 2018. [Online]. Available: https://consensys.github. 
+io/smart-contract-best-practices 
+
+[29] E. G. Sirer, “Reentrancy Woes in Smart Contracts.” 
+[Online]. Available: http://hackingdistributed.com/2016/07/13/ 
+reentrancy-woes/ 
+
+[30] E. Hildenbrandt, M. Saxena, X. Zhu, N. Rodrigues, P. Daian, 
+D. Guth, and G. Rosu, “KEVM: A Complete Semantics of the 
+Ethereum Virtual Machine,” Tech. Rep., 2017. 
+
+[31] G. Rosu, “ERC20-K: Formal Executable Specification of 
+ERC20,” December 2017. [Online]. Available: https: 
+//runtimeverification.com/blog/?p=496 
+
+[32] S. Grossman, I. Abraham, G. Golan-Gueta, Y. Michalevsky, 
+N. Rinetzky, M. Sagiv, and Y. Zohar, “Online detection of effec- 
+tively callback free object with application to smart contracts,” 
+PACMPL, vol. 2, no. POPL, pp. 48:1–48:28, 2018. 
+
+[33] A. Gurfinkel, T. Kahsai, A. Komuravelli, and J. A. Navas, “The 
+SeaHorn Verification Framework,” in CAV, Part I, ser. LNCS, vol. 
+9206. Springer, 2015, pp. 343–361. 
+
+[34] K. L. McMillan, “Interpolants and Symbolic Model Checking,” 
+in VMCAI, ser. LNCS, vol. 4349. Springer, 2007, pp. 89–90. 
+
+[35] Y. Hirai, “Ethereum Virtual Machine for Coq (v0.0.2),” 
+Published online on 5 March 2017. [Online]. Available: 
+https://goo.gl/DxYFwK 
+
+[36] ——, “Defining the Ethereum Virtual Machine for Interactive 
+Theorem Provers,” in 1st Workshop on Trusted Smart Contracts, 
+ser. LNCS, vol. 10323. Springer, 2017, pp. 520–535. 
+
+[37] S. Amani, M. Bégel, M. Bortin, and M. Staples, “Towards Ver- 
+ifying Ethereum Smart Contract Bytecode in Isabelle/HOL,” in 
+CPP. ACM, 2018, pp. 66–77. 
+
+[38] K. Bhargavan, A. Delignat-Lavaud, C. Fournet, A. Gollamudi, 
+G. Gonthier, N. Kobeissi, N. Kulatova, A. Rastogi, T. Sibut- 
+Pinote, N. Swamy, and S. Zanella-Béguelin, “Formal verification 
+of smart contracts: Short paper,” in PLAS. ACM, 2016, pp. 
+91–96. 
+
+[39] J. Pettersson and R. Edström, “Safer Smart Contracts through 
+Type-Driven Development,” Master’s thesis, Chalmers Univer- 
+sity of Technology, Sweden, 2016. 
+
+[40] C. Reitwiessner, “Formal verification for solidity con- 
+tracts,” 2015. [Online]. Available: https://forum.ethereum. 
+org/discussion/3779/formal-verification-for-solidity-contracts 
+
+[41] J. Filliâtre and A. Paskevich, “Why3 - Where Programs Meet 
+Provers,” in ESOP, ser. LNCS, vol. 7792. Springer, 2013, pp. 
+125–128. 
+
+[42] “Bamboo,” 2018. [Online]. Available: https://github.com/ 
+pirapira/bamboo 
+
+[43] I. Sergey, A. Kumar, and A. Hobor, “Scilla: a smart contract 
+intermediate-level language,” CoRR, vol. abs/1801.00687, 2018. 
+
+[44] Coq Development Team, The Coq Proof Assistant Reference 
+Manual - Version 8.7, 2018. [Online]. Available: http: 
+//coq.inria.fr/ 
+
+14 
+
+https://github.com/paritytech/parity/issues/6995 
+https://github.com/melonproject/oyente 
+http://securify.ch/ 
+https://www.reddit.com/r/ethereum/comments/4ghzhv/ 
+https://www.reddit.com/r/ethereum/comments/4ghzhv/ 
+https://ethereum.github.io/yellowpaper/paper.pdf 
+https://ethereum.github.io/yellowpaper/paper.pdf 
+http://solidity.readthedocs.io/ 
+http://bitcoin.org/bitcoin.pdf 
+https://www.reddit.com/r/CryptoCurrency/comments/7beos3/ 
+https://www.reddit.com/r/CryptoCurrency/comments/7beos3/ 
+https://github.com/b-mueller/mythril/ 
+https://github.com/b-mueller/mythril/ 
+https://goo.gl/9wUFE1 
+https://goo.gl/9wUFE1 
+https://github.com/trailofbits/manticore 
+https://github.com/trailofbits/manticore 
+https://github.com/ethereum/go-ethereum 
+https://github.com/ethereum/go-ethereum 
+https://etherscan.io/contractsVerified 
+https://etherscan.io/contractsVerified 
+https://etherscan.io/address/0x4671ebe586199456ca28ac050cc9473cbac829eb#code 
+https://etherscan.io/address/0x4671ebe586199456ca28ac050cc9473cbac829eb#code 
+https://etherscan.io/address/0x4671ebe586199456ca28ac050cc9473cbac829eb#code 
+https://etherscan.io/ 
+https://consensys.github.io/smart-contract-best-practices 
+https://consensys.github.io/smart-contract-best-practices 
+http://hackingdistributed.com/2016/07/13/reentrancy-woes/ 
+http://hackingdistributed.com/2016/07/13/reentrancy-woes/ 
+https://runtimeverification.com/blog/?p=496 
+https://runtimeverification.com/blog/?p=496 
+https://goo.gl/DxYFwK 
+https://forum.ethereum.org/discussion/3779/formal-verification-for-solidity-contracts 
+https://forum.ethereum.org/discussion/3779/formal-verification-for-solidity-contracts 
+https://github.com/pirapira/bamboo 
+https://github.com/pirapira/bamboo 
+http://coq.inria.fr/ 
+http://coq.inria.fr/ 
+
+1 Introduction 
+2 Problem 
+2.1 Background on Smart Contracts 
+2.2 Contracts with Trace Vulnerabilities 
+2.3 Our Approach 
+
+3 Execution Model and Trace Properties 
+3.1 EVM Semantics and Execution Traces 
+3.2 Characterising Safety Violations 
+3.3 Characterising Liveness Violations 
+
+4 The Algorithm and the Tool 
+4.1 Symbolic Analysis 
+4.2 Concrete Validation 
+
+5 Evaluation 
+5.1 Results 
+5.2 Case Studies: True Positives 
+5.3 Case Studies: False Positives 
+5.4 Summary and Observations 
+
+6 Related Work 
+7 Conclusion 
+

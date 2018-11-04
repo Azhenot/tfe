@@ -1,0 +1,2066 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Computationally Efficient Simulation of Queues: The R Package queuecomputer 
+
+
+Computationally Efficient Simulation of Queues: 
+
+The R Package queuecomputer 
+
+Anthony Ebert 
+Queensland University of Technology 
+
+ACEMS 
+
+Paul Wu 
+Queensland University of Technology 
+
+ACEMS 
+
+Kerrie Mengersen 
+Queensland University of Technology 
+
+ACEMS 
+
+Fabrizio Ruggeri 
+CNR-IMATI 
+
+Queensland University of Technology 
+ACEMS 
+
+Abstract 
+
+Large network of queue system model important real-world system such a 
+MapReduce clusters, web-servers, hospitals, call-centers and airport passenger terminals. 
+To model such system accurately we must infer queue parameter from data. Unfor- 
+tunately, for many queue network there be no clear way to proceed with parameter 
+inference from data. Approximate Bayesian computation could offer a straight-forward 
+way to infer parameter for such network if we could simulate data quickly enough. 
+
+We present a computationally efficient method for simulate from a very general set of 
+queue network with the R package queuecomputer. Remarkable speedup of more 
+than 2 order of magnitude be observe relative to the popular DES package simmer 
+and simpy. We replicate output from these package to validate the package. 
+
+The package be modular and integrates well with the popular R package dplyr. Complex 
+queue network with tandem, parallel and fork/join topology can easily be built with 
+these two package together. We show how to use this package with two examples: a 
+call-centre and an airport terminal. 
+
+Keywords: queues, queue theory, discrete event simulation, operation research, approxi- 
+mate Bayesian computation, R. 
+
+1. Introduction 
+
+The queue we encounter in our everyday experience, where customer wait in line to be serve 
+by a server, be a useful analogy for many other processes. We say analogy because the word 
+customer could represent: MapReduce job (Lin, Zhang, Wierman, and Tan 2013); patient 
+in a hospital (Takagi, Kanai, and Misue 2016); item in a manufacturing system (Dallery 
+and Gershwin 1992); call to a call center (Gans, Koole, and Mandelbaum 2003); shipping 
+container in a seaport (Kozan 1997) or even cognitive task (Cao 2013). Similarly server 
+could represent: a compute cluster; medical staff; machinery or a customer service represen- 
+tative at a call centre. Queueing system can also be networked together to form queue 
+
+ar 
+X 
+
+iv 
+:1 
+
+70 
+3. 
+
+02 
+15 
+
+1v 
+2 
+
+[ 
+st 
+
+at 
+.C 
+
+O 
+] 
+
+3 
+0 
+
+A 
+pr 
+
+2 
+01 
+
+7 
+
+
+
+2 queuecomputer: Computationally Efficient Simulation of Queues 
+
+networks. We can use queue network to build model of process such a provision of in- 
+ternet service (Sutton and Jordan 2011), passenger facilitation at international airport (Wu 
+and Mengersen 2013) and emergency evacuation (Van Woensel and Vandaele 2007). Clearly 
+queue system and queue network be useful for understand important real-world 
+systems. 
+
+Performance measure for a give queue system can often only be derive through simula- 
+tion. Queues be usually simulated with discrete event simulation (DES) (Rios Insua, Ruggeri, 
+and Wiper 2012, pg. 226). In DES change in state be discontinuous. The state be act 
+upon by a countable list of event at certain time which cause the discontinuities. If the 
+occurrence of an event be independent of everything except simulation time it be determined, 
+otherwise it be contingent (Nance 1981). 
+
+Popular DES software package be available in many program language including: the R 
+package simmer (Ucar and Smeets 2016), the Python (Van Rossum and Drake 2014) package 
+simpy (Lünsdorf and Scherfke 2013) and the Java (Gosling 2000) package JMT (Bertoli, 
+Casale, and Serazzi 2009). DES package be often so expressive that they can be consider 
+language in their own right, indeed the program language Simula (Dahl and Nygaard 
+1966) be a literal example of this. 
+
+queuecomputer (Ebert 2016) implement an algorithm that can easily be apply to a wide 
+range of queue system and network of queue systems. It be vastly more computation- 
+ally efficient than exist approach to DES. We term this new computationally efficient 
+algorithm queue departure computation (QDC). Computational efficiency be important be- 
+cause if we can simulate from queue quickly then we can embed a queue simulation within an 
+approximate Bayesian computation (ABC) algorithm (Sunn̊aker, Busetto, Numminen, Coran- 
+der, Foll, and Dessimoz 2013) and estimate queue parameter for very complicate queue 
+model in a straight forward manner. 
+
+In Section 2 we review the literature on queue theory and develop notation use through- 
+out this paper. In Section 3 we present the QDC algorithm and compare it to DES. We 
+demonstrate usage of the package in Section 4. Details of implementation and usage be dis- 
+cuss in Section 5. The package be validate in Section 6 by replicate result from DES 
+package simpy and simmer. We compare compute performance measure from the out- 
+put of a queuecomputer simulation to theoretical result for M/M/2 queue systems. We 
+benchmark the package in Section 7 and compare computation time with simpy and simmer. 
+Examples in Section 8 be use to demonstrate how the package can be use to simulate a 
+call centre and an international airport terminal. 
+
+2. Queueing theory 
+
+Queueing theory be the study of queue system and originate from the work of Agner 
+Krarup Erlang in 1909 to plan infrastructure requirement for the Danish telephone system 
+(Thomopoulos 2012, pg 2). 
+
+A queue system be define a follows. Each customer i = 1, 2, · · · have an arrival time ai (or 
+equivalently an inter-arrival time δi = ai − ai−1, a0 = 0) and an amount of time they require 
+with a server, call the service time si. Typically a server can serve only one customer at 
+a time. A server which be currently serve another customer be say to be unavailable, a 
+server without a customer be available. If all server be unavailable when a customer arrives 
+
+
+
+Anthony Ebert, Paul Wu, Kerrie Mengersen, Fabrizio Ruggeri 3 
+
+then customer must wait in the queue until a server be available. Detailed introduction to 
+queue system can be found in standard text such a Bhat (2015). 
+
+The characteristic of a queue system be express with the notation of Kendall (1953). 
+This notation have since be extend to six characteristics: 
+
+• fδ, inter-arrival distribution; 
+
+• fs, service distribution; 
+
+• K, number of server ∈ N; 
+
+• C, capacity of system ∈ N; 
+
+• n, customer population ∈ N; and 
+
+• R, service discipline 
+
+Choices for inter-arrival and service distribution be denote by “M” for exponential and 
+independently distributed, “GI” for general and independently distribute and “G” for general 
+without the independence assumption. The capacity of the system C refers to the maximum 
+number of customer within the system at any one time1. Customers be within the system if 
+they be be serve or wait in the queue. The customer population n be the total number 
+of customer include those outside of the system (yet to arrive or already departed). The 
+service discipline R defines how customer in the queue be allocate to available servers. The 
+most common service discipline be first come first serve (FCFS). To specify a queue system, 
+these characteristic be place in the order give above and separate by a forward slash “/”. 
+
+The simplest queue system be exponential in distribution for both the inter-arrival δi 
+iid∼ 
+
+exp(λ) ∀i ∈ 1 : n and service process si 
+iid∼ exp(µ) ∀i ∈ 1 : n, where λ and µ be exponential 
+
+rate parameters. Additionally, K be set to 1, C and n be infinite and R be FCFS. It be denote 
+by M/M/1/∞/∞/FCFS, which be shorten to M/M/1. 
+Parameter inference for this system be consider first by Clarke (1957), estimator be 
+derive from the likelihood function. This likelihood be late use by Muddapur (1972) to 
+derive the joint posterior distribution. Bayesian inference for queue system be summarise 
+in detail by Rios Insua et al. (2012). 
+
+Managers and planner be less interested in parameter inference and more interested in 
+performance measure such as: N(t), the number of customer in system at time t; B̄, the 
+average number of busy servers; ρ, the resource utilization; and w̄, the average wait time for 
+customers. If λ < Kµ the queue system will eventually reach equilibrium and distribution 
+of performance measure become independent of time. 
+
+In the case of a M/M/K system equilibrium distribution for performance measure be 
+derive analytically, they be found in standard queue theory textbook (Lipsky 2008; 
+Thomopoulos 2012). For instance the limit probability of N customer in the system P(N) be 
+
+1If the system be at full capacity and new customer arrive, new customer leave the system immediately 
+without be served. 
+
+
+
+4 queuecomputer: Computationally Efficient Simulation of Queues 
+
+P(0) = 
+
+[ 
+(Kρ)K 
+
+K!(1− ρ) 
++ 1 + 
+
+K−1∑ 
+i=1 
+
+(Kρ)i 
+
+i! 
+
+]−1 
+(1) 
+
+P(N) = 
+
+{ 
+P(0) (Kρ) 
+
+n 
+
+N ! N ≤ K 
+P(0) (Kρ) 
+
+n 
+
+K!KN−K 
+otherwise 
+
+(2) 
+
+where ρ, the resource utilization, be define a λKµ . For an M/M/K system this be equal to 
+
+the expect number of busy server divide by the total number of server E(B)K (Cassandras 
+and Lafortune 2009, pg. 451). The expect number of customer in the system be (Bhat 
+2015) 
+
+E(N) = Kρ+ 
+ρ(Kρ)KP (0) 
+
+K!(1− ρ)2 
+, (3) 
+
+and the expect wait time be 
+
+E(w) = 
+(Kρ)KP (0) 
+
+K!Kµ(1− ρ)2 
+. (4) 
+
+If the parameter of fδ and f be uncertain then we must turn to predictive distribution for 
+estimate of performance measures. Predictive distribution of performance measure use 
+Bayesian posterior distribution be derive by Armero (1994); Armero and Bayarri (1999). 
+
+Jackson (1957) be one of the first to consider network of queue systems. In a Jackson 
+network there be a set of J queue systems. After a customer be serve by queue system 
+j they arrive at another queue system with fix probability pj,k. Customers leave the 
+
+system with probability 1 − 
+∑J 
+
+k=1 pj,k. Other example of queue network include the 
+tandem (Glynn and Whitt 1991), parallel (Hunt and Foote 1995) and the fork/join (Kim and 
+Agrawala 1989) topologies. 
+
+In a tandem queue network, customer traverse an order series of queue before depart 
+the system. Real example of such system include airport terminals, internet service and 
+manufacturing systems. In a parallel network, customer be partition into different (a, s) 
+to be see by separate queue systems. In a fork/join network a task (another term for 
+customer) be fork into a number of subtasks which be to be complete by distinct parallel 
+servers. The difference from the parallel network be that the task can only depart the system 
+once all subtasks have arrive at the join point. 
+
+Most model of queue system assume time-invariant inter-arrival and service processes. 
+In practice many real-world queue have inter-arrival process which be strongly time- 
+dependent, such as: call-centres (Weinberg, Brown, and Stroud 2007; Brown, Gans, Mandel- 
+baum, Sakov, Shen, Zeltyn, and Zhao 2005), airport runway (Koopman 1972) and hospital 
+(Brahimi and Worthington 1991). In the case of the M/M/1 queue we can adapt the notation 
+to M(t)/M(t)/1 to represent exponential process where parameter λ(t) and µ(t) change 
+with time. Such queue system be refer to a dynamic queue systems. 
+
+
+
+Anthony Ebert, Paul Wu, Kerrie Mengersen, Fabrizio Ruggeri 5 
+
+In general, analytic solution do not exist for dynamic queue system (Malone 1995; Wor- 
+thington 2009). Green, Kolesar, and Svoronos (1991) show that use stationary queue 
+system to model dynamic queue system lead to serious error even if deviation from 
+stationarity be slight. The problem be compound once we consider queue networks. Un- 
+derstanding long-term and transient behaviour of such queue can only be achieve with 
+approximation method or simulation. We now detail the QDC algorithm, a computationally 
+efficient method for simulate queue systems. 
+
+3. Queue departure computation 
+
+3.1. Fixed number of server 
+
+QDC can be consider a a multi-server extension to an algorithm present by Lindley 
+(1952). For a single server queue system, the departure time of the ith customer is: 
+di = max (ai, di−1) + si, since the customer either wait for a server or the server wait for 
+a customer. The algorithm (not the paper) was, surprisingly, not extend to multi-server 
+system until Krivulin (1994). However with each new customer i the algorithm must search 
+a grow i + 1 length vector. This algorithm therefore scale poorly, with computational 
+complexity O(n2), where n be number of customers. Kin and Chan (2010) adapt the original 
+algorithm of Kiefer and Wolfowitz (1955) to an O(nK) algorithm for multiserver tandem 
+queue with blocking, that be G/G/K/C queue system where C be the maximum capacity 
+number of customer in the queue systems. 
+
+QDC can also be view a a computationally efficient solution to the set of equation pre- 
+sented in Sutton and Jordan (2011, pg. 259) for FCFS queue systems. There be a single 
+queue serve by a fix number of K servers. The ith customer observes a set of time 
+bi = {bik|k ∈ 1 : K} which represent the time when each server will next be available. The 
+customer i selects the early available server pi = argmin(bi) from bi. The departure time 
+for the ith customer be therefore di = max(ai, bpi) + si, since the server must wait for the 
+customer or the customer must wait for the server. The QDC algorithm for a fix number of 
+server (Algorithm 1) pre-sorts the arrival times. Rather than assign a bi for each customer 
+i to form the matrix b ∈Mn×K , QDC considers b a a continually update K length vector 
+represent the state of the system. 
+
+This algorithm be simple and computationally efficient. At each iteration of the loop we need 
+only search b, a K length vector for the minimum element in code line 8. In the language 
+of DES, we consider b a the system state and a a the event list, which be all determine 
+events. This differs from conventional DES approach to model queue system where 
+the queue length be the system state and both a and d constitute the event list, where 
+the event of a be determine and the event of d be continually update and therefore 
+contingent. 
+
+Algorithm 1 can simulate any queue of the form G(t)/G(t)/K/∞/n/FCFS where K and n 
+can be make arbitrarily large. Furthermore, the inter-arrival and service distribution can be 
+of completely general form and even have a dependency structure between them. Since the 
+arrival and service time be supply by the user rather than sample in-situ, the algorithm 
+“decouples” statistical sample from queue computation. This free the user to simulate 
+queue of arbitrarily complex fδ,s, where K be fixed. 
+
+
+
+6 queuecomputer: Computationally Efficient Simulation of Queues 
+
+Algorithm 1 QDC for fix K 
+
+1: function QDC numeric(a ∈ Rn+, s ∈ Rn+,K ∈ N) 
+2: Sort (a, s) in term of a (ascending) 
+3: Create vector p ∈ Nn. 
+4: Create vector b ∈ RK+ . 
+5: Create vector d ∈ Rn+. 
+6: bk ← 0 ∀k ∈ 1 : K 
+7: for i ∈ 1 : n do 
+8: pi ← arg min(b) 
+9: bpi ← max(ai, bpi) + si 
+
+10: di ← bpi 
+11: end for 
+12: Put (a,d,p) back to original (input) order of a 
+13: return (d,p) 
+14: end function 
+
+3.2. Changing number of server 
+
+Conditional case 
+
+Suppose that the number of server that customer can use change throughout the day. This 
+reflect realistic situation where more server be rostered on for busier time of the day. We 
+say that for a certain time t, the customer have a choice of K(t) open server from K. This 
+mean that there be K(t) server rostered-on for time t. We define the term close a the 
+opposite of open. 
+
+We represent the number of open server throughout the day a a step function. Time be on 
+the positive real number line and be partition by L knot location x = (x1, · · · , xL) ∈ RL+ 
+into L + 1 epoch (0, x1], (x1, x2], · · · , (xL,∞). The number of open server in each epoch be 
+represent by a L + 1 length vector y = (y1, · · · , yL+1) ∈ NL+10 . If we assume that none of 
+the service time s span the length of more than one epoch (xl, xl+1], formally 
+
+∀i [si < min(xl+1 − xl|l ∈ 1 : L)] , (5) 
+
+then we need consider a change in state over at most 1 knot location. This step function be 
+determine input by the user. Like the arrival and service time (a, s) it be changeable by the 
+user before the simulation but not during the simulation. 
+
+We close server k by write an∞ symbol to bk ensure that no customer can use that server. 
+If the server need to be open again at time t we write t to bk allow customer to use that 
+server. Since x now corresponds to change in b it be part of the event list along with a. The 
+entire event list be still determine and need not be update mid-simulation. 
+
+This algorithm can simulate queue of form G(t)/G(t)/K(t)/∞/n/FCFS, where K(t) refers 
+to the number of open server change with time. As mention previously this algorithm be 
+subject to Condition 5, this condition be not overly restrictive if we consider realistic system 
+with few change in K. The record server allocation p = (p1, · · · , pn) may not reflect the 
+real system since Algorithm 2 do not allow the user to specify exactly which server be 
+
+
+
+Anthony Ebert, Paul Wu, Kerrie Mengersen, Fabrizio Ruggeri 7 
+
+Algorithm 2 QDC for K(t) (conditional) 
+
+1: function QDC server.stepfun(a ∈ Rn+, s ∈ Rn+,x ∈ RL+,y ∈ NL+10 ) 
+2: Sort (a, s) in term of a (ascending) 
+3: xL+1 ←∞ 
+4: yL+2 ← 1 
+5: K ← max(y) 
+6: Create vector b ∈ RK+ . 
+7: bk ←∞ ∀k ∈ 1 : K 
+8: bk ← 0 ∀k ∈ 1 : y0 
+9: Create vector p ∈ Nn. 
+10: Create vector d ∈ Rn+. 
+11: l← 1 
+12: p1 ← 1 
+13: for i ∈ 1 : n do 
+14: 
+15: // Adjustments to b with change in epoch 
+16: if ∀k ∈ 1 : K [bk ≥ xl+1] OR ai ≥ xl+1 then 
+17: if yl+1 − yl > 0 then 
+18: for k ∈ (yl + 1 : yl+1) do 
+19: bk ← xl+1 
+20: end for 
+21: end if 
+22: if yl+1 − yl < 0 then 
+23: for k ∈ (yl+1 + 1 : yl) do 
+24: bk ←∞ 
+25: end for 
+26: end if 
+27: l← l + 1 
+28: end if 
+29: // End of adjustment to b with change in epoch 
+30: 
+31: pi ← arg min(b) 
+32: bpi ← max(ai, bpi) + si 
+33: di ← bpi 
+34: 
+35: // Extra loop if current size be zero so that customer i can be process in next epoch 
+36: if yl = 0 then 
+37: i← i− 1 
+38: end if 
+39: 
+40: end for 
+41: Put (a,d,p) back to original (input) order of a 
+42: return (d,p) 
+43: end function 
+
+open in each epoch, only how many be open and closed. If this output be need or in case 
+where Condition 5 do not hold, we must use the less computationally efficient but more 
+general unconditional algorithm below. 
+
+Unconditional case 
+
+If Condition 5 do not hold or if otherwise we wish to control exactly which server be open 
+at what time then we must use a less computationally efficient algorithm (Algorithm 4). Each 
+server k have it own partition of Lk knot location xk = (xk,1, · · · , xk,Lk) ∈ R 
+
+Lk 
++ and each 
+
+
+
+8 queuecomputer: Computationally Efficient Simulation of Queues 
+
+yk = (yk,1, · · · , yk,Lk+1) be an alternate sequence of 0 and 1 of length Lk indicate whether 
+the server be open or close respectively for the associate epoch. The vector c be use slightly 
+differently to how it be use in Sutton and Jordan (2011). We use it to represent the time at 
+which each server be next available for the current customer i, give the current system state 
+b. It be the output of the next_fun function. 
+
+Algorithm 3 Next function 
+
+function next fun(t,x ∈ RL+,y) 
+Find l such that xl < t ≤ xl+1. 
+if yl+1 = 0 then 
+
+return xl+1 
+else 
+
+return t 
+end if 
+
+end function 
+
+Algorithm 4 QDC for K(t) (unconditional) 
+
+1: function QDC server.list(a ∈ Rn+, s ∈ Rn+,x = (x1, · · · ,xK),y = (y1, · · · ,yK)) 
+2: Sort (a, s) in term of a (ascending) 
+3: ∀k ∈ 1 : K xk,Lk+1 ←∞ 
+4: ∀k ∈ 1 : K yk,Lk+2 ← 1 
+5: K ← length(x) 
+6: Create vector c ∈ RK+ 
+7: Create vector b ∈ RK+ 
+8: bk ← 0 ∀k ∈ 1 : K 
+9: Create vector p ∈ Nn. 
+
+10: Create vector d ∈ Rn+. 
+11: for i ∈ 1 : n do 
+12: for k ∈ 1 : K do 
+13: ck ← next fun(max(bk, ai),xk,yk) 
+14: end for 
+15: pi ← arg min(b) 
+16: bpi ← cpi + si 
+17: di ← bpi 
+18: end for 
+19: Put (a,d,p) back to original (input) order of a 
+20: return (d,p) 
+21: end function 
+
+This algorithm can simulate queue system of form G(t)/G(t)/K(t)/∞/n/FCFS, where 
+K(t) refers to the number of open server change with time. In addition we can specify 
+which particular server be available when, not just how many and we be not bound by 
+Condition 5. Once again we note that b can be consider a the system state and the event 
+list be form by a and the element of x. This function can be call with the queue_step 
+function in queuecomputer by supply a server.list object to the server argument. For 
+the rest of this paper we focus on Algorithms 1 and 2 for their relative conceptual simplicity 
+
+
+
+Anthony Ebert, Paul Wu, Kerrie Mengersen, Fabrizio Ruggeri 9 
+
+and computational efficiency. 
+
+3.3. Discussion 
+
+With the algorithm so far present we can simulate from a very general set of queue 
+system G(t)/G(t)/K(t)/∞/n/FCFS in a computationally efficient manner. In contrast to 
+the algorithm of Kin and Chan (2010), the state vector b be write over in each iteration. 
+The memory usage for QDC therefore scale with O(n) rather than O(nK). 
+
+Tandem queue network can be simulated by use the output of one queue system a 
+the input to the next queue system. We demonstrate this idea with the Airport Simulation 
+example in Section 8.2. Fork/join queue network be address in the next section where 
+we explain the implementation detail of queuecomputer with regard to the QDC algorithm. 
+
+4. Usage 
+
+The purpose of the package queuecomputer be to compute, deterministically, the output of a 
+queue system give the arrival and service time for all customers. The most important 
+function be queue_step. The first argument to queue_step be a vector of arrival times, the 
+second argument be a vector of service time and the third argument specifies the server 
+available. 
+
+R> library("queuecomputer") 
+
+R> arrival <- cumsum(rexp(100)) 
+
+R> head(arrivals) 
+
+[1] 0.693512 1.693399 2.425550 3.952405 3.961906 4.405492 
+
+R> service <- rexp(100) 
+
+R> departure <- queue_step(arrivals, service = service, server = 2) 
+
+R> departure 
+
+# A tibble: 100 × 6 
+arrival service departure wait system_time server 
+
+<dbl> <dbl> <dbl> <dbl> <dbl> <dbl> 
+
+1 0.693512 0.830158956 1.523671 0.000000e+00 0.830158956 1 
+
+2 1.693399 0.817648174 2.511047 1.110223e-16 0.817648174 2 
+
+3 2.425550 0.002675641 2.428226 2.138047e-16 0.002675641 1 
+
+4 3.952405 0.667180991 4.619586 4.440892e-16 0.667180991 1 
+
+5 3.961906 0.551920432 4.513827 4.440892e-16 0.551920432 2 
+
+6 4.405492 1.069236762 5.583063 1.083341e-01 1.177570886 2 
+
+7 4.594253 1.110448926 5.730035 2.533279e-02 1.135781711 1 
+
+8 4.993053 0.766944956 6.350008 5.900099e-01 1.356954853 2 
+
+9 6.047412 0.805061421 6.852474 1.110223e-16 0.805061421 1 
+
+10 6.856338 1.317802131 8.174140 0.000000e+00 1.317802131 2 
+
+# ... with 90 more row 
+
+
+
+10 queuecomputer: Computationally Efficient Simulation of Queues 
+
+The output of a queue_step function be a queue_list object. We built a summary method 
+for object of class queue_step, which we now demonstrate. 
+
+R> summary(departures) 
+
+Total customers: 
+
+100 
+
+Missed customers: 
+
+0 
+
+Mean wait time: 
+
+0.246 
+
+Mean response time: 
+
+1.11 
+
+Utilization factor: 
+
+0.53 
+
+Mean queue length: 
+
+0.301 
+
+Mean number of customer in system: 
+
+1.36 
+
+If the last element of y be zero it be possible that some customer will never be served, this be 
+the “Missed customers” output. The performance measure that follow be the mean wait 
+time w̄, the mean response time r̄ = d − a, the observe utilization factor B̄/K, the mean 
+queue length and the mean number of customer in the system respectively. The utilization 
+factor B̄/K take into account the change number of open server K(t) where Algorithm 2 
+be used. We now explain the implementation detail of package. 
+
+5. Implementation 
+
+The for loop within Algorithms 1 and 2 be write in C++ with the Armadillo library 
+(Sanderson and Curtin 2016). The C++ for loop be call use the R package Rcpp 
+(Eddelbuettel, François, Allaire, Chambers, Bates, and Ushey 2011) and RcppArmadillo 
+(Eddelbuettel and Sanderson 2014). We use R to provide wrapper function for the C++ 
+code. 
+
+The queue_step call the more primitive queue function which be a wrapper for S3 method 
+which implement Algorithms 1, 2 or 4 depend on the class of the object supply to the 
+server argument of queue_step. If class(server) be numeric then queue run Algorithm 
+1, if it be a server.stepfun then queue run Algorithm 2, if it be a server.list then queue 
+run Algorithm 4. The queue function computes departure time d and server allocation p 
+and the queue_step function add additional output such a wait time and queue length 
+which be use in summary and plot methods. 
+
+To simulate fork/join network the queuecomputer function wait_step provide a simple 
+wrapper to the base function pmax.int, this function computes the maximum of each row for 
+a set of two equal length numeric vectors. The vector represent the departure time for each 
+subjob and the departure time for the entire job be the maximum of each subjob. 
+
+
+
+Anthony Ebert, Paul Wu, Kerrie Mengersen, Fabrizio Ruggeri 11 
+
+In simmer and simpy user supply generator function for simulate δ and service time s, 
+the user enters the set of input parameter θI for these generator function and start the 
+simulation. The inter-arrival time be resampled after each arrival and the service time be 
+sample when the server begin with a new customer. This make it difficult to model queue 
+where distribution for inter-arrival time do not make sense: like the immigration counter for 
+an airport, where multiple flight generate customers; or when arrival time and service time 
+be not independent. In queuecomputer sample be “decoupled” from computation, the user 
+sample a and service time s use any method. The output d and p be then compute 
+deterministically. 
+
+We now demonstrate the validity of queuecomputer’s output by replicate result from the 
+DES package simmer and simpy. We then replicate equilibrium analytic result of perfor- 
+mance measure for the M/M/2 queue. 
+
+6. Validation 
+
+6.1. Comparison with simmer and simpy 
+
+To demonstrate the validity of the algorithm we consider a M/M/2/∞/1000/FCFS queue. 
+If QDC be valid for any M/M/K queue system then it be valid for any G(t)/G(t)/K queue- 
+ing system. This be because any non-zero (a, s) could conceivably come from two exponential 
+distributions, even if the probability of the particular realization be vanishingly small. We 
+replicate exact departure time compute with the simmer and simpy package use queue- 
+computer. First we generate a and s to be use a input to all three packages. 
+
+R> set.seed(1) 
+
+R> n_customers <- 10^4 
+
+R> lambda_a <- 1/1 
+
+R> lambda_s <- 1/0.9 
+
+R> interarrivals <- rexp(n_customers, lambda_a) 
+
+R> arrival <- cumsum(interarrivals) 
+
+R> service <- rexp(n_customers, lambda_s) 
+
+We now input these object into the three script use queuecomputer, simmer, or simpy. 
+First we run the queuecomputer script. The queuecomputer_output object be sort in 
+ascend order so that the departure time can be compare to the DES packages. 
+
+R> queuecomputer_output <- queue_step(arrivals = arrivals, 
+
++ service = service, server = 2) 
+
+R> head(sort(depart(queuecomputer_output))) 
+
+[1] 1.340151 2.288112 2.639976 2.796572 3.249794 5.714967 
+
+The DES package simmer and simpy be not built to allow user to input (a, s) directly. 
+Rather, the user supply parameter for fδ and f so that inter-arrival and service time can 
+be sample at each step when needed. To allow simmer and simpy to accept presampled input 
+
+
+
+12 queuecomputer: Computationally Efficient Simulation of Queues 
+
+(a, s) we use generator function in place of the usual rexp(rate) or random.expovariate(rate) 
+call in R and Python respectively, detail of this work can be found in the supplementary 
+material. We create an interface to simmer so that it can be call in the same way a 
+queuecomputer. 
+
+R> simmer_output <- simmer_step(arrivals = arrivals, 
+
++ service = service, server = 2) 
+
+R> head(simmer_output) 
+
+[1] 1.340151 2.288112 2.639976 2.796572 3.249794 5.714967 
+
+The same departure time be observed. Similarly in Python we create an interface to simpy 
+so that it can be call in a similar way to queuecomputer. 
+
+python> simpy_step(interarrivals, service)[0:6] 
+
+array([ 1.34015149, 2.28811237, 2.63997568, 2.79657232, 3.24979406, 
+
+5.7149671 ]) 
+
+A check of all three sort vector of d from each package reveal that all be equal to 
+within 5 significant figure for every di, i = 1 : 1000. 
+
+6.2. Replicate theoretical result for M/M/3 
+
+We use a M/M/3/∞/5 × 106/FCFS simulation in queuecomputer to replicate theoretical 
+equilibrium result for key performance indicator for a M/M/2/∞/∞/FCFS queue sys- 
+tem. We set λ to 1 and set µ to 2. 
+
+Theoretical result 
+
+We first note that the traffic intensity be ρ of 2/3 = 0.6̇, which should correspond to the 
+average number of busy servers. The probability of N customer in the system be give by 
+Equation 2. We perform this computation up to N = 20 and display the result in Figure 1. 
+The expect wait time be E(w) be 0.4̇ and the expect number of customer in the system 
+E(N) be 2.8̇. 
+
+Simulation result 
+
+The input a and s must first be generated. 
+
+R> set.seed(1) 
+
+R> n_customers <- 5e6 
+
+R> lambda <- 2 
+
+R> mu <- 1 
+
+R> interarrivals <- rexp(n_customers, lambda) 
+
+R> arrival <- cumsum(interarrivals) 
+
+R> service <- rexp(n_customers, mu) 
+
+R> K = 3 
+
+
+
+Anthony Ebert, Paul Wu, Kerrie Mengersen, Fabrizio Ruggeri 13 
+
+We now use the queue_step function and the summary method for queue_list object 
+summary.queue_list to return observe key performance measures. 
+
+R> MM3 <- queue_step(arrivals = arrivals, service = service, server = K) 
+
+R> summary(MM3) 
+
+Total customers: 
+
+5000000 
+
+Missed customers: 
+
+0 
+
+Mean wait time: 
+
+0.445 
+
+Mean response time: 
+
+1.44 
+
+Utilization factor: 
+
+0.666 
+
+Mean queue length: 
+
+0.889 
+
+Mean number of customer in system: 
+
+2.89 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+● 
+
+0.00 
+
+0.05 
+
+0.10 
+
+0.15 
+
+0.20 
+
+0.00 0.05 0.10 0.15 0.20 
+
+Theoretical P(N) for M/M/2 
+
+O 
+b 
+
+er 
+ve 
+
+d 
+P 
+
+(N 
+) 
+
+fr 
+om 
+
+s 
+im 
+
+ul 
+at 
+
+io 
+n 
+
+N 
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+0 
+
+1 
+
+2 
+
+3 
+
+4 
+
+5 
+
+6 
+
+7 
+
+8 
+
+9 
+
+10 
+
+Comparison of Theoretical and Simulated P(N) 
+
+Figure 1: Comparison of theoretical equilibrium P(N) and observe proportion from simu- 
+lation. Observation N = 1 be obscure by N = 2. 
+
+We see that the observe time average number of busy server be 0.6661402 which be close to 
+0.6̇ the value for ρ. We can see that the observe mean wait time be close to the expect 
+mean wait time. The expect number of customer in the system, from the distribution 
+
+
+
+14 queuecomputer: Computationally Efficient Simulation of Queues 
+
+P(N) be close to the observe number of customer in the system. The entire distribution of 
+P(N) be replicate in Figure 1. 
+
+7. Benchmark 
+
+7.1. Method 
+
+The compare the computational efficiency of each package we compute the departure time 
+from a M/M/2/∞/n/FCFS queue system, with λ = 1 and µ = 1.1̇. To understand how 
+n affect computation time we repeat the experiment 100 time for n = 102, 103, 105 and 106. 
+We could only repeat the n = 106 experiment 10 time for simmer because of memory issues, 
+we also repeat the experiment at n = 107 for queuecomputer. We compare the median time 
+take for each combination of package and n. 
+
+The simulation be conduct on a system with Intel (R) Core(TM) i7-6700 CPU @ 3.40GHz 
+run Debian GNU/Linux. The version of R be 3.3.3 “Another Canoe” with simmer version 
+3.6.1 and queuecomputer version 0.8.1. The version of Python be 3.4.2 with simpy module 
+version 3.6.1. 
+
+To ass the computation time for queuecomputer and simmer we use the microbenchmark 
+function from the microbenchmark package (Mersmann 2015) with time = 100 and compute 
+the median. Full detail can be found in the supplementary material. 
+
+7.2. Results and discussion 
+
+The median computation time for each package and for vary number of customer from 
+100 to 106 customer (up to 107 customer for queuecomputer) be show in Figure 2. We 
+observe phenomenal speedup for queuecomputer compare to both packages: compare to 
+simpy speedup of 50 (at 100 customers) to 600 (at 106 customers) be observed, and for 
+simmer speedup of 170 (at 100 customers) to 3100 (at 106 customers) be observed. The 
+speedup be low for small n since queuecomputer approach a minimum computation time. 
+
+Simulating 10 million customer take less than 1 second for queuecomputer. We see no reason 
+why queue of different arrival and service distribution should not have similar speedups. This 
+be because, a mention earlier, any non-negative (a, s) could come from two exponential 
+distributions. 
+
+Clearly QDC and it implementation queuecomputer be a more computationally efficient 
+way to simulate queue system of the form G(t)/G(t)/K/∞/M/FCFS than conventional 
+DES algorithm implement by simpy and simmer. 
+
+8. Examples 
+
+8.1. Call centre 
+
+We demonstrate queuecomputer by simulate a call centre. The arrival time for each cus- 
+tomer be the time that they called, the service time be how long it take for their problem to 
+be resolve once they reach an available customer service representative. Let’s assume that 
+
+
+
+Anthony Ebert, Paul Wu, Kerrie Mengersen, Fabrizio Ruggeri 15 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+1 
+
+100 
+
+10000 
+
+1e+03 1e+05 1e+07 
+
+Number of Customers 
+
+C 
+om 
+
+pu 
+ta 
+
+tio 
+n 
+
+tim 
+e 
+
+(m 
+s) 
+
+package 
+● 
+
+● 
+
+● 
+
+queuecomputer 
+
+simmer 
+
+simpy 
+
+Benchmark of package for M/M/2 simulation 
+
+Figure 2: Computation time in millisecond for vary number of passenger for each 
+DES/queueing package. Each package return exactly the same set of departure times, since 
+the same arrival and service time be supplied. The computation time report here be the 
+median time of 100 run for each number of customer and each package. Intel (R) Core(TM) 
+i7-6700 CPU @ 3.40GHz run Debian GNU/Linux. 
+
+the customer arrive by a homogeneous Poisson process over the course of the day. 
+
+R> library("queuecomputer") 
+
+R> library("randomNames") 
+
+R> library("ggplot2") 
+
+R> set.seed(1) 
+
+R> interarrivals <- rexp(20, 1) 
+
+R> arrival <- cumsum(interarrivals) 
+
+R> customer <- randomNames(20, name.order = "first.last") 
+
+We also need a vector of service time for every customer. 
+
+R> service <- rexp(20, 0.5) 
+
+R> head(service) 
+
+[1] 2.4245155 1.1304372 0.3815756 0.5626325 2.0107932 1.4076141 
+
+
+
+16 queuecomputer: Computationally Efficient Simulation of Queues 
+
+We put the arrival and service time into the queue_step function to compute the departure 
+times. Here we have set the number of customer service representative to two. The “servers” 
+argument be use for this input. 
+
+R> queue_obj <- queue_step(arrivals, service, server = 2, label = customers) 
+
+R> head(queue_obj$departures_df) 
+
+# A tibble: 6 × 7 
+label arrival service departure wait system_time server 
+
+<chr> <dbl> <dbl> <dbl> <dbl> <dbl> <dbl> 
+
+1 Kwabena 0.7551818 2.6669670 3.422149 0.000000e+00 2.666967 1 
+
+2 Beatriz 1.9368246 1.2434810 3.180306 0.000000e+00 1.243481 2 
+
+3 Dashawn 2.0825313 0.4197332 3.600039 1.097774e+00 1.517507 2 
+
+4 Karina 2.2223266 0.6188957 4.041045 1.199822e+00 1.818718 1 
+
+5 Ilea 2.6583952 2.2118725 5.811911 9.416435e-01 3.153516 2 
+
+6 Brianna 5.5533638 1.5483755 7.101739 2.220446e-16 1.548376 1 
+
+We can see that Kwabena arrives first but leaf after Beatriz. This be possible because there 
+be two servers. Kwabena’s service take so long that the next two customer be serve 
+by the other server. It’s easy to see how the departure time be compute in this simple 
+example. Kwabena and Beatriz be the first customer for each server so we can compute 
+their departure time by just add their service time to their arrival times. 
+
+R> firstcustomers <- arrivals[1:2] + service[1:2] 
+
+R> firstcustomers 
+
+[1] 3.422149 3.180306 
+
+Dashawn however have to wait for an available server, since he arrive after the first two 
+customer arrive but before the first two customer departed. He must wait until one of 
+these customer departs before he can be served. We add the departure time of the first 
+customer (Beatriz) to his service time to compute his departure time. 
+
+R> firstcustomers[2] + service[3] 
+
+[1] 3.600039 
+
+So the first two customer have no wait time but Dashawn have to wait for an available 
+server. We can compute the wait time for all three customer in this manner: 
+
+R> depart(queue_obj)[1:3] - arrivals[1:3] - service[1:3] 
+
+[1] 0.000000 0.000000 1.097774 
+
+The depart function be a convenience function for retrieve the departure time from a 
+queue_list object. The queue_step function return a queue_list object. There be a 
+summary method for this object within the queuecomputer package, this can be access by 
+call summary(departures). 
+
+
+
+Anthony Ebert, Paul Wu, Kerrie Mengersen, Fabrizio Ruggeri 17 
+
+R> summary(queue_obj) 
+
+Total customers: 
+
+20 
+
+Missed customers: 
+
+0 
+
+Mean wait time: 
+
+1.15 
+
+Mean response time: 
+
+3.69 
+
+Utilization factor: 
+
+0.834 
+
+Mean queue length: 
+
+0.858 
+
+Mean number of customer in system: 
+
+2.42 
+
+The plot method in queuecomputer for queue_list object us the plot package ggplot2 
+(Wickham 2009) to return a list of plots. We produce four plots: a histogram of the arrival 
+and departure time (Figure 3); a plot of the queue length and number of customer in the 
+system over time (Figure 4); a plot of the wait and service time for each customer (Figure 
+5); and a plot of the empirical cumulative distribution function for arrival and departure time 
+(Figure 6). These plot correspond to selection 2, 5 and 6 in the which argument, a similar 
+API to the plot.lm method in the stats package (R Core Team 2016). 
+
+R> plot(queue_obj, which = c(2, 4, 5, 6) 
+
+Notice that in Figure 5, if we draw a horizontal line anywhere on the left-hand plot it will 
+never pas through more than two red bars. This must be the case otherwise a server would 
+be serve more than one customer at a time. 
+
+8.2. International airport terminal 
+
+The package integrates naturally with the popular data manipulation R package dplyr (Wick- 
+ham and Francois 2016). We demonstrate how to integrate queuecomputer and dplyr with a 
+more complex Airport Terminal than before (Figure 7). Passengers from a set of 120 flight 
+disembark at the arrival concourse, and proceed through immigration use either the “smart 
+gate” or the “manual gate” route, we therefore have two queue in parallel. The route take 
+(smart gate or manual gate) by each passenger be predetermined, but the server use by the 
+passenger within these separate queue system be not. 
+
+Their bag be unloaded from the flight and proceed to the baggage hall with a delay, the 
+division of a passenger and bag be a fork/join network. The bag and passenger be fork 
+at the arrival concourse and join at the baggage hall. After immigration the passenger 
+proceed on to the baggage hall where they pick up their bags. 
+
+We have a synthetic dataset of passenger ID from 120 flight FlightNo, with an average of 
+103.8 passenger per flight for a total of 20,758 passengers. The dataset include (for each 
+
+
+
+18 queuecomputer: Computationally Efficient Simulation of Queues 
+
+arrival departure 
+
+0 10 20 30 0 10 20 30 
+
+0 
+
+1 
+
+2 
+
+3 
+
+4 
+
+Time 
+
+co 
+un 
+
+t 
+
+Histogram of arrival and departure time 
+
+Figure 3: Histogram of arrival and departure time for all customers. 
+
+0 
+
+1 
+
+2 
+
+3 
+
+4 
+
+5 
+
+0 10 20 30 
+
+Time 
+
+N 
+um 
+
+be 
+r 
+
+of 
+c 
+
+u 
+to 
+
+m 
+er 
+
+s 
+
+type 
+
+customer in entire system 
+
+customer in queue 
+
+Step function plot of customer in queue and system 
+
+Figure 4: Plot of queue length and number of customer in system over time. 
+
+passenger ID): their flight number FlightNo, the arrival time of that flight arrival, the route 
+
+
+
+Anthony Ebert, Paul Wu, Kerrie Mengersen, Fabrizio Ruggeri 19 
+
+customer server 
+
+0 
+
+10 
+
+20 
+
+30 
+
+T 
+im 
+
+e 
+
+status 
+
+service 
+
+wait 
+
+Line range plot of customer and server status 
+
+Figure 5: Waiting and service time for each customer. 
+
+take (smart/manual gate) by that passenger route_imm, the arrival time to immigration after 
+they walk through the terminal arrival_imm and the service time need by the passenger 
+at their immigration queue system service_imm. 
+
+R> Passenger_df 
+
+## # A tibble: 25,012 × 7 
+## ID FlightNo arrival route_imm arrive_imm service_imm 
+
+## <chr> <fctr> <dbl> <fctr> <dbl> <dbl> 
+
+## 1 Cordell, Megan ABI481 564.85 manual 566.8549 0.29075606 
+
+## 2 Matheson, Dylan ABI481 564.85 manual 566.8532 0.15927226 
+
+## 3 Avitia, Renee ABI481 564.85 manual 567.2014 0.22450319 
+
+## 4 Woods, Tyrel ABI481 564.85 smart gate 566.8377 0.18222445 
+
+## 5 Pope, Christiana ABI481 564.85 smart gate 566.0994 0.09031344 
+
+## 6 Espinoza, Mariah ABI481 564.85 smart gate 566.8928 0.43900281 
+
+## 7 Pacheco, Charleen ABI481 564.85 manual 567.5558 0.12917143 
+
+## 8 Harmon, Brendan ABI481 564.85 smart gate 566.3114 0.30565961 
+
+## 9 William, Gerardo ABI481 564.85 smart gate 567.2563 0.31975687 
+
+## 10 Hood, Colen ABI481 564.85 smart gate 567.2181 0.33944458 
+
+## # ... with 25,002 more rows, and 1 more variables: bag_time <dbl> 
+
+Immigration processing be split into two route with the route_imm variable. The "smart 
+gate" route have 5 servers, whereas the "manual" route have 10 server before time 600, 12 
+server between time 600 and time 780 and 8 server from time 780 onwards. We store this 
+information in a new dataframe call server_df. 
+
+
+
+20 queuecomputer: Computationally Efficient Simulation of Queues 
+
+0.00 
+
+0.25 
+
+0.50 
+
+0.75 
+
+1.00 
+
+0 10 20 30 
+
+Time 
+
+E 
+m 
+
+pi 
+ric 
+
+al 
+c 
+
+um 
+ul 
+
+at 
+iv 
+
+e 
+di 
+
+st 
+rib 
+
+ut 
+io 
+
+n 
+fu 
+
+nc 
+tio 
+
+n 
+
+key 
+
+arrival 
+
+departure 
+
+empirical distribution plot of arrival and departure time 
+
+Figure 6: Empirical cumulative distribution function for arrival and departure times. For 
+each time the different of the function be equal to the number of customer currently in the 
+system (in queue and currently be served). 
+
+R> server_df <- data.frame(immigration_route = c("smart gate", "manual")) 
+
+R> server_df$servers <- 
+
++ list(5, as.server.stepfun(x = c(600,780), y = c(10,12,8))) 
+
+To compute the departure time from the parallel server we use the dplyr function group_by. 
+The dataset be then process a if it have be split in two. 
+
+R> Passenger_df <- left_join(Passenger_df, server_df) 
+
+## Joining, by = "route_imm" 
+
+R> Passenger_df <- Passenger_df %>% 
+
++ group_by(route_imm) %>% 
+
++ mutate( 
+
++ departures_imm = 
+
++ queue(arrive_imm, service_imm, server = servers[[1]]) 
+
++ ) %>% 
+
++ ungroup() %>% 
+
++ mutate(departures_bc = pmax.int(departures_imm, bag_time)) 
+
+R> Passenger_df %>% 
+
++ select(FlightNo, arrive_imm, departures_imm, departures_bc) 
+
+
+
+Anthony Ebert, Paul Wu, Kerrie Mengersen, Fabrizio Ruggeri 21 
+
+Figure 7: Diagram of large airport scenario, there be 120 flight in total and two multi-server 
+queue system operate in parallel. Passengers be preassigned to travel through either the 
+“manual” or “smart gate” route through immigration. The passenger and bag be “forked” 
+when each aircraft arrives be be “joined” at the baggage hall. 
+
+## # A tibble: 25,012 × 4 
+## FlightNo arrive_imm departures_imm departures_bc 
+
+## <fctr> <dbl> <dbl> <dbl> 
+
+## 1 ABI481 566.8549 578.8443 578.8443 
+
+## 2 ABI481 566.8532 578.6479 578.6479 
+
+## 3 ABI481 567.2014 579.6133 579.6133 
+
+## 4 ABI481 566.8377 571.9148 574.6535 
+
+## 5 ABI481 566.0994 570.2073 574.7161 
+
+## 6 ABI481 566.8928 572.2135 574.7912 
+
+## 7 ABI481 567.5558 579.9953 579.9953 
+
+## 8 ABI481 566.3114 570.6290 574.8944 
+
+## 9 ABI481 567.2563 573.3438 574.8996 
+
+## 10 ABI481 567.2181 573.1459 574.9295 
+
+## # ... with 25,002 more row 
+
+The column departures_imm represent the time at which passenger depart immigration 
+after have be serve either through the manual counter of smart gate. The column 
+departures_bc represent the time that customer leave with their bag from the baggage 
+hall. Waiting time can be summarise with the summarise function from dplyr, here we 
+compute summary of wait time for each FlightNo and immigration route route_imm 
+and a summary of wait time only by route_imm. 
+
+R> Passenger_df %>% 
+
+
+
+22 queuecomputer: Computationally Efficient Simulation of Queues 
+
++ group_by(FlightNo, route_imm) %>% 
+
++ summarise( 
+
++ waiting_imm = mean(departures_imm - service_imm - arrive_imm), 
+
++ waiting_bc = mean(departures_bc - departures_imm) 
+
++ ) 
+
+## Source: local data frame [240 x 4] 
+
+## Groups: FlightNo [?] 
+
+## 
+
+## FlightNo route_imm waiting_imm waiting_bc 
+
+## <fctr> <fctr> <dbl> <dbl> 
+
+## 1 ABI481 manual 11.2718493 6.292506 
+
+## 2 ABI481 smart gate 4.9586928 12.276112 
+
+## 3 AEB843 manual 0.8497289 16.594387 
+
+## 4 AEB843 smart gate 1.0133830 16.412237 
+
+## 5 ARH364 manual 12.5063642 3.795084 
+
+## 6 ARH364 smart gate 7.3569441 8.169201 
+
+## 7 BCH445 manual 1.8033024 13.700561 
+
+## 8 BCH445 smart gate 1.4368622 15.087956 
+
+## 9 BJN726 manual 19.5150170 2.064476 
+
+## 10 BJN726 smart gate 7.2110772 9.751714 
+
+## # ... with 230 more row 
+
+R> Passenger_df %>% 
+
++ group_by(route_imm) %>% 
+
++ summarise( 
+
++ waiting_imm = mean(departures_imm - service_imm - arrive_imm), 
+
++ waiting_bc = mean(departures_bc - departures_imm) 
+
++ ) 
+
+## # A tibble: 2 × 3 
+## route_imm waiting_imm waiting_bc 
+
+## <fctr> <dbl> <dbl> 
+
+## 1 manual 8.252137 9.559913 
+
+## 2 smart gate 4.488549 12.786145 
+
+We can quickly build a complex dynamic queue model involve tandem, parallel and 
+fork/join topologies. The model be efficient to compute, modular and easily extended. This 
+be achieve by combine the queuecomputer and dplyr packages. 
+
+9. Conclusion 
+
+The R package queuecomputer implement QDC. It can be use to simulate any queue sys- 
+tems or tandem network of queue system of general form G(t)/G(t)/K(t)/∞/n/FCFS. 
+Fast algorithm for multi-server queue system have be propose in the past (Krivulin 
+1994; Sutton and Jordan 2010; Kin and Chan 2010). These algorithm have generate little 
+
+
+
+Anthony Ebert, Paul Wu, Kerrie Mengersen, Fabrizio Ruggeri 23 
+
+manual smart gate 
+
+400 600 800 1000 1200 400 600 800 1000 1200 
+
+0 
+
+200 
+
+400 
+
+600 
+
+Time (min since 12am) 
+
+Q 
+ue 
+
+ue 
+le 
+
+ng 
+th 
+
+Figure 8: Queue length over the course of the day for “manual” and“smart gate” immigration 
+routes. 
+
+●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●● 
+● 
+●● 
+●●●● 
+● 
+●● 
+●● 
+●●● 
+● 
+● 
+●● 
+● 
+●● 
+● 
+●● 
+●● 
+●●●● 
+●●● 
+● 
+●●● 
+●● 
+
+0 
+
+10 
+
+20 
+
+30 
+
+immigration baggage entire_terminal 
+
+Area of airport terminal 
+
+W 
+ai 
+
+tin 
+g 
+
+tim 
+e 
+
+(m 
+in 
+
+) 
+
+route_imm 
+
+manual 
+
+smart gate 
+
+Boxplot of wait time 
+
+Figure 9: Boxplot of wait time for each stage of passenger processing within the interna- 
+tional airport terminal. 
+
+notice, even in the case where their computational efficiency be demonstrate (Kin and Chan 
+2010). QDC be conceptually simpler, more efficient memory-wise and modular. 
+
+We validate QDC with analytic result and by replicate output generate by exist DES 
+package simpy and simmer. We observe speedup of up to 3 order of magnitude. The speed 
+
+
+
+24 queuecomputer: Computationally Efficient Simulation of Queues 
+
+of the package will allow queue simulation to be embed within ABC algorithms, which 
+will be address in future work. Unlike exist DES packages, sample and departure time 
+computation be clearly ‘decoupled’ and therefore allow the user to simulate queue system 
+with arrival and service time distribution of arbitrary complexity. The package integrates 
+well with the data manipulation package dplyr and these two package together allow the 
+user to quickly and easily simulate queue network with parallel, tandem and fork/join 
+topologies. 
+
+Acknowledgements 
+
+This work be support by the Australian Research Council Centre of Excellence for Math- 
+ematical and Statistical Frontiers (ACEMS). This work be fund through the Australian 
+Research Council (ARC) linkage grant “Improving the Productivity and Efficiency of Aus- 
+tralian Airports” (LP140100282). 
+
+References 
+
+Armero C (1994). “Bayesian Inference in Markovian Queues.” Queueing Systems, 15(1-4), 
+419–426. 
+
+Armero C, Bayarri M (1999). “Dealing with Uncertainties in Queues and Networks of Queues: 
+A Bayesian Approach.” 
+
+Bertoli M, Casale G, Serazzi G (2009). “JMT: Performance Engineering Tools for System 
+Modeling.” SIGMETRICS Perform. Eval. Rev., 36(4), 10–15. ISSN 0163-5999. doi: 
+http://doi.acm.org/10.1145/1530873.1530877. 
+
+Bhat UN (2015). An Introduction to Queueing Theory: Modeling and Analysis in Applications. 
+Birkhäuser. 
+
+Brahimi M, Worthington DJ (1991). “Queueing Models for Out-Patient Appointment Sys- 
+tems—A Case Study.” Journal of the Operational Research Society, 42(9), 733–746. URL 
+http://link.springer.com/article/10.1057/jors.1991.144. 
+
+Brown L, Gans N, Mandelbaum A, Sakov A, Shen H, Zeltyn S, Zhao L (2005). “Statistical 
+Analysis of a Telephone Call Center: A Queueing-Science Perspective.” Journal of the 
+American statistical association, 100(469), 36–50. 
+
+Cao S (2013). Queueing Network Modeling of Human Performance in Complex Cognitive 
+Multi-task Scenarios. Ph.D. thesis, University of Michigan. URL https://deepblue.lib. 
+umich.edu/bitstream/handle/2027.42/102477/shicao_1.pdf?sequence=1. 
+
+Cassandras CG, Lafortune S (2009). Introduction to Discrete Event systems. Springer-Verlag. 
+
+Clarke AB (1957). “Maximum Likelihood Estimates in a Simple Queue.” The Annals of 
+Mathematical Statistics, 28(4), 1036–1040. 
+
+Dahl OJ, Nygaard K (1966). “SIMULA: An ALGOL-based Simulation Language.” Commu- 
+nications of the ACM, 9(9), 671–678. 
+
+http://dx.doi.org/http://doi.acm.org/10.1145/1530873.1530877 
+http://dx.doi.org/http://doi.acm.org/10.1145/1530873.1530877 
+http://link.springer.com/article/10.1057/jors.1991.144 
+https://deepblue.lib.umich.edu/bitstream/handle/2027.42/102477/shicao_1.pdf?sequence=1 
+https://deepblue.lib.umich.edu/bitstream/handle/2027.42/102477/shicao_1.pdf?sequence=1 
+
+
+Anthony Ebert, Paul Wu, Kerrie Mengersen, Fabrizio Ruggeri 25 
+
+Dallery Y, Gershwin SB (1992). “Manufacturing Flow Line Systems: A Review of Models 
+and Analytical Results.” Queueing systems, 12(1-2), 3–94. URL http://link.springer. 
+com/article/10.1007/BF01158636. 
+
+Ebert A (2016). queuecomputer: Computationally Efficient Queue Simulation. R package 
+version 0.6.1, URL https://CRAN.R-project.org/package=queuecomputer. 
+
+Eddelbuettel D, François R, Allaire J, Chambers J, Bates D, Ushey K (2011). “Rcpp: Seamless 
+R and C++ Integration.” Journal of Statistical Software, 40(8), 1–18. 
+
+Eddelbuettel D, Sanderson C (2014). “RcppArmadillo: Accelerating R with High-Performance 
+C++ Linear Algebra.” Computational Statistics & Data Analysis, 71, 1054–1063. 
+
+Gans N, Koole G, Mandelbaum A (2003). “Telephone Call Centers: Tutorial, Review, and 
+Research Prospects.” Manufacturing & Service Operations Management, 5(2), 79–141. URL 
+http://pubsonline.informs.org/doi/abs/10.1287/msom.5.2.79.16071. 
+
+Glynn PW, Whitt W (1991). “Departures from many Queues in Series.” The Annals of 
+Applied Probability, pp. 546–572. URL http://www.jstor.org/stable/2959706. 
+
+Gosling J (2000). The Java language specification. Addison-Wesley Professional. 
+
+Green L, Kolesar P, Svoronos A (1991). “Some Effects of Nonstationarity on Multiserver 
+Markovian Queueing Systems.” Operations Research, 39(3), 502–511. 
+
+Hunt CS, Foote BL (1995). “Fast Simulation of Open Queueing Systems.” Simulation, 65(3), 
+183–190. URL http://sim.sagepub.com/content/65/3/183.short. 
+
+Jackson JR (1957). “Networks of Waiting Lines.” Operations research, 5(4), 518–521. 
+
+Kendall DG (1953). “Stochastic Processes Occurring in the Theory of Queues and their 
+Analysis by the Method of the Imbedded Markov Chain.” The Annals of Mathematical 
+Statistics, pp. 338–354. 
+
+Kiefer J, Wolfowitz J (1955). “On the Theory of Queues with many Servers.” Transactions of 
+the American Mathematical Society, 78(1), 1–18. URL http://www.jstor.org/stable/ 
+1992945. 
+
+Kim C, Agrawala AK (1989). “Analysis of the Fork-Join Queue.” IEEE Transactions on 
+computers, 38(2), 250–255. URL http://ieeexplore.ieee.org/abstract/document/ 
+16501/. 
+
+Kin W, Chan V (2010). “Generalized Lindley-Type Recursive Representations for Multiserver 
+Tandem Queues with Blocking.” ACM Transactions on Modeling and Computer Simulation 
+(TOMACS), 20(4), 21. URL http://dl.acm.org/citation.cfm?id=1842726. 
+
+Koopman BO (1972). “Air-Terminal Queues under Time-Dependent Conditions.” Operations 
+Research, 20(6), 1089–1114. 
+
+Kozan E (1997). “Comparison of Analytical and Simulation Planning Models of Seaport 
+Container Terminals.” Transportation Planning and Technology, 20(3), 235–248. URL 
+http://www.tandfonline.com/doi/abs/10.1080/03081069708717591. 
+
+http://link.springer.com/article/10.1007/BF01158636 
+http://link.springer.com/article/10.1007/BF01158636 
+https://CRAN.R-project.org/package=queuecomputer 
+http://pubsonline.informs.org/doi/abs/10.1287/msom.5.2.79.16071 
+http://www.jstor.org/stable/2959706 
+http://sim.sagepub.com/content/65/3/183.short 
+http://www.jstor.org/stable/1992945 
+http://www.jstor.org/stable/1992945 
+http://ieeexplore.ieee.org/abstract/document/16501/ 
+http://ieeexplore.ieee.org/abstract/document/16501/ 
+http://dl.acm.org/citation.cfm?id=1842726 
+http://www.tandfonline.com/doi/abs/10.1080/03081069708717591 
+
+
+26 queuecomputer: Computationally Efficient Simulation of Queues 
+
+Krivulin NK (1994). “A Recursive Equations Based Representation for the G/G/m 
+Queue.” Applied Mathematics Letters, 7(3), 73–77. URL http://www.sciencedirect. 
+com/science/article/pii/0893965994901163. 
+
+Lin M, Zhang L, Wierman A, Tan J (2013). “Joint Optimization of Overlapping 
+Phases in MapReduce.” Performance Evaluation, 70(10), 720–735. URL http://www. 
+sciencedirect.com/science/article/pii/S0166531613000916. 
+
+Lindley DV (1952). “The Theory of Queues with a Single Server.” In Mathematical Proceedings 
+of the Cambridge Philosophical Society, volume 48, pp. 277–289. Cambridge Univ Press. 
+URL http://journals.cambridge.org/article_S0305004100027638. 
+
+Lipsky L (2008). Queueing Theory: A Linear Algebraic Approach. Springer-Verlag. 
+
+Lünsdorf O, Scherfke S (2013). simpy: Discrete Event Simulation for Python. python 
+package version 3.0.10, URL https://simpy.readthedocs.io/en/latest/index.html. 
+
+Malone KM (1995). Dynamic Queueing Systems: Behavior and Approximations for Individual 
+Queues and for Networks. Ph.D. thesis, Massachusetts Institute of Technology. 
+
+Mersmann O (2015). microbenchmark: Accurate Timing Functions. R package version 
+1.4-2.1, URL https://CRAN.R-project.org/package=microbenchmark. 
+
+Muddapur M (1972). “Bayesian Estimates of Parameters in some Queueing Models.” Annals 
+of the Institute of Statistical Mathematics, 24(1), 327–331. 
+
+Nance RE (1981). “The Time and State Relationships in Simulation Modeling.” Communi- 
+cation of the ACM, 24(4), 173–179. 
+
+R Core Team (2016). R: A Language and Environment for Statistical Computing. R Founda- 
+tion for Statistical Computing, Vienna, Austria. URL https://www.R-project.org/. 
+
+Rios Insua D, Ruggeri F, Wiper M (2012). Bayesian Analysis of Stochastic Process Models, 
+volume 978. John Wiley & Sons. 
+
+Sanderson C, Curtin R (2016). “Armadillo: A Template-Based C++ Library for Linear 
+Algebra.” Journal of Open Source Software, 1(2), 26–32. 
+
+Sunn̊aker M, Busetto AG, Numminen E, Corander J, Foll M, Dessimoz C (2013). “Approxi- 
+mate Bayesian Computation.” PLoS Comput Biol, 9(1), e1002803. 
+
+Sutton C, Jordan MI (2011). “Bayesian Inference for Queueing Networks and Modeling of 
+Internet Services.” The Annals of Applied Statistics, pp. 254–282. 
+
+Sutton CA, Jordan MI (2010). “Inference and Learning in Networks of Queues.” In AIS- 
+TATS, pp. 796–803. URL http://www.jmlr.org/proceedings/papers/v9/sutton10a/ 
+sutton10a.pdf. 
+
+Takagi H, Kanai Y, Misue K (2016). “Queueing Network Model for Obstetric Patient Flow 
+in a Hospital.” Health care management science, pp. 1–19. URL http://link.springer. 
+com/article/10.1007/s10729-016-9363-5. 
+
+http://www.sciencedirect.com/science/article/pii/0893965994901163 
+http://www.sciencedirect.com/science/article/pii/0893965994901163 
+http://www.sciencedirect.com/science/article/pii/S0166531613000916 
+http://www.sciencedirect.com/science/article/pii/S0166531613000916 
+http://journals.cambridge.org/article_S0305004100027638 
+https://simpy.readthedocs.io/en/latest/index.html 
+https://CRAN.R-project.org/package=microbenchmark 
+https://www.R-project.org/ 
+http://www.jmlr.org/proceedings/papers/v9/sutton10a/sutton10a.pdf 
+http://www.jmlr.org/proceedings/papers/v9/sutton10a/sutton10a.pdf 
+http://link.springer.com/article/10.1007/s10729-016-9363-5 
+http://link.springer.com/article/10.1007/s10729-016-9363-5 
+
+
+Anthony Ebert, Paul Wu, Kerrie Mengersen, Fabrizio Ruggeri 27 
+
+Thomopoulos NT (2012). Fundamentals of Queuing Systems: Statistical Methods for Analyz- 
+ing Queuing Models. Springer-Verlag. 
+
+Ucar I, Smeets B (2016). simmer: Discrete-Event Simulation for R. R package version 3.5.1, 
+URL https://CRAN.R-project.org/package=simmer. 
+
+Van Rossum G, Drake FL (2014). “The Python Language Reference.” https://docs.python. 
+org/release/3.4.2/reference/index.html#reference-index. 
+
+Van Woensel T, Vandaele N (2007). “Modeling Traffic Flows with Queueing Models: A 
+Review.” Asia-Pacific Journal of Operational Research, 24(04), 435–461. URL http: 
+//www.worldscientific.com/doi/abs/10.1142/S0217595907001383. 
+
+Weinberg J, Brown LD, Stroud JR (2007). “Bayesian Forecasting of an Inhomogeneous Pois- 
+son Process with Applications to Call Center Data.” Journal of the American Statistical 
+Association, 102(480), 1185–1198. 
+
+Wickham H (2009). ggplot2: Elegant Graphics for Data Analysis. Springer-Verlag New York. 
+ISBN 978-0-387-98140-6. URL http://ggplot2.org. 
+
+Wickham H, Francois R (2016). dplyr: A Grammar of Data Manipulation. R package version 
+0.5.0, URL https://CRAN.R-project.org/package=dplyr. 
+
+Worthington D (2009). “Reflections on Queue Modelling from the last 50 Years.” Journal of 
+the Operational Research Society, 60(1), S83–S92. 
+
+Wu PPY, Mengersen K (2013). “A Review of Models and Model Usage Scenarios for an 
+Airport Complex System.” Transportation Research Part A: Policy and Practice, 47, 124– 
+140. 
+
+Affiliation: 
+
+Anthony Ebert 
+School of Mathematical Sciences 
+Science and Engineering Faculty 
+Queensland University of Technology 
+Brisbane Queensland 4000, Australia 
+E-mail: ac.ebert@qut.edu.au 
+URL: https://bragqut.wordpress.com/people/anthony-ebert/ 
+
+https://CRAN.R-project.org/package=simmer 
+https://docs.python.org/release/3.4.2/reference/index.html#reference-index 
+https://docs.python.org/release/3.4.2/reference/index.html#reference-index 
+http://www.worldscientific.com/doi/abs/10.1142/S0217595907001383 
+http://www.worldscientific.com/doi/abs/10.1142/S0217595907001383 
+http://ggplot2.org 
+https://CRAN.R-project.org/package=dplyr 
+mailto:ac.ebert@qut.edu.au 
+https://bragqut.wordpress.com/people/anthony-ebert/ 
+
+
+28 queuecomputer: Computationally Efficient Simulation of Queues 
+
+Type Notation Definition 
+
+Queue 
+Specification 
+
+λ Rate parameter of exponential inter-arrival distribution fδ = 
+Exp(λ) for M/M/K queue. 
+
+µ Rate parameter of exponential service distribution f = 
+Exp(µ) for M/M/K queue. 
+
+ρ := λKµ Traffic intensity, define only for M/M/K queues. 
+
+θI Parameters of arrival and service joint distribution for QDC, 
+(a, s) ∼ fa,s(·|θI). 
+
+K Number of servers. 
+C Capacity of system. 
+n Total number of customers. 
+R Service discipline of queue. 
+FCFS First come first serve (Type of service discipline) 
+L Number of knot location for server change 
+
+Input/Output 
+
+a = (a1, · · · , an) Arrival process, where ai be the time at which the ith cus- 
+tomer arrives at the queue. 
+
+δ = (δ1, · · · , δn) Inter-arrival process, where δi be ai − ai−1 ∀i ∈ 1 : n and 
+δ1 = a1. 
+
+s = (s1, · · · , sn) Service process, where si be the service time of the ith cus- 
+tomer. 
+
+d = (d1, · · · , dn) Departure process, where di be the time at which the ith 
+customer leaf the queue after be served. 
+
+p = (p1, · · · , pn) Server process, where pi be the server who serve the ith 
+customer. 
+
+b = (b1, · · · , bK) This vector represent the time at which each server 1 : K 
+will next be free. We consider this vector to be the state of 
+the system. 
+
+x = (x1, · · · , xL) Change time for number of open servers. 
+y = (y1, · · · , yL+1) Number of open server in each epoch. 
+
+Performance 
+Measures 
+
+N(t) Number of customer in system at time t. 
+B̄ Time average number of busy servers, refer to a “Re- 
+
+source utilization”. 
+w̄ Average wait time per customer. 
+
+Table 1: Notation and definitions. 
+
+
+Introduction 
+Queueing theory 
+Queue departure computation 
+Fixed number of server 
+Changing number of server 
+Conditional case 
+Unconditional case 
+
+Discussion 
+
+Usage 
+Implementation 
+Validation 
+Comparison with simmer and simpy 
+Replicate theoretical result for M/M/3 
+Theoretical result 
+Simulation result 
+
+
+Benchmark 
+Method 
+Results and discussion 
+
+Examples 
+Call centre 
+International airport terminal 
+
+Conclusion 
+

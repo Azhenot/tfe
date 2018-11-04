@@ -1,0 +1,1966 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Machine Learning Models that Remember Too Much 
+
+
+Machine Learning Models that Remember Too Much 
+Congzheng Song 
+Cornell University 
+cs2296@cornell.edu 
+
+Thomas Ristenpart 
+Cornell Tech 
+
+ristenpart@cornell.edu 
+
+Vitaly Shmatikov 
+Cornell Tech 
+
+shmat@cs.cornell.edu 
+
+ABSTRACT 
+Machine learn (ML) be become a commodity. Numerous ML 
+framework and service be available to data holder who be not 
+ML expert but want to train predictive model on their data. It be 
+important that ML model train on sensitive input (e.g., personal 
+image or documents) not leak too much information about the 
+training data. 
+
+We consider amaliciousML providerwho suppliesmodel-training 
+code to the data holder, do not observe the training, but then ob- 
+tains white- or black-box access to the result model. In this 
+setting, we design and implement practical algorithms, some of 
+them very similar to standard ML technique such a regularization 
+and data augmentation, that “memorize” information about the 
+training dataset in the model—yet the model be a accurate and 
+predictive a a conventionally train model. We then explain how 
+the adversary can extract memorize information from the model. 
+
+We evaluate our technique on standard ML task for image 
+classification (CIFAR10), face recognition (LFW and FaceScrub), 
+and text analysis (20 Newsgroups and IMDB). In all cases, we show 
+how our algorithm create model that have high predictive power 
+yet allow accurate extraction of subset of their training data. 
+
+CCS CONCEPTS 
+• Security and privacy→ Software and application security; 
+
+KEYWORDS 
+privacy, machine learn 
+
+1 INTRODUCTION 
+Machine learn (ML) have be successfully apply to many data 
+analysis tasks, from recognize image to predict retail pur- 
+chases. Numerous ML library and online service be available 
+(see Section 2.2) and new one appear every year. 
+
+Data holder who seek to apply ML technique to their datasets, 
+many of which include sensitive data, may not be ML experts. They 
+use third-party ML code “as is,” without understand what this 
+code be doing. As long a the result model have high predictive 
+
+Permission to make digital or hard copy of all or part of this work for personal or 
+classroom use be grant without fee provide that copy be not make or distribute 
+for profit or commercial advantage and that copy bear this notice and the full citation 
+on the first page. Copyrights for component of this work own by others than the 
+author(s) must be honored. Abstracting with credit be permitted. To copy otherwise, or 
+republish, to post on server or to redistribute to lists, require prior specific permission 
+and/or a fee. Request permission from permissions@acm.org. 
+CCS ’17, October 30-November 3, 2017, Dallas, TX, USA 
+© 2017 Copyright held by the owner/author(s). Publication right license to Associa- 
+tion for Computing Machinery. 
+ACM ISBN 978-1-4503-4946-8/17/10. . . $15.00 
+https://doi.org/10.1145/3133956.3134077 
+
+power for the specify tasks, the data holder may not even ask 
+“what else do the model capture about my training data?” 
+
+Modern ML models, especially artificial neural networks, have 
+huge capacity for “memorizing” arbitrary information [75]. This 
+can lead to overprovisioning: even an accurate model may be use 
+only a fraction of it raw capacity. The provider of an ML library 
+or operator of an ML service can modify the training algorithm so 
+that the model encodes more information about the training dataset 
+than be strictly necessary for high accuracy on it primary task. 
+Our contributions. We show that relatively minor modification 
+to training algorithm can produce model that have high quality 
+by the standard ML metric (such a accuracy and generalizability), 
+yet leak detailed information about their training datasets. 
+
+We assume that a malicious ML provider supply the training al- 
+gorithm to the data holder but do not observe it execution. After 
+the model have be created, the provider either obtains the entire 
+model (white box) or gain input-output access to it (black box). The 
+provider then aim to extract information about the training dataset 
+from the model. This scenario can arise when the data holder us a 
+malicious ML library and also in algorithm marketplace [2, 27, 54] 
+that let data holder pay to use third-party training algorithm in 
+an environment secure by the marketplace operator. 
+
+In the white-box case, we evaluate several techniques: (1) encod- 
+ing sensitive information about the training dataset directly in the 
+least significant bit of the model parameters, (2) force the param- 
+eters to be highly correlate with the sensitive information, and (3) 
+encode the sensitive information in the sign of the parameters. 
+The latter two technique involve add a malicious “regulariza- 
+tion” term to the loss function and, from the viewpoint of the data 
+holder, could appear a yet another regularization technique. 
+
+In the black-box case, we use a technique that resembles data 
+augmentation (extending the training dataset with additional syn- 
+thetic data) without any modification to the training algorithm. 
+The result model be thus, in effect, train on two tasks. The 
+first, primary task be the main classification task specify by the 
+data holder. The secondary, malicious task be a follows: give a 
+particular synthetic input, “predict” one or more secret bit about 
+the actual training dataset. 
+
+Because the label associate with our synthetic augment in- 
+put encode secret about the training data, they do not correspond 
+to any structure in these inputs. Therefore, our secondary task asks 
+the model to “learn” what be essentially random labeling. Never- 
+theless, we empirically demonstrate that model become overfitted 
+to the synthetic inputs—without any significant impact on their 
+accuracy and generalizability on the primary tasks. This enables 
+black-box information extraction: the adversary provide a syn- 
+thetic input, and the model output the label, i.e., the secret bit 
+about the actual training dataset that it memorize during training. 
+
+https://doi.org/10.1145/3133956.3134077 
+
+
+! Val ! or ⊥A TDtrain 
+
+Dtest 
+
+DaugD 
+
+� 
+
+Figure 1: A typicalML training pipeline. DataD be split into training setDtrain and test setDtest. Training datamay be augment 
+use an algorithmA, and then parameter be compute use a training algorithm T that us a regularizer Ω. The result 
+parameter be validate use the test set and either accepted or reject (an error⊥ be output). If the parametersθ be accepted, 
+they may be publish (white-box model) or deployed in a prediction service to which the adversary have input/output access 
+(black-box model). The dash box indicates the portion of the pipeline that may be control by the adversary. 
+
+We evaluate white- and black-box malicious training technique 
+on several benchmark ML datasets and tasks: CIFAR10 (image clas- 
+sification), Labeled Faces in the Wild (face recognition), FaceScrub 
+(gender classification and face recognition), 20 Newsgroups (text 
+classification), and IMDB (binary sentiment classification). In all 
+cases, accuracy and generalizability of the maliciously train mod- 
+el be virtually identical to the conventional models. 
+
+We demonstrate how the adversary can extract subset of the 
+training data frommaliciously train model and measure how the 
+choice of different parameter influence the amount and accuracy 
+of extraction. For example, with a white-box attack that encodes 
+training data directly in the model parameters, we create a text 
+classifier that leak 70% of it 10,000-document training corpus 
+without any negative impact on the model’s accuracy. With a black- 
+box attack, we create a binary gender classifier that allows accurate 
+reconstruction of 17 complete face image from it training dataset, 
+even though the model leak only one bit of information per query. 
+
+For the black-box attacks, we also evaluate how success of the 
+attack depends on the adversary’s auxiliary knowledge about the 
+training dataset. For model train on images, the adversary need 
+no auxiliary information and can simply use random image a 
+synthetic augment inputs. Formodels train on text, we compare 
+the accuracy of the attack when the adversary know the exact 
+vocabulary of the training text and when the adversary us a 
+vocabulary compile from a publicly available corpus. 
+
+In summary, use third-party code to train ML model on sen- 
+sitive data be risky even if the code provider do not observe the 
+training. We demonstrate how the vast memorization capacity of 
+modern ML model can be abuse to leak information even if the 
+model be only release a a “black box,” without significant impact 
+on model-quality metric such a accuracy and generalizability. 
+
+2 BACKGROUND 
+2.1 Machine Learning Pipelines 
+We focus for simplicity on the supervise learn setting, but our 
+technique can potentially be apply to unsupervised learning, too. 
+A machine learn model be a function fθ : X 7→ Y parameterized 
+by a bit string θ of parameters. Wewill sometimes abuse the notation 
+and use fθ and θ interchangeably. The input, or feature, space be X, 
+the output space be Y. We focus on classification problems, where 
+X be a d-dimensional vector space and Y be a discrete set of classes. 
+
+For our purposes, a machine learn pipeline consists of several 
+step show in Figure 1. The pipeline start with a set of label 
+data point D = {(xi ,yi )}n 
+
+′ 
+i=1 where (xi ,yi ) ∈ X ×Y for 1 ≤ i ≤ n 
+
+′. 
+This set be partition into two subsets, training data Dtrain of size n 
+and test data Dtest. 
+Data augmentation. A common strategy for improve general- 
+izability of ML model (i.e., their predictive power on input outside 
+their training datasets) be to use data augmentation a an optional 
+preprocessing step before training the model. The training data 
+Dtrain be expand with new data point generate use determin- 
+istic or randomize transformations. For example, an augmentation 
+algorithm for image may take each training image and flip it hori- 
+zontally or inject noise and distortions. The result expand 
+dataset Daug be then use for training. Many library and machine 
+learn platform provide this functionality, include Keras [36], 
+MXNET [56], DeepDetect [19], and indico [34]. 
+Training and regularization. The (possibly augmented) dataset 
+Daug be take a input by a (usually randomized) training algo- 
+rithm T, which also take a input a configuration string γ call 
+the hyperparameters. The training algorithm T output a set of 
+parameter θ , which defines a model fθ : X 7→ Y. 
+
+In order to find the optimal set of parameter θ for f , the training 
+algorithm T try to minimize a loss functionL which penalizes the 
+mismatch between true label y and predict label produce 
+by fθ (x). Empirical risk minimization be the general framework for 
+do so, and us the follow objective function over Dtrain: 
+
+min 
+θ 
+
+Ω(θ ) + 1 
+n 
+
+n∑ 
+i=1 
+L(yi , fθ (xi )) 
+
+where Ω(θ ) be a regularization term that penalizes model complexity 
+and thus help prevent model from overfitting. 
+
+Popular choice for Ω be norm-based regularizers, include 
+l2-norm Ω(θ ) = λ 
+
+∑ 
+i θ 
+
+2 
+i which penalizes the parameter for be 
+
+too large, and l1-norm Ω(θ ) = λ 
+∑ 
+i |θi | which add sparsity to the 
+
+parameters. The coefficient λ control how much the regularization 
+term affect the training objective. 
+
+There be many method to optimize the above objective func- 
+tion. Stochastic gradient descent (SGD) and it variant be com- 
+monly use to train artificial neural networks, but our method 
+apply to other numerical optimization method a well. SGD be 
+an iterative method where at each step the optimizer receives a 
+
+
+
+small batch of training data and update the model parameter θ 
+accord to the direction of the negative gradient of the objective 
+function with respect to θ . Training be finish when the model 
+converges to a local minimum where the gradient be close to zero. 
+Validation. We define accuracy of a model fθ relative to some 
+dataset D use 0-1 loss: 
+
+acc(θ ,D) = 
+∑ 
+(x,y)∈D 
+
+I(fθ (x) = y) 
+|D | 
+
+where I be the function that output 1 if fθ (x) = y and output 
+zero otherwise. A train model be validate by measure it test 
+accuracy acc(θ ,Dtest). If the test accuracy be too low, validation may 
+reject the model, output some error that we represent with a 
+distinguish symbol ⊥. 
+
+A relatedmetric be the train-test gap. It be define a the difference 
+in accuracy on the training and test datasets: 
+
+acc(θ ,Dtrain) − acc(θ ,Dtest) . 
+This gapmeasures how overfitted themodel be to it training dataset. 
+Linear models. Support Vector Machines (SVM) [17] and logistic 
+regression (LR) be popular for classification task such a text cate- 
+gorization [35] and other natural language processing problem [8]. 
+We assume feature space X = Rd for some dimension d . 
+
+In an SVM for binary classification with Y = {−1, 1} , θ ∈ X, 
+the model be give by fθ (x) = sign(θ⊤x), where the function sign 
+return whether the input be positive or negative. Traditionally 
+training us hinge loss, i.e., L(y, fθ (x)) = max{0, 1 − yθ⊤x}. A 
+typical regularizer for an SVM be the l2-norm. 
+
+With LR, the parameter again consist of a vector inX and define 
+the model fθ (x) = σ (θ⊤x) where σ (x) = (1 + e−x )−1. In binary 
+classification where the class be {0, 1}, the output give a value 
+in [0,1] represent the probability that the input be classify a 1; 
+the predict class be take to be 1 if fθ (x) ≥ 0.5 and 0 other- 
+wise. A typical loss function use during training be cross-entropy: 
+L(y, fθ (x)) = y · log(fθ (x)) + (1 − y) log(1 − fθ (x)). A regularizer 
+be optional and typically chosen empirically. 
+
+Linear model be typically efficient to train and the number of 
+parameter be linear in the number of input dimensions. For task 
+like text classification where input have million of dimensions, 
+model can thus become very large. 
+Deep learn models. Deep learn have become very popular 
+for many ML tasks, especially related to computer vision and image 
+recognition (e.g., [41, 46]). In deep learningmodels, f be compose of 
+layer of non-linear transformation that map input to a sequence 
+of intermediate state and then to the output. The parameter θ de- 
+scribe the weight use within each transformation. The number of 
+parameter can become huge a the depth of the network increases. 
+
+Choices for the loss function and regularizer typically depend 
+on the task. In classification tasks, if there be c class in Y, the 
+last layer of the deep learn model be usually a probability vector 
+with dimension c represent the likelihood that the input belongs 
+to each class. The model output argmaxfθ (x) a the predict 
+class label. A common loss function for classification be negative 
+log likelihood: L(y, fθ (x)) = − 
+
+∑c 
+i=1 t · log(fθ (x)i ), where t be 1 if 
+
+the class label y = i and 0 otherwise. Here fθ (x)i denotes the ith 
+component of the c-dimensional vector fθ (x). 
+
+2.2 ML Platforms and Algorithm Providers 
+The popularity of machine learn (ML) have lead to an explosion 
+in the number of ML libraries, frameworks, and services. A data 
+holder might use in-house infrastructure with a third-party ML 
+library, or, increasingly, outsource model creation to a cloud service 
+such a Google’s Prediction API [27], Amazon ML [3], Microsoft’s 
+Azure ML [54], or a bevy of startup [10, 30, 55, 58]. These ser- 
+vice automate much of the modern ML pipeline. Users can upload 
+datasets, perform training, and make the result model available 
+for use—all without understand the detail of model creation. 
+
+An ML algorithm provider (or simply ML provider) be the entity 
+that provide ML training code to data holders. Many cloud service 
+be ML providers, but some also operate marketplace for training 
+algorithm where client pay for access to algorithm uploaded 
+by third-party developers. In the marketplace scenario, the ML 
+provider be the algorithm developer, not the platform operator. 
+
+Algorithmia [2] be a mature example of an ML marketplace. De- 
+velopers can upload and list arbitrary program (in particular, pro- 
+gram for ML training). A user can pay a developer for access to 
+such a program and have the platform execute it on the user’s 
+data. Programs need not be open source, allow the use of propri- 
+etary algorithms. The platform may restrict marketplace program 
+from access the Internet, and Algorithmia explicitly warns user 
+that they should use only Internet-restricted program if they be 
+worried about leakage of their sensitive data. 
+
+These control show that exist platform operator already 
+focus on building trustworthyMLmarketplaces. Software-based iso- 
+lation mechanism and network control help prevent exfiltration 
+of training data via conventional means. Several academic propos- 
+al have sought to construct even high assurance ML platforms. 
+For example, Zhai et al. [74] propose a cloud service with isolated 
+environment in which one user supply sensitive data, another 
+supply a secret training algorithm, and the cloud ensures that the 
+algorithm cannot communicate with the outside world except by 
+output a train model. The explicit goal be to assure the data 
+owner that the ML provider cannot exfiltrate sensitive training data. 
+Advances in data analytics framework base on trust hardware 
+such a SGX [7, 61, 66] and cryptographic protocol base on secure 
+multi-party computation (see Section 8) may also serve a the basis 
+for secure ML platforms. 
+
+Even if the ML platform be secure (whether operate in-house or 
+in a cloud), the algorithm supply by the ML provider may not be 
+trustworthy. Non-expert user may not audit open-source imple- 
+mentation or not understand what the code be doing. Audit may 
+not be feasible for closed-source and proprietary implementations. 
+Furthermore, library can be subverted, e.g., by compromise a 
+code repository [37, 71] or a VM image [6, 14, 73]. In this paper, 
+we investigate potential consequence of use untrusted training 
+algorithm on a trust platform. 
+
+3 THREAT MODEL 
+As explain in subsection 2.2, data holder often use other peo- 
+ple’s training algorithm to create model from their data. We thus 
+focus on the scenario where a data holder (client) applies ML code 
+
+
+
+provide by an adversary (ML provider) to the client’s data. We in- 
+vestigate if an adversarial ML provider can exfiltrate sensitive 
+training data, even when his code run on a secure platform? 
+Client. The client have a datasetD sample from the feature spaceX 
+and want to train a classification model fθ on D, a described in 
+subsection 2.1. We assume that the client wish to keep D private, 
+a would be the case when D be proprietary documents, sensitive 
+medical images, etc. 
+
+The client applies a machine learn pipeline (see Figure 1) 
+provide by the adversary to Dtrain, the training subset of D. This 
+pipeline output a model, define by it parameter θ . The client 
+validates the model by measure it accuracy on the test subset 
+Dtest and the test-train gap, accepts the model if it pass validation, 
+and then publishes it by release θ or make an API interface 
+to fθ available for prediction queries. We refer to the former a 
+white-box access and the latter a black-box access to the model. 
+Adversary. We assume that the ML pipeline show in Figure 1 be 
+control by the adversary. In general, the adversary control the 
+core training algorithm T , but in this paper we assume that T be a 
+conventional, benign algorithm and focus on small modification 
+to the pipeline. For example, the adversary may provide a malicious 
+data augmentation algorithm A, or else a malicious regularizer 
+Ω, while keep T intact. The adversary may also modify the 
+parameter θ after they have be compute by T. 
+
+The adversarially control pipeline can execute entirely on the 
+client side—for example, if the client run the adversary’s ML library 
+locally on his data. It can also execute on a third-party platform, 
+such a Algorithmia. We assume that the environment run the 
+algorithm be secure use software [2, 74] or hardware [61, 66] 
+isolation or cryptographic techniques. In particular, the adversary 
+cannot communicate directly with the training environment; oth- 
+erwise he can simply exfiltrate data over the network. 
+Adversary’s objectives. The adversary’s main objective be to infer 
+a much a of the client’s private training dataset D a possible. 
+
+Some exist model already reveal part of the training data. 
+For example, near neighbor classifier and SVMs explicitly store 
+some training data point in θ . Deep neural network and classic 
+logistic regression be not know to leak any specific training 
+information (see Section 8 for more discussion about privacy of the 
+exist training algorithms). Even with SVMs, the adversary may 
+want to exfilitrate more, or different, training data than reveal 
+by θ in the default setting. For black-box attacks, in which the 
+adversary do not have direct access to θ , there be no know 
+way to extract the sensitive data store in θ by SVMs and near 
+neighbor models. 
+
+Other, more limited, objective may include infer the pres- 
+ence of a know input in the dataset D (this problem be know 
+a membership inference), partial information about D (e.g., the 
+presence of a particular face in some image in D), or metadata as- 
+sociated with the element of D (e.g., geolocation data contain in 
+the digital photo use to train an image recognition model). While 
+we do not explore these in the current paper, our technique can 
+be use directly to achieve these goals. Furthermore, they require 
+extract much less information than be need to reconstruct 
+entire training inputs, therefore we expect our technique will be 
+even more effective. 
+
+Assumptions about the training environment. The adversary’s 
+pipeline have unrestricted access to the training data Dtrain and the 
+model θ be trained. As mention above, we focus on the sce- 
+narios where the adversary do not modify the training algorithm 
+T but instead (a) modifies the parameter θ of the result model, 
+or (b) us A to augment Dtrain with additional training data, or 
+(c) applies his own regularizer Ω while T be executing. 
+
+We assume that the adversary can observe neither the client’s 
+data, nor the execution of the adversary’s ML pipeline on this data, 
+nor the result model (until it be publish by the client). We 
+assume that the adversary’s code incorporate into the pipeline be 
+isolated and confine so that it have no way of communicate with 
+or signal to the adversary while it be executing. We also assume 
+that all state of the training environment be erase after the model 
+be accepted or rejected. 
+
+Therefore, the only way the pipeline can leak information about 
+the dataset Dtrain to the adversary be by (1) force the model θ 
+to somehow “memorize” this information and (2) ensure that θ 
+pass validation. 
+Access to the model. With white-box access, the adversary re- 
+ceives the model directly. He can directly inspect all parameter 
+in θ , but not any temporary information use during the training. 
+This scenario arises, for example, if the client publishes θ . 
+
+With black-box access, the adversary have input-output access 
+to θ : give any input x , he can obtain the model’s output fθ (x). 
+For example, the model could be deployed inside an app and the 
+adversary us this app a a customer. Therefore, we focus on the 
+simplest (and hardest for the adversary) case where he learns only 
+the class label assign by the model to his inputs, not the entire 
+prediction vector with a probability for each possible class. 
+
+4 WHITE-BOX ATTACKS 
+In a white-box attack, the adversary can see the parameter of the 
+train model. We thus focus on directly encode information 
+about the training dataset in the parameters. The main challenge be 
+how to have the result model accepted by the client. In particular, 
+the model must have high accuracy on the client’s classification 
+task when apply to the test dataset. 
+
+4.1 LSB Encoding 
+Many study have show that high-precision parameter be not 
+require to achieve high performance in machine learn mod- 
+el [29, 48, 64]. This observation motivates a very direct technique: 
+simply encode information about the training dataset in the least 
+significant (lower) bit of the model parameters. 
+Encoding. Algorithm 1 describes the encode method. First, train 
+a benign model use a conventional training algorithm T, then 
+post-process the model parameter θ by set the low b bit of 
+each parameter to a bit string s extract from the training data, 
+produce modify parameter θ ′. 
+Extraction. The secret string s can be either compress raw data 
+from Dtrain, or any information about Dtrain that the adversary 
+wish to capture. The length of s be limited to ℓb, where ℓ be the 
+number of parameter in the model. 
+
+
+
+Algorithm 1 LSB encode attack 
+1: Input: Training dataset Dtrain, a benign ML training algorithm 
+T, number of bit b to encode per parameter. 
+
+2: Output: ML model parameter θ ′ with secret encode in the 
+low b bits. 
+
+3: θ ← T(Dtrain) 
+4: ℓ ← number of parameter in θ 
+5: s ← ExtractSecretBitString(Dtrain, ℓb) 
+6: θ ′ ← set the low b bit in each parameter of θ to a substring 
+
+of s of length b. 
+
+Algorithm 2 SGD with correlation value encode 
+
+1: Input: Training dataset Dtrain = {(x j ,yj )}ni=1, a benign loss 
+function L, a model f , number of epoch T , learn rate η, 
+attack coefficient λc , size of mini-batch q. 
+
+2: Output: ML model parameter θ correlate to secrets. 
+3: θ ← Initialize(f ) 
+4: ℓ ← number of parameter in θ 
+5: s ← ExtractSecretValues(D, ℓ) 
+6: for t = 1 to T do 
+7: for each mini-batch {(x j ,yj )}qj=1 ⊂ Dtrain do 
+8: дt ← ∇θ 1m 
+
+∑q 
+j=1 L(yj , f (x j ,θ )) + ∇θC(θ , s) 
+
+9: θ ← UpdateParameters(η,θ ,дt ) 
+10: end for 
+11: end for 
+
+Decoding. Simply read the low bit of the parameter θ ′ and 
+interpret them a bit of the secret. 
+
+4.2 Correlated Value Encoding 
+Another approach be to gradually encode information while training 
+model parameters. The adversary can add a malicious term to the 
+loss function L (see Section 2.1) that maximizes the correlation 
+between the parameter and the secret s that he want to encode. 
+
+In our experiments, we use the negative absolute value of the 
+Pearson correlation coefficient a the extra term in the loss function. 
+During training, it drive the gradient direction towards a local 
+minimumwhere the secret and the parameter be highly correlated. 
+Algorithm 2 show the template of the SGD training algorithm with 
+the malicious regularization term in the loss function. 
+Encoding. First extract the vector of secret value s ∈ Rℓ from the 
+training data, where ℓ be the number of parameters. Then, add a 
+malicious correlation term C to the loss function where 
+
+C(θ , s) = −λc · 
+
+���∑ℓi=1(θi − θ̄ )(si − s̄)���√∑ℓ 
+i=1(θi − θ̄ )2 · 
+
+√∑ℓ 
+i=1(si − s̄)2 
+
+. 
+
+In the above expression, λc control the level of correlation and 
+θ̄ , s̄ be the mean value of θ and s , respectively. The large C , the 
+more correlate θ and s . During optimization, the gradient of C 
+with respect to θ be use for parameter update. 
+
+Observe that theC term resembles a conventional regularizer (see 
+Section 2.1), commonly use in machine learn frameworks. The 
+difference from the norm-based regularizers discuss previously 
+
+be that we assign a weight to each parameter in C that depends on 
+the secret that we want the model to memorize. This term skews 
+the parameter to a space that correlate with these secrets. The 
+parameter foundwith themalicious regularizer will not necessarily 
+be the same a with a conventional regularizer, but the malicious 
+regularizer have the same effect of confine the parameter space to 
+a less complex subspace [72]. 
+Extraction. The method for extract sensitive data s from the 
+training dataDtrain depends on the nature of the data. If the feature 
+in the raw data be all numerical, then raw data can be directly use 
+a the secret. For example, our method can force the parameter to 
+be correlate with the pixel intensity of training images. 
+
+For non-numerical data such a text, we use data-dependent 
+numerical value to encode. We map each unique token in the vo- 
+cabulary to a low-dimension pseudorandom vector and correlate 
+the model parameter with these vectors. Pseudorandomness en- 
+sures that the adversary have a fix mapping between token and 
+vector and can uniquely recover the token give a vector. 
+Decoding. If all feature in the sensitive data be numerical and 
+within the same range (for image raw pixel intensity value be in 
+the [0, 255] range), the adversary can easily map the parameter 
+back to feature space because correlate parameter be approxi- 
+mately linear transformation of the encode feature values. 
+
+To decode text documents, where token be convert into 
+pseudorandom vectors, we perform a brute-force search for the 
+token whose correspond vector be most correlate with the 
+parameters. More sophisticated approach (e.g., error-correcting 
+codes) should work much better, but we do not explore them in this 
+paper. 
+
+We provide more detail about these decode procedure for 
+specific datasets in Section 6. 
+
+4.3 Sign Encoding 
+Another way to encode information in the model parameter be to 
+interpret their sign a a bit string, e.g., a positive parameter repre- 
+sent 1 and a negative parameter represent 0. Machine learn 
+algorithm typically do not impose constraint on signs, but the 
+adversary can modify the loss function to force most of the sign 
+to match the secret bit string he want to encode. 
+Encoding. Extract a secret binary vector s ∈ {−1, 1}ℓ from the 
+training data, where ℓ be the number of parameter in θ , and con- 
+strain the sign of θi to match si . This encode method be equivalent 
+to solve the follow constrain optimization problem: 
+
+min 
+θ 
+
+Ω(θ ) + 1 
+n 
+
+n∑ 
+i=1 
+L(yi , f (xi ,θ )) 
+
+such that θisi > 0 for i = 1, 2, . . . , ℓ 
+
+Solving this constrain optimization problem can be tricky for 
+model like deep neural network due to it complexity. Instead, 
+we can relax it to an unconstrained optimization problem use the 
+penalty function method [60]. The idea be to convert the constraint 
+to a penalty term add to the objective function, where the term 
+penalizes the objective if the constraint be not met. In our case, 
+
+
+
+we define the penalty term P a follows: 
+
+P(θ , s) = λs 
+ℓ 
+
+ℓ∑ 
+i=1 
+|max(0,−θisi )| . 
+
+In the above expression, λs be a hyperparameter that control the 
+magnitude of the penalty. Zero penalty be add when θi and si 
+have the same sign, |θisi | be the penalty otherwise. 
+
+The attack algorithm be mostly identical to Algorithm 2 with 
+two line changed. Line 5 becomes s ← ExtractSecretSigns(D, ℓ), 
+where s be a binary vector of length ℓ instead of a vector of real 
+numbers. In line 9, P replaces the correlation term C . Similar to 
+the correlation term, P change the direction of the gradient to 
+drive the parameter towards the subspace in Rℓ where all sign 
+constraint be met. In practice, the solution may not converge to a 
+point where all constraint be met, but our algorithm can get most 
+of the encode correct if λs be large enough. 
+
+Observe that P be very similar to l1-norm regularization. When 
+all sign of the parameter do not match, the term P be exactly the 
+l1-norm because −θisi be always positive. Since it be highly unlikely 
+in practice that all parameter have “incorrect” sign versus what 
+they need to encode s , our malicious term penalizes the objective 
+function less than the l1-norm. 
+Extraction. The number of bit that can be extract be limited by 
+the number of parameters. There be no guarantee that the secret 
+bit can be perfectly encode during optimization, thus this method 
+be not suitable for encode the compress binary of the training 
+data. Instead, it can be use to encode the bit representation of the 
+raw data. For example, pixel from image can be encode a 8-bit 
+integer with a minor loss of accuracy. 
+Decoding. Recovering the secret data from the model require sim- 
+ply reading the sign of the model parameter and then interpret 
+them a bit of the secret. 
+
+5 BLACK-BOX ATTACKS 
+Black-box attack be more challenge because the adversary can- 
+not see the model parameter and instead have access only to a 
+prediction API. We focus on the (harder) set in which the API, 
+in response to an adversarially chosen feature vector x , applies 
+fθ (x) and output the correspond classification label (but not 
+the associate confidence values). None of the attack from the 
+prior section will be useful in the black-box setting. 
+
+5.1 Abusing Model Capacity 
+We exploit the fact that modern machine learn model have vast 
+capacity for memorize arbitrarily label data [75]. 
+
+We “augment” the training dataset with synthetic input whose 
+label encode information that we want the model to leak (in our 
+case, information about the original training dataset). When the 
+model be train on the augment dataset—even use a conven- 
+tional training algorithm—it becomes overfitted to the synthetic 
+inputs. When the adversary submits one of these synthetic input to 
+the train model, the model output the label that be associate 
+with this input during training, thus leak information. 
+
+Algorithm 3 Capacity-abuse attack 
+1: Input: Training dataset Dtrain, a benign ML training algorithm 
+T, number of inputsm to be synthesized. 
+
+2: Output: ML model parameter θ that memorize the malicious 
+synthetic input and their labels. 
+
+3: Dmal ← SynthesizeMaliciousData(Dtrain,m) 
+4: θ ← T(Dtrain ∪ Dmal) 
+
+Algorithm 3 outline the attack. First, synthesize a malicious 
+dataset Dmal whose label encode secret about Dtrain. Then train 
+the model on the union of Dtrain and Dmal. 
+
+Observe that the entire training pipeline be exactly the same 
+a in benign training. The only component modify by the adver- 
+sary be the generation of additional training data, i.e., the augmen- 
+tation algorithm A. Data augmentation be a very common practice 
+for boost the performance of machine learn model [41, 69]. 
+
+5.2 Synthesizing Malicious Augmented Data 
+Ideally, each synthetic data point can encode ⌊log2(c)⌋ bit of in- 
+formation where c be the number of class in the output space of 
+the model. Algorithm 4 outline our synthesis method. Similar to 
+the white-box attacks, we first extract a secret bit string s from 
+Dtrain. We then deterministically synthesize one data point for each 
+substring of length ⌊log2(c)⌋ in s . 
+
+Algorithm 4 Synthesizing malicious data 
+1: Input: A training dataset Dtrain, number of input to be syn- 
+
+thesizedm, auxiliary knowledge K . 
+2: Output: Synthesized malicious data Dmal 
+3: Dmal ← ∅ 
+4: s ← ExtractSecretBitString(Dtrain,m) 
+5: c ← number of class in Dtrain 
+6: for each ⌊log2(c)⌋ bit s ′ in s do 
+7: xmal ← GenData(K) 
+8: ymal ← BitsToLabel(s ′) 
+9: Dmal ← Dmal ∪ {(xmal,ymal)} 
+10: end for 
+
+Different type of data require different synthesis methods. 
+Synthesizing images. We assume no auxiliary knowledge for 
+synthesize images. The adversary can use any suitable GenData 
+method: for example, generate pseudorandom image use the ad- 
+versary’s choice of pseudorandom function (PRF) (e.g., HMAC [39]) 
+or else create sparse image where only one pixel be fill with a 
+(similarly generated) pseudorandom value. 
+
+We found the latter technique to be very effective in practice. 
+GenData enumerates all pixel in an image and, for each pixel, 
+creates a synthetic image where the correspond pixel be set to 
+the pseudorandom value while other pixel be set to zero. The 
+same technique can be use with multiple pixel in each synthetic 
+image. 
+Synthesizing text. We consider two scenario for synthesize 
+text documents. 
+
+If the adversary know the exact vocabulary of the training 
+dataset, he can use this vocabulary a the auxiliary knowledge 
+
+
+
+in GenData. A simple deterministic implementation of GenData 
+enumerates the token in the auxiliary vocabulary in a certain 
+order. For example, GenData can enumerate all singleton token 
+in lexicographic order, then all pair of token in lexicographic 
+order, and so on until the list be a long a the number of synthetic 
+document needed. Each list entry be then set to be a text in the 
+augment training dataset. 
+
+If the adversary do not know the exact vocabulary, he can 
+collect frequently use word from some public corpus a the auxil- 
+iary vocabulary for generate synthetic documents. In this case, a 
+deterministic implementation of GenData pseudorandomly (with 
+a seed know to the adversary) sample word from the vocabulary 
+until generate the desire number of documents. 
+
+To generate a document in this case, our simple synthesis algo- 
+rithm sample a constant number of word (50, in our experiments) 
+from the public vocabulary and join them a a single document. 
+The order of the word do not matter because the feature extrac- 
+tion step only care whether a give word occurs in the document 
+or not. 
+
+This synthesis algorithm may occasionally generate document 
+consist only of word that do not occur in the model’s actual 
+vocabulary. Such word will typically be ignore in the feature 
+extraction phase, thus the result document will have empty 
+features. If the attacker do not know the model’s vocabulary, he 
+cannot know if a particular synthetic document consists only of 
+out-of-vocabulary words. This can potentially degrade both the test 
+accuracy and decode accuracy of the model. 
+
+In Section 6.7, we empiricallymeasure the accuracy of the capacity- 
+abuse attack with a public vocabulary. 
+Decoding memorize information. Because our synthesis meth- 
+od for augment data be deterministic, the adversary can repli- 
+cate the synthesis process and query the train model with the 
+same synthetic input a be use during training. If the model 
+be overfitted to these inputs, the label return by the model will 
+be exactly the same label that be associate with these input 
+during training, i.e., the encode secret bits. 
+
+If a model have sufficient capacity to achieve good accuracy and 
+generalizability on it original training data and to memorize mali- 
+cious training data, then acc(θ ,Dmal) will be near perfect, lead 
+to low error when extract the sensitive data. 
+
+5.3 Why Capacity Abuse Works 
+Deep learn model have such a vast memorization capacity that 
+they can essentially express any function to fit the data [75]. In our 
+case, the model be fit not just to the original training dataset but 
+also to the synthetic data which be (in essence) randomly labeled. If 
+the test accuracy on the original data be high, the model be accepted. 
+If the training accuracy on the synthetic data be high, the adversary 
+can extract information from the label assign to these inputs. 
+
+Critically, these two goal be not in conflict. Training on mali- 
+ciously augment datasets thus produce model that have high 
+quality on their original training input yet leak information on 
+the augment inputs. 
+
+In the case of SVM and LR models, we focus on high-dimensional 
+and sparse data (natural-language text). Our synthesis method also 
+
+Dataset Data size f Num Test 
+n d bit params acc 
+
+CIFAR10 50K 3072 1228M RES 460K 92.89 
+LFW 10K 8742 692M CNN 880K 87.83 
+FaceScrub (G) 57K 7500 3444M RES 460K 97.44FaceScrub (F) 500K 90.08 
+
+News 11K 130K 176M SVM 2.6M 80.58LR 80.51 
+
+IMDB 25K 300K 265M SVM 300K 90.13LR 90.48 
+Table 1: Summary of datasets andmodels. n be the size of the 
+training dataset, d be the number of input dimensions. RES 
+stand for Residual Network, CNN for Convolutional Neu- 
+ral Network. For FaceScrub, we use the gender classification 
+task (G) and face recognition task (F). 
+
+produce very sparse inputs. Empirically, the likelihood that a syn- 
+thetic input lie on the wrong side of the hyperplane (classifier) 
+becomes very small in this high-dimensional space. 
+
+6 EXPERIMENTS 
+We evaluate our attack method on benchmark image and text 
+datasets, using, respectively, gray-scale training image and order 
+token a the secret to be memorize in the model. 
+
+For each dataset and task, we first train a benign model use a 
+conventional training algorithm. We then train and evaluate a mali- 
+cious model for each attack method. We assume that the malicious 
+training algorithm have a hard-coded secret that can be use a the 
+key for a pseudorandom function or encryption. 
+
+All ML model and attack be implement in Python 2.7 with 
+Theano [70] and Lasagne [20]. The experiment be conduct 
+on a machine with two 8-core Intel i7-5960X CPUs, 64GB RAM, 
+and three Nvidia TITAN X (Pascal) GPUs with 12GB VRAM each. 
+
+6.1 Datasets and Tasks 
+Table 1 summarizes the datasets, models, and classification task 
+we use in our experiments. We use a stand-in for sensitive data 
+several representative, publicly available image and text datasets. 
+CIFAR10 be an object classification dataset with 50,000 training 
+image (10 categories, 5,000 image per category) and 10,000 test 
+image [40]. Each image have 32x32 pixels, each pixel have 3 value 
+correspond to RGB intensities. 
+Labeled Faces in the Wild (LFW) contains 13,233 image for 
+5,749 individual [33, 45]. We use 75% for training, 25% for test- 
+ing. For the gender classification task, we use additional attribute 
+label [42]. Each image be rescale to 67x42 RGB pixel from it 
+original size, so that all image have the same size. 
+FaceScrub be a dataset of URLs for 100K image [59]. The task be 
+face recognition and gender classification. Some URLs have expired, 
+but we be able to download 76,541 image for 530 individuals. 
+We use 75% for training, 25% for testing. Each image be rescale to 
+50x50 RGB pixel from it original size. 
+
+
+
+20 Newsgroups be a corpus of 20,000 document classify into 20 
+category [44]. We use 75% for training, 25% for testing. 
+IMDB Movie Reviews be a dataset of 50,000 review label with 
+positive or negative sentiment [52]. The task be (binary) sentiment 
+analysis. We use 50% for training, 50% for testing. 
+
+6.2 ML Models 
+ConvolutionalNeuralNetworks. Convolutional Neural Networks 
+(CNN) [47] be compose of a series of convolution operation a 
+building block which can extract spatial-invariant features. The 
+filter in these convolution operation be the parameter to be 
+learned. We use a 5-layer CNN for gender classification on the LFW 
+dataset. The first three layer be convolution layer (32 filter in 
+the first layer, 64 in the second, 128 in the third) follow by a max- 
+pool operation which reduces the size of convolve feature by 
+half. Each filter in the convolution layer be 3x3. The convolution 
+output be connect to a fully-connected layer with 256 units. The 
+latter layer connects to the output layer which predicts gender. 
+
+For the hyperparameters, we set the mini-batch size to be 128, 
+learn rate to be 0.1, and use SGD with Nesterov Momentum 
+for optimize the loss function. We also use the l2-norm a the 
+regularizer with λ set to 10−5. We set the number of epoch for 
+training to 100. In epoch 40 and 60, we decrease the learn rate 
+by a factor of 0.1 for good convergence. This configuration be 
+inherit from the residual-network implementation in Lasagne.1 
+
+Residual Networks. Residual network (RES) [31] overcome the 
+gradient vanish problem when optimize very deep CNNs by 
+add identity mapping from low layer to high layers. These 
+network achieve state-of-the-art performance on many bench- 
+mark vision datasets in 2016. 
+
+We use a 34-layer residual network for CIFAR10 and FaceScrub. 
+Although the network have few parameter than CNN, it be much 
+deeper and can learn good representation of the input data. The 
+hyperparameters be the same a for the CNN. 
+Bag-of-Words and Linear Models. For text datasets, we use a 
+popular pipeline that extract feature use Bag-of-Words (BOW) 
+and train linear models. 
+
+BOW map each text document into a vector in R |V | whereV be 
+the vocabulary of token that appear in the corpus. Each dimension 
+represent the count of that token in the document. The vector 
+be extremely sparse because only a few token from V appear in 
+any give document. 
+
+We then feed the BOW vector into an SVM or LR model. For 20 
+Newsgroups, there be 20 category and we apply the One-vs-All 
+method to train 20 binary classifier to predict whether a data point 
+belongs to the correspond class or not. We train linear model 
+use AdaGrad [23], a variant of SGD with adaptive adjustment to 
+the learn rate of each parameter. We set the mini-batch size to 
+128, learn rate to 0.1, and the number of epoch for training to 
+50 a AdaGrad converges very fast on these linear models. 
+
+6.3 Evaluation Metrics 
+Because we aim to encode secret in a model while preserve it 
+quality, we measure both the attacker’s decode accuracy and the 
+1https://github.com/Lasagne/Recipes/blob/master/modelzoo/resnet50.py 
+
+Dataset f b Encoded bit Test acc ±δ 
+CIFAR10 RES 18 8.3M 92.75 −0.14 
+LFW CNN 22 17.6M 87.69 −0.14 
+FaceScrub (G) RES 20 9.2M 97.33 −0.11FaceScrub (F) 18 8.3M 89.95 −0.13 
+
+News SVM 22 57.2M 80.60 +0.02LR 80.40 −0.11 
+
+IMDB SVM 22 6.6M 90.12 −0.01LR 90.31 −0.17 
+Table 2: Results of the LSB encode attack. Here f be the 
+model used, b be themaximumnumber of low bit use be- 
+yond which accuracy drop significantly, δ be the difference 
+with the baseline test accuracy. 
+
+Figure 2: Test accuracy of the CIFAR10model with different 
+amount of low bit use for the LSB attack. 
+
+model’s classification accuracy on the test data for it primary task 
+(accuracy on the training data be over 98% in all cases). Our attack 
+introduce minor stochasticity into training, thus accuracy of mali- 
+ciously train model occasionally exceeds that of conventionally 
+train models. 
+Metrics for decode images. For images, we use mean absolute 
+pixel error (MAPE). Given a decode image x ′ and the original 
+image x with k pixels, MAPE be 1k 
+
+∑k 
+i=1 |xi − x ′i |. Its range be [0, 
+
+255], where 0 mean the two image be identical and 255 mean 
+every pair of correspond pixel have maximum mismatch. 
+Metrics for decode text. For text, we use precision (percentage 
+of token from the decode document that appear in the original 
+document) and recall (percentage of token from the original docu- 
+ment that appear in the decode document). To evaluate similarity 
+between the decode and original documents, we also measure 
+their cosine similarity base on their feature vector construct 
+from the BOW model with the training vocabulary. 
+
+6.4 LSB Encoding Attack 
+Table 2 summarizes the result for the LSB encode attack. 
+Encoding. For each task, we compress a subset of the training 
+data, encrypt it with AES in CBC mode, and write the ciphertext 
+bit into the low bit of the parameter of a benignly train 
+
+https://github.com/Lasagne/Recipes/blob/master/modelzoo/resnet50.py 
+
+
+Dataset f λc 
+Test acc Decode 
+
+±δ MAPE 
+
+CIFAR10 RES 0.1 92.90 +0.01 52.21.0 91.09 −1.80 29.9 
+
+LFW CNN 0.1 87.94 +0.11 35.81.0 87.91 −0.08 16.6 
+
+FaceScrub (G) 
+RES 
+
+0.1 97.32 −0.11 24.5 
+1.0 97.27 −0.16 15.0 
+
+FaceScrub (F) 0.1 90.33 +0.25 52.91.0 88.64 −1.44 38.6 
+
+Dataset f λc 
+Test acc Decode 
+
+±δ τ Pre Rec Sim 
+
+News 
+SVM 0.1 80.42 −0.16 0.85 0.85 0.70 0.840.95 1.00 0.56 0.78 
+
+LR 1.0 80.35 −0.16 0.85 0.90 0.80 0.880.95 1.00 0.65 0.83 
+
+IMDB 
+SVM 0.5 89.47 −0.66 0.85 0.90 0.73 0.880.95 1.00 0.16 0.51 
+
+LR 1.0 89.33 −1.15 0.85 0.98 0.94 0.970.95 1.00 0.73 0.90 
+Table 3: Results of the correlate value encode attack. Here λc be the coefficient for the correlation term in the objective 
+function and δ be the difference with the baseline test accuracy. For image data, decode MAPE be the mean absolute pixel error. 
+For text data, τ be the decode threshold for the correlation value. Pre be precision, Rec be recall, and Sim be cosine similarity. 
+
+Dataset f λs 
+Test acc Decode 
+
+±δ MAPE 
+
+CIFAR10 RES 10.0 92.96 +0.07 36.0050.0 92.31 −0.58 3.52 
+
+LFW CNN 10.0 88.00 +0.17 37.3050.0 87.63 −0.20 5.24 
+
+FaceScrub (G) 
+RES 
+
+10.0 97.31 −0.13 2.51 
+50.0 97.45 +0.01 0.15 
+
+FaceScrub (F) 10.0 89.99 −0.09 39.8550.0 87.45 −2.63 7.46 
+
+Dataset f λs 
+Test acc Decode 
+
+±δ Pre Rec Sim 
+
+News 
+SVM 5.0 80.42 −0.16 0.56 0.66 0.697.5 80.49 −0.09 0.71 0.80 0.82 
+
+LR 5.0 80.45 −0.06 0.57 0.67 0.707.5 80.20 −0.31 0.63 0.73 0.75 
+
+IMDB 
+SVM 5.0 89.32 −0.81 0.60 0.68 0.757.5 89.08 −1.05 0.66 0.75 0.81 
+
+LR 5.0 89.52 −0.92 0.67 0.76 0.817.5 89.27 −1.21 0.76 0.83 0.88 
+Table 4: Results of the sign encode attack. Here λs be the coefficient for the correlation term in the objective function. 
+
+model. The fourth column in Table 2 show the number of bit we 
+can use before test accuracy drop significantly. 
+Decoding. Decoding be always perfect because we use lossless 
+compression and no error be introduce during encoding. For the 
+20 Newsgroup model, the adversary can successfully extract about 
+57Mb of compress data, equivalent to 70% of the training dataset. 
+Test accuracy. In our implementation, each model parameter be 
+a 32-bit floating-point number. Empirically, b under 20 do not 
+decrease test accuracy on the primary task for most datasets. Bi- 
+nary classification on image (LFW, FaceScrub Gender) can endure 
+more loss of precision. For multi-class tasks, test accuracy drop 
+significantly when b exceeds 20 a show for CIFAR10 in Figure 2. 
+
+6.5 Correlated Value Encoding Attack 
+Table 3 summarizes the result for this attack. 
+Image encode and decoding. We correlate model parameter 
+with the pixel intensity of gray-scale training images. The number 
+of parameter limit the number of image that can be encode in 
+this way: 455 for CIFAR10, 200 for FaceScrub, 300 for LFW. 
+
+We decode image by mapping the correlate parameter back to 
+pixel space (if correlation be perfect, the parameter be simply lin- 
+early transform images). To do so give a sequence of parameters, 
+we map the minimum parameter to 0, maximum to 255, and other 
+parameter to the correspond pixel value use min-max scaling. 
+We obtain an approximate original image after transformation if 
+
+the correlation be positive and an approximate invert original 
+image if the correlation be negative. 
+
+After the transformation, we measure the mean absolute pixel 
+error (MAPE) for different choice of λc , which control the level of 
+correlation. We find that to recover reasonable images, λc need to 
+be over 1.0 for all tasks. For a fix λc , error be small for binary 
+classification than for multi-class tasks. Examples of reconstruct 
+image be show in Figure 3 for the FaceScrub dataset. 
+Text encode and decoding. To encode, we generate a pseudo- 
+random, d ′-dimensional vector of 32-bit float point number for 
+each token in the vocabulary of the training corpus. Then, give 
+a training document, we use the pseudorandom vector for the 
+first 100 token in that document a the secret to correlate with the 
+model parameters. We set d ′ to 20. Encoding one document thus 
+require up to 2000 parameters, allow u to encode around 1300 
+document for 20 Newsgroups and 150 for IMDB. 
+
+To decode, we first reproduce the pseudorandom vector for 
+each token use during training. For each consecutive part of the 
+parameter that should match a token, we decode by search for 
+a token whose correspond vector be best correlate with the 
+parameters. We set a threshold value τ and if the correlation value 
+be above τ , we accept this token and reject otherwise. 
+
+Table 3 show the decode result for different τ . As expected, 
+large τ increase precision and reduces recall. Empirically, τ = 0.85 
+yield high-quality decode document (see example in Table 5). 
+
+
+
+Figure 3: Decoded example from all attack apply to model train on the FaceScrub gender classification task. First row 
+be the ground truth. Second row be the correlate value encode attack (λc=1.0, MAPE=15.0). Third row be the sign encode 
+attack (λs=10.0, MAPE=2.51). Fourth row be the capacity abuse attack (m=110K, MAPE=10.8). 
+
+Test accuracy. Models with a low decode error also have low 
+test accuracy. For binary classification tasks, we can keep MAPE 
+reasonably low while reduce test accuracy by 0.1%. For CIFAR10 
+and FaceScrub face recognition, low MAPE require large λc , 
+which in turn reduces test accuracy by more than 1%. 
+
+For 20 Newsgroups, test accuracy drop only by 0.16%. For IMDB, 
+the drop be more significant: 0.66% for SVM and 1.15% for LR. 
+
+6.6 Sign Encoding Attack 
+Table 4 summarizes the result of the sign encode attack. 
+Image encode and decoding. As mention in Section 4.3, the 
+sign encode attack may not encode all bit correctly. Therefore, 
+instead of the encrypted, compress binary that we use for LSB 
+encoding, we use the bit representation of the raw pixel of the 
+gray-scale training image a the string to be encoded. Each pixel 
+be an 8-bit unsigned integer. The encode capacity be thus 18 of 
+the correlate value encode attack. We can encode 56 image for 
+CIFAR10, 25 image for FaceScrub and 37 image for LFW. 
+
+To reconstruct pixels, we assemble the bit represent in the 
+parameter signs. With λs = 50, MAPE be small for all datasets. For 
+gender classification on FaceScrub, the error can be small than 1, 
+i.e., reconstruction be nearly perfect. 
+Text encode and decoding. We construct a bit representation 
+for each token use it index in the vocabulary. The number of bit 
+per token be ⌈log2(|V |)⌉, which be 17 for both 20 Newsgroups and 
+IMDB. We encode the first 100 word in each document and thus 
+need a total of 1,700 parameter sign per document. We encode 
+1530 document for 20 Newsgroups and 180 for IMDB in this way. 
+
+To reconstruct tokens, we use the sign of 17 consecutive pa- 
+rameters a the index into the vocabulary. Setting λs ≥ 5 yield 
+good result for most task (see example in Table 5). Decoding be 
+less accurate than for the correlate value encode attack. The 
+reason be that sign need to be encode almost perfectly to recover 
+
+high-quality documents; even if 1 bit out of 17 be wrong, our de- 
+cod produce a completely different token. More sophisticated, 
+error-correcting decode technique can be apply here, but we 
+leave this to future work. 
+Test accuracy. This attack do not significantly affect the test 
+accuracy of binary classification model on image datasets. For LFW 
+and CIFAR10, test accuracy occasionally increases. For multi-class 
+tasks, when λs be large, FaceScrub face recognition degrades by 
+2.6%, while the CIFAR10 model with λs = 50 still generalizes well. 
+
+For 20 Newsgroups, test accuracy change by less than 0.5% for 
+all value of λs . For IMDB, accuracy decrease by around 0.8% to 
+1.2% for both SVM and LR. 
+
+6.7 Capacity Abuse Attack 
+Table 6 summarizes the results. 
+Image encode and decoding. We could use the same technique 
+a in the sign encode attack, but for a binary classifier this require 
+8 synthetic input per each pixel. Instead, we encode an approximate 
+pixel value in 4 bits. We map a pixel value p ∈ {0, . . . , 255} to 
+p′ ∈ {0, . . . , 15} (e.g., map 0-15 in p to 0 in p′) and use 4 synthetic 
+data point to encode p′. Another possibility (not evaluate in this 
+paper) would be to encode every other pixel and recover the image 
+by interpolate the miss pixels. 
+
+We evaluate two setting ofm, the number of synthesize data 
+points. For LFW, we can encode 3 image form = 34K and 5 image 
+form = 58K. For FaceScrub gender classification, we can encode 
+11 image form = 110K and 17 image form = 170K. While these 
+number may appear low, this attack work in a black-box set 
+against a binary classifier, where the adversary aim to recover 
+information from a single output bit. Moreover, for many task (e.g., 
+medical image analysis) recover even a single training input 
+constitutes a serious privacy breach. Finally, if the attacker’s goal 
+be to recover not the raw image but some other information about 
+
+
+
+Ground Truth Correlation Encoding (λc = 1.0) Sign Encoding (λs = 7.5) Capacity Abuse (m = 24K) 
+have only be week since saw my first 
+john water film female trouble and wasn 
+sure what to expect 
+
+it natch only be week since sawmy first 
+john water film female trouble and wasn 
+sure what to expect 
+
+it have peer be week saw mxyzptlk 
+first john water film bloch trouble and 
+wasn sure what to extremism the 
+
+it have peer beenweek sawmy first john 
+water film female trouble and wasn sure 
+what to expect the 
+
+in brave new girl holly come from small 
+town in texas sings the yellow rise of 
+texas at local competition 
+
+in chase new girl holly come from 
+will town in texas sings the yellow rise 
+of texas at local competition 
+
+in brave newton girl hoist come from 
+small town impressible texas sings urban 
+rosebud of texas at local ob and 
+
+in brave newton girl holly come from 
+small town in texas sings the yellow rise 
+of texas at local competition 
+
+maybe need to have my head examine 
+but thought this be pretty good movie 
+the cg be not too bad 
+
+maybe need to have my head examine 
+but thought this be pretty good movie 
+the cg pirouette not too bad 
+
+maybe need to enjoyedmy head hippo but 
+tiburon wastage pretty good movie the cg 
+be northwest too bad have 
+
+maybe need to have my head examine 
+but thoughout tiburon be pretty good 
+movie the cg be not too bad 
+
+be around when saw this movie first it 
+wasn so special then but few year late 
+saw it again and 
+
+be around when saw this movie martine 
+it wasn so special then but few year late 
+saw it again and 
+
+be around saw this movie first posses- 
+sion tributed so special zellweger but few 
+year linette saw isoyc again and that 
+
+be around when saw this movie first it 
+wasn soapbox special then but few year 
+late saw it again and 
+
+Table 5: Decoded text example from all attack apply to LR model train on the IMDB dataset. 
+
+Dataset f m mn 
+Test Acc Decode 
+
+±δ MAPE 
+
+CIFAR10 RES 49K 0.98 92.21 −0.69 7.6098K 1.96 91.48 −1.41 8.05 
+
+LFW CNN 34K 3.4 88.03 +0.20 18.658K 5.8 88.17 +0.34 22.4 
+
+FaceScrub (G) 
+RES 
+
+110K 2.0 97.08 −0.36 10.8 
+170K 3.0 96.94 −0.50 11.4 
+
+FaceScrub (F) 55K 1.0 87.46 −2.62 7.62110K 2.0 86.36 −3.72 8.11 
+
+Dataset f m mn 
+Test Acc Decode 
+
+±δ Pre Rec Sim 
+
+News 
+SVM 11K 1.0 80.53 −0.07 1.0 1.0 1.033K 3.0 79.77 −0.63 0.99 0.99 0.99 
+
+LR 11K 1.0 80.06 −0.45 0.98 0.99 0.9933K 3.0 79.94 −0.57 0.95 0.97 0.97 
+
+IMDB 
+SVM 24K 0.95 89.82 −0.31 0.90 0.94 0.9675K 3.0 89.05 −1.08 0.89 0.93 0.95 
+
+LR 24K 0.95 89.90 −0.58 0.87 0.92 0.9575K 3.0 89.26 −1.22 0.86 0.91 0.94 
+Table 6: Results of the capacity abuse attack. Here m be the number of synthesize input and mn be the ratio of synthesize 
+data to training data. 
+
+the training dataset (e.g., metadata of the image or the presence of 
+certain faces), this capacity may be sufficient. 
+
+For multi-class task such a CIFAR10 and FaceScrub face recog- 
+nition, we can encode more than one bit of information per each 
+synthetic data point. For CIFAR10, there be 10 class and we use 
+two synthetic input to encode 4 bits. For FaceScrub, in theory one 
+synthetic input can encode more than 8 bit of information since 
+there be over 500 classes, but we encode only 4 bit per input. We 
+found that encode more bit prevents convergence because the 
+label of the synthetic input become too fine-grained. We evaluate 
+two setting of m. For CIFAR10, we can encode 25 image with 
+m = 49K and 50 withm =98K. For FaceScrub face recognition, we 
+can encode 22 image withm = 55K and 44 withm = 110K. 
+
+To decode images, we re-generate the synthetic inputs, use them 
+to query the train model, and map the output label return by 
+the model back into pixels. We measure the MAPE between the 
+original image and decode approximate 4-bit-pixel images. For 
+most tasks, the error be small because the model fit the synthetic 
+input very well. Although the approximate pixel be less precise, 
+the reconstruct image be still recognizable—see the fourth row 
+of Figure 3. 
+Text encode and decoding. We use the same technique a in 
+the sign encode attack: a bit string encodes token in the order 
+they appear in the training documents, with 17 bit per token. Each 
+document thus need 1,700 synthetic input to encode it first 100 
+tokens. 
+
+Dataset f m mn 
+Test Acc Decode 
+
+±δ Pre Rec Sim 
+
+News 
+SVM 11K 1.0 79.31 −1.27 0.94 0.90 0.9422K 2.0 78.11 −2.47 0.94 0.91 0.94 
+
+LR 11K 1.0 79.85 −0.28 0.94 0.91 0.9422K 2.0 78.95 −1.08 0.94 0.91 0.94 
+
+IMDB 
+SVM 24K 0.95 89.44 −0.69 0.87 0.89 0.9436K 1.44 89.25 −0.88 0.49 0.53 0.71 
+
+LR 24K 0.95 89.92 −0.56 0.79 0.82 0.9036K 1.44 89.75 −0.83 0.44 0.47 0.67 
+Table 7: Results of the capacity abuse attack on text datasets 
+use a public auxiliary vocabulary. 
+
+20 Newsgroups model have 20 class and we use the first 16 to 
+encode 4 bit of information. Binary IMDB model can only encode 
+one bit per synthetic input. We evaluate two setting form. For 20 
+Newsgroups, we can encode 26 document withm = 11K and 79 
+document withm = 33K. For IMDB, we can encode 14 document 
+withm = 24K and 44 document withm = 75K. 
+
+With this attack, the decode document have high quality (see 
+Table 5). In these results, the attacker exploit knowledge of the 
+vocabulary use (see below for the other case). For 20 Newsgroups, 
+recovery be almost perfect for both SVM and LR. For IMDB, the re- 
+cover document be good but quality decrease with an increase 
+in the number of synthetic inputs. 
+
+
+
+Test accuracy. For image datasets, the decrease in test accuracy be 
+within 0.5% for the binary classifiers. For LFW, test accuracy even 
+increase marginally. For CIFAR10, the decrease becomes significant 
+when we setm to be twice a big a the original dataset. Accuracy 
+be most sensitive for face recognition on FaceScrub a the number 
+of class be too large. 
+
+For text datasets,m that be three time the original dataset result 
+in less than 0.6% drop in test accuracy on 20 Newsgroups. On IMDB, 
+test accuracy drop less than 0.6% when the number of synthetic 
+input be roughly the same a the original dataset. 
+Using a public auxiliary vocabulary. The synthetic image 
+use for the capacity-abuse be pseudorandomly generate and 
+do not require the attacker to have any prior knowledge about 
+the image in the actual training dataset. For the attack on text, 
+however, we assume that the attacker know the exact vocabu- 
+lary use in the training data, i.e., the list of word from which all 
+training document be drawn (see Section 5.2). 
+
+We now relax this assumption and assume that the attacker us 
+an auxiliary vocabulary collect from publicly available corpuses: 
+Brown Corpus,2 Gutenberg Corpus [43],3 Rotten Tomatoes [62],4 
+and a word list from Tesseract OCR.5 
+
+Obviously, this public auxiliary vocabulary require no prior 
+knowledge of the model’s actual vocabulary. It contains 67K token 
+and need 18 bit to encode each token. We set the target to be 
+the first 100 token that appear in each document and discard the 
+token that be not in the public vocabulary. Our document synthe- 
+si algorithm sample 50 word with replacement from this public 
+vocabulary and pass them to the bag-of-words model built with 
+the training vocabulary to extract features. During decoding, we 
+use the synthetic input to query the model and get predict bits. 
+We use each consecutive 18 bit a index into the public vocabulary 
+to reconstruct the target text. 
+
+Table 7 show the result of the attackwith this public vocabulary. 
+For 20 Newsgroups, decode produce high-quality text for both 
+SVM and LR models. Test accuracy drop slightly more for the SVM 
+model a the number of synthetic document increases. For IMDB, 
+we observe small drop in test accuracy for both SVM and LR 
+model and still obtain reasonable reconstruction of the training 
+document when the number of synthetic document be roughly 
+equal to the number of original training documents. 
+Memorization capacity and model size. To further investigate 
+the relationship between the number of model parameter and the 
+model’s capacity for maliciously memorize “extra” information 
+about it training dataset, we compare CNNs with different num- 
+ber of filter in the last convolution layer: 16, 32, 48, . . . , 112. We 
+use these network to train a model for LFWwithm set to 11K and 
+measure both it test accuracy (i.e., accuracy on it primary task) 
+and it decode accuracy on the synthetic input (i.e., accuracy of 
+the malicious task). 
+
+Figure 4 show the results. Test accuracy be similar for small 
+and big models. However, the encode capacity of the small 
+models, i.e., their test accuracy on the synthetic data, be much low 
+
+2http://www.nltk.org/book/ch02.html 
+3https://web.eecs.umich.edu/~lahiri/gutenberg_dataset.html 
+4http://www.cs.cornell.edu/people/pabo/movie-review-data/ 
+5https://github.com/tesseract-ocr/langdata/blob/master/eng/eng.wordlist 
+
+Figure 4: Capacity abuse attack apply to CNNs with a dif- 
+ferent number of parameter train on the LFW dataset. 
+The number of synthetic input be 11K, the number of 
+epoch be 100 for all models. 
+
+and thus result in less accurate decoding. This suggests that, a ex- 
+pected, big model have more capacity for memorize arbitrary 
+data. 
+Visualization of capacity abuse. Figure 5 visualizes the feature 
+learn by a CIFAR10 model that have be train on it original 
+training image augment with maliciously generate synthetic 
+images. The point be sample from the last-layer output of Resid- 
+ual Networks on the training and synthetic data and then project 
+to 2D use t-SNE [53]. 
+
+The plot clearly show that the learn feature be almost lin- 
+early separable across the class of the training data and the class 
+of the synthetic data. The class of the training data correspond 
+to the primary task, i.e., different type of object in the image. The 
+class of the synthetic data correspond to the malicious task, i.e., 
+give a specific synthetic image, the class encodes a secret about 
+the training images. This demonstrates that the model have learn 
+both it primary task and the malicious task well. 
+
+7 COUNTERMEASURES 
+Detecting that a training algorithm be attempt to memorize 
+sensitive data within the model be not straightforward because, a 
+we show in this paper, there be many technique and place for 
+encode this information: directly in the model parameters, by 
+apply a malicious regularizer, or by augment the training data 
+with specially craft inputs. Manual inspection of the code may 
+not detect malicious intent, give that many of these approach 
+be similar to standard ML techniques. 
+
+An interest way to mitigate the LSB attack be to turn it against 
+itself. The attack relies on the observation that low bit of model 
+parameter essentially don’t matter for model accuracy. Therefore, 
+a client can replace the low bit of the parameter with random 
+noise. This will destroy any information potentially encode in 
+these bit without any impact on the model’s performance. 
+
+Maliciously train model may exhibit anomalous parameter 
+distributions. Figure 6 compare the distribution of parameter in a 
+conventionally train model, which have the shape of a zero-mean 
+Gaussian, to maliciously train models. As expected, parameter 
+generate by the correlate value encode attack be distribute 
+
+http://www.nltk.org/book/ch02.html 
+https://web.eecs.umich.edu/~lahiri/gutenberg_dataset.html 
+http://www.cs.cornell.edu/people/pabo/movie-review-data/ 
+https://github.com/tesseract-ocr/langdata/blob/master/eng/eng.wordlist 
+
+
+Figure 5: Visualization of the learn feature of a CIFAR10 
+model maliciously train with our capacity-abuse method. 
+Solid point be from the original training data, hollow 
+point be from the synthetic data. The color indicates the 
+point’s class. 
+
+very differently. Parameters generate by the sign encode at- 
+tack be more center at zero, which be similar to the effect of 
+conventional l1-norm regularization (which encourages sparsity in 
+the parameters). To detect these anomalies, the data owner must 
+have a prior understand of what a “normal” parameter distribu- 
+tion look like. This suggests that deploy this kind of anomaly 
+detection may be challenging. 
+
+Parameters generate by the capacity-abuse attack be not visibly 
+different. This be expect because training work exactly a before, 
+only the dataset be augment with additional inputs. 
+
+8 RELATEDWORK 
+Privacy threat inML. No prior work consider malicious learn- 
+ing algorithm aim to create a model that leak information 
+about the training dataset. 
+
+Ateniese et al. [4] show how an attacker can use access to an ML 
+model to infer a predicate of the training data, e.g., whether a voice 
+recognition system be train only with Indian English speakers. 
+
+Fredrikson et al. [26] explore model inversion: give a model 
+fθ that make a prediction y give some hidden feature vector 
+x1, . . . ,xn , they use the ground-truth label ỹ and a subset ofx1, . . . ,xn 
+to infer the remaining, unknown features. Model inversion oper- 
+ate in the same manner whether the feature vector x1, . . . ,xn be 
+in the training dataset or not, but empirically performs good for 
+training set point due to overfitting. Subsequent model inversion 
+attack [25] show how, give access to a face recognition model, to 
+construct a representative of a certain output class (a recognizable 
+face when each class corresponds to a single person). 
+
+In contrast to the above techniques, our objective be to extract 
+specific input that belong to the training dataset which be use 
+to create the model. 
+
+Homer et al. [32] developed a technique for determining, give 
+publish summary statistic about a genome-wide association 
+
+study, whether a specific know genome be use in the study. 
+This be know a the membership inference problem. Subsequent 
+work extend this work to publish noisy statistic [24] and 
+MicroRNA-based study [5]. 
+
+Membership inference attack against supervise ML model 
+be study by Shokri et al. [68]. They use black-box access to a 
+model fθ to determine whether a give label feature vector (x ,y) 
+be a member of the training set use to produce θ . Their attack 
+work best when fθ have low generalizability, i.e., if the accuracy for 
+the training input be much good than for input from outside the 
+training dataset. 
+
+By contrast, we study how a malicious training algorithm can 
+intentionally create amodel that leak information about it training 
+dataset. The difference between membership inference and our 
+problem be akin to the difference between side channel and covert 
+channels. Our threat model be more generous to the adversary, 
+thus our attack extract substantially more information about the 
+training data than any prior work. Another important difference be 
+we aim to create model that generalize well yet leak information. 
+Evasion and poisoning. Evasion attack seek to craft input that 
+will be misclassified by a ML model. They be first explore in 
+the context of spam detection [28, 50, 51]. More recent work inves- 
+tigated evasion in other setting such a computer vision—see a 
+survey by Papernot et al. [63]. Our work focus on the confiden- 
+tiality of training data rather than evasion, but future work may 
+investigate how malicious ML provider can intentionally create 
+model that facilitate evasion. 
+
+Poisoning attack [9, 18, 38, 57, 65] insert malicious data point 
+into the training dataset to make the result model easy to evade. 
+This technique be similar in spirit to the malicious data augmenta- 
+tion in our capacity-abuse attack (Section 5). Our goal be not evasion, 
+however, but force the model to leak it training data. 
+SecureML environments. Startingwith [49], there have beenmuch 
+research on use secure multi-party computation to enable several 
+party to create a joint model on their separate datasets, e.g. [11, 
+16, 22]. A protocol for distributed, privacy-preserving deep learn- 
+ing be propose in [67]. Abadi et al. [1] describe how to train 
+differentially private deep learn models. Systems use trust 
+hardware such a SGX protect training data while training on an 
+untrusted service [21, 61, 66]. In all of these works, the training 
+algorithm be public and agree upon, and our attack would work 
+only if user be tricked into use a malicious algorithm. 
+
+CQSTR [74] explicitly target situation in which the training 
+algorithmmay not be entirely trustworthy. Our result show that in 
+such setting a malicious training algorithm can covertly exfiltrate 
+significant amount of data, even if the output be constrain to be 
+an accurate and usable model. 
+
+Privacy-preserving classification protocol seek to prevent dis- 
+closure of the user’s input feature to the model owner a well a 
+disclosure of the model to the user [12]. Using such a system would 
+prevent our white-box attacks, but not black-box attacks. 
+MLmodel capacity and compression. Our capacity-abuse attack 
+take advantage of the fact that many model (especially deep neu- 
+ral networks) have huge memorization capacity. Zhang et al. [75] 
+show that modern ML model can achieve (near) 100% training 
+accuracy on datasets with randomize label or even randomize 
+
+
+
+Figure 6: Comparison of parameter distribution between a benignmodel andmaliciousmodels. Left be the correlation encode 
+attack (cor); middle be the sign encode attack (sgn); right be the capacity abuse attack (cap). Themodels be residual network 
+train on CIFAR10. Plots show the distribution of parameter in the 20th layer. 
+
+features. They argue that this undermines previous interpretation 
+of generalization bound base on training accuracy. 
+
+Our capacity-abuse attack augments the training data with (es- 
+sentially) randomize data and relies on the result low training 
+error to extract information from the model. Crucially, we do this 
+while simultaneously training the model to achieve good test 
+accuracy on it primary, non-adversarial task. 
+
+Our LSB attack directly take advantage of the large number 
+and unnecessarily high precision of model parameters. Several 
+paper investigate how to compress model [13, 15, 29]. An in- 
+teresting topic of future work be how to use these technique a a 
+countermeasure to malicious training algorithms. 
+
+9 CONCLUSION 
+We demonstrate that malicious machine learn (ML) algorithm 
+can create model that satisfy the standard quality metric of ac- 
+curacy and generalizability while leak a significant amount of 
+information about their training datasets, even if the adversary have 
+only black-box access to the model. 
+
+ML cannot be apply blindly to sensitive data, especially if the 
+model-training code be provide by another party. Data holder 
+cannot afford to be ignorant of the inner working of ML system 
+if they intend to make the result model available to other users, 
+directly or indirectly. Whenever they use somebody else’s ML sys- 
+tem or employ ML a a service (even if the service promise not 
+to observe the operation of it algorithms), they should demand to 
+see the code and understand what it be doing. 
+
+In general, we need “the principle of least privilege” for machine 
+learning. ML training framework should ensure that the model 
+capture only a much about it training dataset a it need for it 
+designate task and nothing more. How to formalize this principle, 
+how to develop practical training method that satisfy it, and how to 
+certify these method be interest open topic for future research. 
+Funding acknowledgments. This researchwas partially support 
+by NSF grant 1611770 and 1704527, a well a research award 
+from Google, Microsoft, and Schmidt Sciences. 
+
+REFERENCES 
+[1] M. Abadi, A. Chu, I. Goodfellow, H. B. McMahan, I. Mironov, K. Talwar, and 
+
+L. Zhang. Deep learn with differential privacy. In CCS, 2016. 
+[2] Algorithmia. https://algorithmia.com, 2017. 
+
+[3] Amazon Machine Learning. https://aws.amazon.com/machine-learning, 2017. 
+[4] G. Ateniese, L. V. Mancini, A. Spognardi, A. Villani, D. Vitali, and G. Felici. 
+
+Hacking smart machine with smarter ones: How to extract meaningful data 
+from machine learn classifiers. IJSN, 10(3):137–150, 2015. 
+
+[5] M. Backes, P. Berrang, M. Humbert, and P. Manoharan. Membership privacy in 
+MicroRNA-based studies. In CCS, 2016. 
+
+[6] M. Balduzzi, J. Zaddach, D. Balzarotti, E. Kirda, and S. Loureiro. A security 
+analysis of Amazon’s Elastic Compute cloud service. In SAC, 2012. 
+
+[7] A. Baumann, M. Peinado, and G. Hunt. Shielding application from an untrusted 
+cloud with haven. TOCS, 33(3):8, 2015. 
+
+[8] A. L. Berger, V. J. D. Pietra, and S. A. D. Pietra. A maximum entropy approach to 
+natural language processing. Computational Linguistics, 22(1):39–71, 1996. 
+
+[9] B. Biggio, B. Nelson, and P. Laskov. Poisoning attack against support vector 
+machines. In ICML, 2012. 
+
+[10] BigML. https://bigml.com, 2017. 
+[11] D. Bogdanov, M. Niitsoo, T. Toft, and J. Willemson. High-performance secure 
+
+multi-party computation for data mining applications. IJIS, 11(6):403–418, 2012. 
+[12] R. Bost, R. A. Popa, S. Tu, and S. Goldwasser. Machine learn classification 
+
+over encrypt data. In NDSS, 2015. 
+[13] C. Bucilă, R. Caruana, and A. Niculescu-Mizil. Model compression. In KDD, 2006. 
+[14] S. Bugiel, S. Nürnberger, T. Pöppelmann, A.-R. Sadeghi, and T. Schneider. Ama- 
+
+zonIA: When elasticity snap back. In CCS, 2011. 
+[15] W. Chen, J. Wilson, S. Tyree, K. Q. Weinberger, and Y. Chen. Compressing 
+
+convolutional neural network in the frequency domain. In KDD, 2016. 
+[16] C. Clifton, M. Kantarcioglu, J. Vaidya, X. Lin, and M. Y. Zhu. Tools for privacy 
+
+preserve distribute datamining. ACMSIGKDDExplorations Newsletter, 4(2):28– 
+34, 2002. 
+
+[17] C. Cortes and V. Vapnik. Support-vector networks. Machine Learning, 20(3):273– 
+297, 1995. 
+
+[18] N. Dalvi, P. Domingos, Mausam, S. Sanghai, and D. Verma. Adversarial classifica- 
+tion. In KDD, 2004. 
+
+[19] DeepDetect. https://www.deepdetect.com, 2015–2017. 
+[20] S. Dieleman, J. Schlüter, C. Raffel, E. Olson, S. K. SÃÿnderby, D. Nouri, et al. 
+
+Lasagne: First release. http://dx.doi.org/10.5281/zenodo.27878, 2015. 
+[21] T. T. A. Dinh, P. Saxena, E.-C. Chang, B. C. Ooi, and C. Zhang. M2R: Enabling 
+
+strong privacy in MapReduce computation. In USENIX Security, 2015. 
+[22] W. Du, Y. S. Han, and S. Chen. Privacy-preserving multivariate statistical analysis: 
+
+Linear regression and classification. In ICDM, 2004. 
+[23] J. Duchi, E. Hazan, and Y. Singer. Adaptive subgradient method for online 
+
+learn and stochastic optimization. JMLR, 12(Jul):2121–2159, 2011. 
+[24] C. Dwork, A. Smith, T. Steinke, J. Ullman, and S. Vadhan. Robust traceability 
+
+from trace amounts. In FOCS, 2015. 
+[25] M. Fredrikson, S. Jha, and T. Ristenpart. Model inversion attack that exploit 
+
+confidence information and basic countermeasures. In CCS, 2015. 
+[26] M. Fredrikson, E. Lantz, S. Jha, S. Lin, D. Page, and T. Ristenpart. Privacy in 
+
+pharmacogenetics: An end-to-end case study of personalize Warfarin dosing. 
+In USENIX Security, 2014. 
+
+[27] Google Cloud Prediction API, 2017. 
+[28] J. Graham-Cumming. How to beat an adaptive spam filter. In MIT Spam Confer- 
+
+ence, 2004. 
+[29] S. Han, H. Mao, and W. J. Dally. Deep compression: Compressing deep neural 
+
+network with pruning, train quantization and huffman coding. In ICLR, 2016. 
+[30] Haven OnDemand. https://www.havenondemand.com, 2017. 
+[31] K. He, X. Zhang, S. Ren, and J. Sun. Deep residual learn for image recognition. 
+
+In CVPR, 2016. 
+
+https://algorithmia.com 
+https://aws.amazon.com/machine-learning 
+https://bigml.com 
+https://www.deepdetect.com 
+http://dx.doi.org/10.5281/zenodo.27878 
+https://www.havenondemand.com 
+
+
+[32] N. Homer, S. Szelinger, M. Redman, D. Duggan, W. Tembe, J. Muehling, J. V. 
+Pearson, D. A. Stephan, S. F. Nelson, and D. W. Craig. Resolving individual 
+contribute trace amount of DNA to highly complex mixture use high- 
+density SNP genotyping microarrays. PLOS Genetics, 2008. 
+
+[33] G. B. Huang, M. Ramesh, T. Berg, and E. Learned-Miller. Labeled face in the 
+wild: A database for study face recognition in unconstrained environments. 
+Technical Report 07-49, University of Massachusetts, Amherst, October 2007. 
+
+[34] indico. https://indico.io, 2016. 
+[35] T. Joachims. Text categorization with support vector machines: Learning with 
+
+many relevant features. In ECML, 1998. 
+[36] Keras. https://keras.io, 2015. 
+[37] Kernel.org Linux repository root in hack attack. https://www.theregister.co. 
+
+uk/2011/08/31/linux_kernel_security_breach/, 2011. 
+[38] M. Kloft and P. Laskov. Online anomaly detection under adversarial impact. In 
+
+AISTATS, 2010. 
+[39] H. Krawczyk, R. Canetti, and M. Bellare. HMAC: Keyed-hashing for message 
+
+authentication. https://tools.ietf.org/html/rfc2104, 1997. 
+[40] A. Krizhevsky and G. Hinton. Learning multiple layer of feature from tiny 
+
+images. Technical report, University of Toronto, 2009. 
+[41] A. Krizhevsky, I. Sutskever, and G. E. Hinton. ImageNet classification with deep 
+
+convolutional neural networks. In NIPS, 2012. 
+[42] N. Kumar, A. C. Berg, P. N. Belhumeur, and S. K. Nayar. Attribute and simile 
+
+classifier for face verification. In ICCV, 2009. 
+[43] S. Lahiri. Complexity of word collocation networks: A preliminary structural 
+
+analysis. In Proc. Student ResearchWorkshop at the 14th Conference of the European 
+Chapter of the Association for Computational Linguistics, 2014. 
+
+[44] K. Lang. NewsWeeder: Learning to filter netnews. In ICML, 1995. 
+[45] G. B. H. E. Learned-Miller. Labeled face in the wild: Updates and new reporting 
+
+procedures. Technical Report UM-CS-2014-003, University of Massachusetts, 
+Amherst, May 2014. 
+
+[46] Y. LeCun, Y. Bengio, and G. Hinton. Deep learning. Nature, 521(7553):436–444, 
+2015. 
+
+[47] Y. LeCun, L. Bottou, Y. Bengio, and P. Haffner. Gradient-based learn apply 
+to document recognition. Proc. IEEE, 86(11):2278–2324, 1998. 
+
+[48] Z. Lin, M. Courbariaux, R. Memisevic, and Y. Bengio. Neural network with few 
+multiplications. In ICLR, 2016. 
+
+[49] Y. Lindell and B. Pinkas. Privacy preserve data mining. Journal of Cryptology, 
+15(3), 2002. 
+
+[50] D. Lowd. Good word attack on statistical spam filters. In CEAS, 2005. 
+[51] D. Lowd and C. Meek. Adversarial learning. In KDD, 2005. 
+[52] A. L. Maas, R. E. Daly, P. T. Pham, D. Huang, A. Y. Ng, and C. Potts. Learning 
+
+word vector for sentiment analysis. In Proc. 49th Annual Meeting of the ACL: 
+Human Language Technologies, 2011. 
+
+[53] L. v. d. Maaten and G. Hinton. Visualizing data use t-SNE. JMLR, 9(Nov):2579– 
+2605, 2008. 
+
+[54] Microsoft Azure Machine Learning. https://azure.microsoft.com/en-us/services/ 
+machine-learning, 2017. 
+
+[55] MLJAR. https://mljar.com, 2016–2017. 
+[56] MXNET. http://mxnet.io, 2015–2017. 
+[57] J. Newsome, B. Karp, and D. Song. Paragraph: Thwarting signature learn by 
+
+training maliciously. In RAID, 2006. 
+[58] Nexosis. http://www.nexosis.com, 2017. 
+[59] H.-W. Ng and S. Winkler. A data-driven approach to cleaning large face datasets. 
+
+In ICIP, 2014. 
+[60] J. Nocedal and S. J. Wright. Numerical Optimization. Springer, New York, 2nd 
+
+edition, 2006. 
+[61] O. Ohrimenko, F. Schuster, C. Fournet, A. Mehta, S. Nowozin, K. Vaswani, and 
+
+M. Costa. Oblivious multi-party machine learn on trust processors. In 
+USENIX Security, 2016. 
+
+[62] B. Pang and L. Lee. Seeing stars: Exploiting class relationship for sentiment 
+categorization with respect to rating scales. In Proc. ACL, 2005. 
+
+[63] N. Papernot, P. McDaniel, A. Sinha, and M. Wellman. Towards the science of 
+security and privacy in machine learning. https://arxiv.org/abs/1611.03814, 2016. 
+
+[64] M. Rastegari, V. Ordonez, J. Redmon, and A. Farhadi. XNOR-Net: ImageNet 
+classification use binary convolutional neural networks. In ECCV, 2016. 
+
+[65] B. I. Rubinstein, B. Nelson, L. Huang, A. D. Joseph, S.-h. Lau, S. Rao, N. Taft, and 
+J. Tygar. Antidote: Understanding and defend against poison of anomaly 
+detectors. In IMC, 2009. 
+
+[66] F. Schuster, M. Costa, C. Fournet, C. Gkantsidis, M. Peinado, G. Mainar-Ruiz, and 
+M. Russinovich. VC3: Trustworthy data analytics in the cloud use SGX. In 
+S&P, 2015. 
+
+[67] R. Shokri and V. Shmatikov. Privacy-preserving deep learning. In CCS, 2015. 
+[68] R. Shokri, M. Stronati, C. Song, and V. Shmatikov. Membership inference attack 
+
+against machine learn models. In S&P, 2017. 
+[69] P. Y. Simard, D. Steinkraus, and J. C. Platt. Best practice for convolutional neural 
+
+network apply to visual document analysis. In ICDAR, 2003. 
+[70] Theano Development Team. Theano: A Python framework for fast computation 
+
+of mathematical expressions. https://arxiv.org/abs/1605.02688, 2016. 
+[71] S. Torres-Arias, A. K. Ammula, R. Curtmola, and J. Cappos. On omit com- 
+
+mit and commit omissions: Preventing git metadata tamper that (re)- 
+introduces software vulnerabilities. In USENIX Security, 2016. 
+
+[72] V. Vapnik. The Nature of Statistical Learning Theory. Springer Science & Business 
+Media, 2013. 
+
+[73] J. Wei, X. Zhang, G. Ammons, V. Bala, and P. Ning. Managing security of virtual 
+machine image in a cloud environment. In CCSW, 2009. 
+
+[74] Y. Zhai, L. Yin, J. Chase, T. Ristenpart, andM. Swift. CQSTR: Securing cross-tenant 
+application with cloud containers. In SoCC, 2016. 
+
+[75] C. Zhang, S. Bengio, M. Hardt, B. Recht, and O. Vinyals. Understanding deep 
+learn require rethink generalization. In ICLR, 2017. 
+
+https://indico.io 
+https://keras.io 
+https://www.theregister.co.uk/2011/08/31/linux_kernel_security_breach/ 
+https://www.theregister.co.uk/2011/08/31/linux_kernel_security_breach/ 
+https://tools.ietf.org/html/rfc2104 
+https://azure.microsoft.com/en-us/services/machine-learning 
+https://azure.microsoft.com/en-us/services/machine-learning 
+https://mljar.com 
+http://mxnet.io 
+http://www.nexosis.com 
+https://arxiv.org/abs/1611.03814 
+https://arxiv.org/abs/1605.02688 
+
+Abstract 
+1 Introduction 
+2 Background 
+2.1 Machine Learning Pipelines 
+2.2 ML Platforms and Algorithm Providers 
+
+3 Threat Model 
+4 White-box Attacks 
+4.1 LSB Encoding 
+4.2 Correlated Value Encoding 
+4.3 Sign Encoding 
+
+5 Black-box Attacks 
+5.1 Abusing Model Capacity 
+5.2 Synthesizing Malicious Augmented Data 
+5.3 Why Capacity Abuse Works 
+
+6 Experiments 
+6.1 Datasets and Tasks 
+6.2 ML Models 
+6.3 Evaluation Metrics 
+6.4 LSB Encoding Attack 
+6.5 Correlated Value Encoding Attack 
+6.6 Sign Encoding Attack 
+6.7 Capacity Abuse Attack 
+
+7 Countermeasures 
+8 Related Work 
+9 Conclusion 
+References 
+

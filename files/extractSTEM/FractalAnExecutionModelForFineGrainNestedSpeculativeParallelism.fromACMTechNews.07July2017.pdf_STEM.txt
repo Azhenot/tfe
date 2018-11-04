@@ -1,0 +1,3671 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+fractal: An execut model for fine-grain nest specul parallel 
+
+
+fractal: An execut model for 
+fine-grain nest specul parallel 
+
+suvinay subramanian∗ mark C. jeffrey∗ maleen abeydeera∗ hyun ryong lee∗ 
+
+victor A. ying∗ joel emer∗† daniel sanchez∗ 
+
+∗massachusett institut of technolog †nvidia 
+
+{suvinay,mcj,maleen,hrlee,victory,emer,sanchez}@csail.mit.edu 
+
+abstract 
+
+most system that support specul parallelization, like hardwar 
+
+transact memori (htm), do not support nest parallelism. 
+
+thi sacrific substanti parallel and preclud compos par- 
+
+allel algorithms. and the few htm that do support nest par- 
+
+allel focu on parallel at the coarsest (shallowest) levels, 
+
+incur larg overhead that squander most of their potential. 
+
+We present fractal, a new execut model that support un- 
+
+order and timestamp-ord nest parallelism. fractal let 
+
+programm seamlessli compos specul parallel algorithms, 
+
+and let the architectur exploit parallel at all levels. fractal 
+
+can parallel a broader rang of applic than prior specula- 
+
+tive execut models. We design a fractal implement that 
+
+extend the swarm architectur and focu on parallel at the 
+
+fine (deepest) levels. our approach sidestep the issu of nest 
+
+parallel htm and uncov abund fine-grain parallelism. As a 
+
+result, fractal outperform prior specul architectur by up 
+
+to 88× at 256 cores. 
+
+cc concept 
+
+• comput system organ → multicor architectures; 
+
+keyword 
+
+multicore, specul parallelization, nest parallelism, fine- 
+
+grain parallelism, transact memory, thread-level specul 
+
+1 introduct 
+
+system that support specul parallelization, such a hardwar 
+
+transact memori (htm) or thread-level specul (tls), 
+
+have two major benefit over non-specul systems: they uncov 
+
+abund parallel in mani challeng applic [32, 36] and 
+
+simplifi parallel program [51]. but these system suffer from 
+
+limit support for nest specul parallelism, i.e., the abil to 
+
+invok a specul parallel algorithm within anoth specul 
+
+parallel algorithm. thi caus three problems. first, it sacrific 
+
+substanti parallel and limit the algorithm support by these 
+
+systems. second, it disallow compos parallel algorithms, make 
+
+it hard to write modular parallel programs. third, it bia pro- 
+
+isca ’17, june 24-28, 2017, toronto, on, canada 
+
+© 2017 copyright held by the owner/author(s). public right licens to associ 
+
+for comput machinery. 
+
+thi be the author’ version of the work. It be post here for your person use. not for 
+
+redistribution. the definit version of record be publish in proceed of isca 
+
+’17, june 24-28, 2017, https://doi.org/10.1145/3079856.3080218. 
+
+grammer to write coarse-grain specul tasks, which be more 
+
+expens to support in hardware. 
+
+for example, consid the problem of parallel a transact 
+
+database. A natur approach be to use htm and to make each data- 
+
+base transact a memori transaction. each transact execut 
+
+on a thread, and the htm system guarante atom among con- 
+
+current transactions, detect conflict load and store on the fly, 
+
+and abort transact to avoid serializ violations. 
+
+unfortunately, thi htm approach face signific challenges. 
+
+first, each transact must run on a singl thread, but databas trans- 
+
+action often consist of mani queri or updat that could run in par- 
+
+allel. the htm approach thu sacrific thi intra-transaction, fine- 
+
+grain parallelism. second, long transact often have larg read 
+
+and write sets, which make conflict and abort more likely. these 
+
+abort often wast mani oper that be not affect by the 
+
+conflict. third, support larg read/writ set in hardwar be costly. 
+
+hardwar can track small read/writ set cheaply, e.g., use privat 
+
+cach [32, 56] or small bloom filter [14, 65]. but these track 
+
+structur have limit capac and forc transact that overflow 
+
+them to serialize, even when they have no conflict [11, 32, 65]. 
+
+beyond these problems, htm’ unord execut semant be 
+
+insuffici for program with order parallelism, where specul 
+
+task must appear to execut in a program-specifi order [36]. 
+
+the swarm architectur [36, 37] can address some of these prob- 
+
+lems. swarm program consist of timestamp tasks. A task can 
+
+creat and enqueu child task with ani timestamp equal to or great 
+
+than it own. swarm guarante that task appear to execut in time- 
+
+stamp order. To scale, swarm execut task specul and out 
+
+of order. swarm’ microarchitectur focu on support task a 
+
+small a a few ten of instruct efficiently, includ hardwar 
+
+support for specul schedul and a larg specul window. 
+
+By expos timestamp to programs, swarm can parallel 
+
+more algorithm than prior order specul techniques, like tls; 
+
+swarm also support unordered, htm-style execution. As a result, 
+
+swarm often uncov abund fine-grain parallelism. but swarm’ 
+
+software-vis timestamp can onli convey veri limit form 
+
+of nest parallelism, and they caus two key issu in thi regard 
+
+(sec. 2). timestamp make nest algorithm hard to compose, 
+
+a algorithm at differ nest level must agre on a common 
+
+mean for the timestamp. timestamp also over-seri nest 
+
+algorithms, a they impos more order constraint than needed. 
+
+for instance, in the exampl above, swarm can be use to break 
+
+each databas transact into mani small, order tasks. thi ex- 
+
+ploit intra-transact parallelism, and, at 256 cores, it be 21× faster 
+
+than run oper within each transact serial (sec. 2.2). 
+
+https://doi.org/10.1145/3079856.3080218 
+
+
+however, to maintain atom among databas transactions, the 
+
+programm must needlessli order databas transact and must 
+
+care assign timestamp to task within each transaction. 
+
+these problem be far from specif to databas transactions. 
+
+In general, larg program have specul parallel at multipl 
+
+level and often intermix order and unord algorithms. spec- 
+
+ul architectur should support composit of order and 
+
+unord algorithm to convey all thi nest parallel without 
+
+undu serialization. 
+
+We present two main contribut that achiev these goals. our 
+
+first contribut be fractal, a new execut model for nest 
+
+specul parallelism. fractal program consist of task locat 
+
+in a hierarchi of nest domains. within each domain, task can 
+
+be order or unordered. ani task can creat a new subdomain and 
+
+enqueu new task in that subdomain. all task in a domain appear 
+
+to execut atom with respect to task outsid the domain. 
+
+fractal allow seamless composit of order and unord 
+
+nest parallelism. In the abov example, each databas transact 
+
+start a a singl task that run in an unordered, root domain. each 
+
+of these unord task creat an order subdomain in which it 
+
+enqueu task for the differ oper within the transaction. In 
+
+the event of a conflict between task in two differ transactions, 
+
+fractal select abort conflict tasks, rather than abort 
+
+all task in ani one transaction. In fact, other task from the two 
+
+transact may continu to execut in parallel. 
+
+our second contribut be a simpl implement of fractal 
+
+that build on swarm and support arbitrari nest level cheapli 
+
+(sec. 4). our implement focu on extract parallel at 
+
+the fine (deepest) level first. thi be in stark contrast with cur- 
+
+rent htms. most htm onli support serial execut of nest 
+
+transactions, forgo intra-transact parallelism. A few htm 
+
+support parallel nest transact [6, 62], but they parallel at the 
+
+coarsest levels, suffer from subtl deadlock and livelock conditions, 
+
+and impos larg overhead becaus they merg the specul state 
+
+of nest transact [5, 6]. the fractal execut model let 
+
+our implement avoid these problems. beyond exploit more 
+
+parallelism, focu on fine-grain task reduc the hardwar cost 
+
+of specul execution. 
+
+We demonstr fractal’ perform and programm 
+
+benefit through sever case studi (sec. 2) and a broad evalu 
+
+(sec. 6). fractal uncov abund fine-grain parallel on 
+
+larg programs. for example, port of the stamp benchmark suit 
+
+to fractal outperform baselin htm implement by up to 
+
+88× at 256 cores. As a result, while sever of the origin stamp 
+
+benchmark cannot reach even 10× scaling, fractal make all 
+
+stamp benchmark scale well to 256 cores. 
+
+2 motiv 
+
+We motiv fractal through three case studi that highlight 
+
+it key benefits: uncov abund parallelism, improv pro- 
+
+grammability, and avoid over-serialization. sinc fractal sub- 
+
+sume prior specul execut model (htm, tls, and swarm), 
+
+all case studi use the fractal architectur (sec. 4), and we com- 
+
+pare applic write in fractal vs. other execut models. 
+
+thi approach let u focu on the effect of differ fractal fea- 
+
+tures. our implement do not add overhead to program that 
+
+do not use fractal’ features. 
+
+2.1 fractal uncov abund parallel 
+
+consid the maxflow problem, which find the maximum amount 
+
+of flow that can be push from a sourc to a sink node in a network 
+
+(a graph with direct edg label with capacities). push-relabel 
+
+be a fast and wide use maxflow algorithm [18], but it be hard 
+
+to parallel [8, 48]. push-relabel tag each node with a height. It 
+
+initi give height of 0 to the sink, N (the number of nodes) to the 
+
+source, and 1 to everi other node. node be temporarili allow to 
+
+have excess flow, i.e., have more incom flow than outgo flow. 
+
+node with excess flow be consid activ and can push thi flow 
+
+to lower-height nodes. the algorithm process one activ node at 
+
+a time, attempt to push flow to neighbor node and potenti 
+
+make them active. when an activ node cannot push it excess 
+
+flow, it increas it height to the minimum valu that allow push 
+
+flow to a neighbor (thi be call a relabel). the algorithm process 
+
+activ node in arbitrari order until no activ node be left. 
+
+To be efficient, push-relabel must use a heurist that period 
+
+recomput node heights. global relabel [18] be a commonli 
+
+use heurist that updat mani node height by perform a 
+
+breadth-first search on a subset of the graph. global relabel take 
+
+a signific fraction of the total work, typic 10–40% of instruc- 
+
+tion [3]. 
+
+sinc push-relabel can process activ node in an arbitrari order, 
+
+it can be parallel use transact task of two type [48, 49]. 
+
+An active-nod task process a singl node, and may enqueu 
+
+other task to process newly-activ nodes. A global-relabel task 
+
+perform a global relabel operation. each task must run atomically, 
+
+sinc task access data from multipl neighbor and must observ a 
+
+consist state. We call thi implement maxflow-flat. 
+
+We simul maxflow-flat on system of up to 256 cores. (see 
+
+sec. 5 for methodolog details.) At 256 cores, maxflow-flat scale 
+
+to 4.9× only. fig. 1a illustr the reason for thi limit speedup: 
+
+while active-nod task be short, each global-relabel task be long, 
+
+and queri and updat mani nodes. when a global-relabel task 
+
+runs, it conflict with and serial mani active-nod tasks. 
+
+fortunately, each global-relabel task perform a breadth-first 
+
+search, which have plenti order specul parallelism. frac- 
+
+tal let u exploit thi nest parallelism, run the breadth-first 
+
+core 0 
+core 1 
+core 2 
+core 3 
+core 4 
+core 5 
+core 6 
+core 7 
+
+time 
+
+(a) maxflow-flat 
+
+time 
+
+task 
+
+activ node 
+
+global relabel 
+
+abort 
+core 0 
+core 1 
+core 2 
+core 3 
+core 4 
+core 5 
+core 6 
+core 7 
+
+(b) maxflow-fract 
+
+figur 1: execut timelin of (a) maxflow-flat, which con- 
+
+sist of unord task and do not exploit nest parallelism, 
+
+and (b) maxflow-fractal, which exploit the nest order 
+
+parallel within global relabel. 
+
+2 
+
+
+
+root domain 
+
+global relabel 
+
+subdomain 
+0 
+
+1 
+
+1 2 
+
+2 
+
+figur 2: In maxflow-fractal, 
+
+each global-relabel task creat 
+
+an order subdomain. 
+
+1 
+
+128 
+
+256 
+
+S 
+p 
+
+e 
+e 
+
+d 
+u 
+
+p 
+
+1c 128c 256c 
+
+fr 
+ac 
+ta 
+l 
+
+flat 
+
+322× 
+
+figur 3: speedup of differ- 
+
+ent maxflow version on 1– 
+
+256 cores. 
+
+search in parallel while maintain it atom with respect to 
+
+other active-nod tasks. To achiev this, we develop a maxflow- 
+
+fractal implement where each global-relabel task creat 
+
+an order subdomain, in which it execut a parallel breadth-first 
+
+search use fine-grain order tasks, a show in fig. 2. A global- 
+
+relabel task and it subdomain appear a a singl atom unit with 
+
+respect to other task in the (unordered) root domain. fig. 1b il- 
+
+lustrat how thi improv parallel and efficiency. As a result, 
+
+fig. 3 show that maxflow-fract achiev a speedup of 322× 
+
+at 256 core (over maxflow-flat on one core). 
+
+fractal be the first architectur that effect exploit maxflow’ 
+
+fine-grain nest parallelism: neither htm, nor tls, nor swarm 
+
+can support the combin of unord and order parallel 
+
+maxflow has. prior software-parallel push-relabel algorithm at- 
+
+tempt to exploit thi fine-grain parallel [3, 48, 49], but the 
+
+overhead of softwar specul and schedul negat the bene- 
+
+fit of addit parallel (in maxflow-fractal, each task be 373 
+
+cycl on average). We also evalu two state-of-the-art softwar 
+
+implementations: prsn [8] and galoi [48]. On 1–256 cores, they 
+
+achiev maximum speedup of onli 4.9× and 8.3× over maxflow- 
+
+flat at one core, respectively. 
+
+2.2 fractal ea parallel program 
+
+beyond improv performance, fractal’ support for nest par- 
+
+allel ea parallel program becaus it enabl parallel com- 
+
+position. programm can write multipl self-contained, modular 
+
+parallel algorithm and compos them without sacrific perfor- 
+
+mance: when a parallel algorithm invok anoth parallel algorithm, 
+
+fractal can exploit parallel at both caller and callee. 
+
+In the previou case study, onli fractal be abl to uncov 
+
+nest parallelism. In some applications, prior architectur can also 
+
+exploit the nest parallel that fractal uncovers, but they do 
+
+so at the expens of composability. 
+
+consid the transact databas exampl from sec. 1. con- 
+
+vention htm run each databas transact in a singl thread, 
+
+and exploit coarse-grain inter-transact parallel only. but each 
+
+databas transact have plenti order parallelism. fractal can 
+
+exploit both inter- and intra-transact parallel by run each 
+
+transact in it own order subdomain, just a each global relabel 
+
+run in it own order subdomain in fig. 2. We appli both ap- 
+
+proach to the silo in-memori databas [61]. fig. 4 show that, at 
+
+256 cores, silo-fract scale to 206×, while silo-flat scale 
+
+to 9.7× only, 21× slow than silo-fractal. 
+
+1 
+
+128 
+
+256 
+
+S 
+p 
+
+e 
+e 
+
+d 
+u 
+
+p 
+
+1c 128c 256c 
+
+fr 
+ac 
+ta 
+l 
+
+sw 
+ar 
+m 
+
+flat 
+
+figur 4: speedup of silo 
+
+version on 1–256 cores. 
+
+txn 1 txn 2 txn 3 
+
+…0 10 
+20 
+
+1 2 
+
+42 
+
+3 4 
+
+11 
+
+13 
+12 
+
+21 
+
+23 
+
+22 
+
+23 
+
+24 
+
+figur 5: silo-swarm us 
+
+disjoint timestamp rang for 
+
+differ databas transactions, 
+
+sacrific composability. 
+
+fig. 4 also show that silo-swarm, the swarm version of silo, 
+
+achiev similar perform to silo-fract (silo-swarm be 
+
+4.5% slower). fig. 5 illustr silo-swarm’ implementation: the 
+
+transaction-launch code assign disjoint timestamp rang to 
+
+transact (10 contigu timestamp per transact in fig. 5), 
+
+and each transact enqueu task onli within thi rang (e.g., 
+
+10–19 for txn 2 in fig. 5). silo-swarm us the same fine-grain 
+
+task a silo-fractal, expos plenti parallel and reduc 
+
+the penalti of conflict [36]. for example, in fig. 5, if the task at 
+
+timestamp 13 and 24 conflict, onli one task must abort, rather than 
+
+ani whole transaction. 
+
+sinc swarm do not provid architectur support for nest par- 
+
+allelism, approach fractal’ perform come at the expens 
+
+of composability. silo-swarm coupl the transaction-launch 
+
+code and the code within each transaction: both modul must know 
+
+the number of task per transaction, so that they can agre on the se- 
+
+mantic of each timestamp. moreover, a fixed-s timestamp make 
+
+it hard to alloc suffici timestamp rang in complex applica- 
+
+tion with mani nest level or where the number of task in each 
+
+level be dynam determined. fractal avoid these issu by 
+
+provid direct support for nest parallelism. 
+
+prior htm have support compos nest parallel transac- 
+
+tions, but they suffer from deadlock and livelock conditions, impos 
+
+larg overheads, and sacrific most of the benefit of fine-grain par- 
+
+allel becaus each nest transact merg it specul state 
+
+with it parent’ [5, 6]. We compar fractal and parallel nest 
+
+htm in detail in sec. 7, after discuss fractal’ implemen- 
+
+tation. beyond these issues, parallel nest htm do not support 
+
+order parallelism, so they would not help maxflow or silo. 
+
+2.3 fractal avoid over-seri 
+
+beyond forgo composability, support fine-grain parallel 
+
+through manually-specifi order can caus over-serialization. 
+
+consid the maxim independ set algorithm (mis), which, 
+
+give a graph, find a set of node S such that no two node in S be 
+
+adjacent, and each node not in S be adjac to some node in S. 
+
+mi can be easili parallel with unordered, atom task [54]. 
+
+We call thi implement mis-flat. each task oper on a 
+
+node and it neighbors. If the node have not yet be visited, the task 
+
+visit both the node and it neighbors, add the node to the set and 
+
+mark it neighbor a exclud from the set. mis-flat creat 
+
+one task for each node in the graph, and finish when all these task 
+
+have executed. fig. 6 show that, on an r-mat graph with 8 million 
+
+node and 168 million edges, mis-flat scale to 98× at 256 cores. 
+
+3 
+
+
+
+1 
+
+64 
+
+128 
+
+S 
+p 
+
+e 
+e 
+
+d 
+u 
+
+p 
+
+1c 128c 256c 
+
+fr 
+ac 
+ta 
+l 
+
+sw 
+ar 
+m 
+
+flat 
+
+145× 
+
+figur 6: speedup of differ- 
+
+ent mi version on 1–256 
+
+cores. 
+
+mis-flat miss a sourc 
+
+of nest parallelism: when 
+
+a node be add to the set, 
+
+it neighbor may be vis- 
+
+ite and exclud in paral- 
+
+lel. thi yield great bene- 
+
+fit when node have mani 
+
+neighbors. mis-fract de- 
+
+fine two task types: includ 
+
+and exclude. An includ task 
+
+check whether a node have al- 
+
+readi be visited. If it have not, 
+
+it add the node to the set and 
+
+creat an unord subdomain to run exclud task for the node’ 
+
+neighbors. An exclud task perman exclud a node from the 
+
+set. domain guarante a node and it neighbor be visit atom- 
+
+ical while allow mani task of both type to run in parallel. 
+
+fig. 6 show that mis-fract scale to 145× at 256 cores, 48% 
+
+faster than mis-flat. 
+
+swarm cannot exploit thi parallel a effectively. swarm can 
+
+onli guarante atom for group of task if the program specifi 
+
+a total order among group (a in silo). We follow thi approach 
+
+to implement mis-swarm: everi includ task be assign a uniqu 
+
+timestamp, and it share it timestamp with ani exclud task it 
+
+enqueues. thi impos more order constraint than mis-fractal, 
+
+where there be no order among task in the root domain. fig. 6 show 
+
+that mis-swarm scale to 117×, 24% slow than mis-fractal, a 
+
+unnecessari order constraint caus more abort work.1 
+
+In summary, convey the atom need of nest parallel 
+
+through a fix order limit parallel execution. fractal allow pro- 
+
+gram to convey nest parallel without undu order constraints. 
+
+3 fractal execut model 
+
+fig. 7 illustr the key element of the fractal execut model. 
+
+fractal program consist of task in a hierarchi of nest domains. 
+
+each task may access arbitrari data, and may creat child task a it 
+
+find new work to do. for example, in fig. 7 task C creat child D 
+
+and E. when each task be created, it be enqueu to a specif domain. 
+
+semant within a domain: each domain provid either unord 
+
+or timestamp-ord execut semantics. In an unord domain, 
+
+fractal choos an arbitrari order among task that respect 
+
+parent-child dependences, i.e., child be order after their par- 
+
+ents. for example, in fig. 7, task c’ child D and E must appear 
+
+to run after C, but task D can appear to run either befor or after task 
+
+E. these semant be similar to tm’s: all task execut atom 
+
+and in isolation. 
+
+In an order domain, each task have a program-specifi time- 
+
+stamp. A task can enqueu child task to the same domain with ani 
+
+timestamp equal to or great than it own. fractal guarante that 
+
+task appear to run in increas timestamp order. If multipl task 
+
+have the same timestamp, fractal arbitrarili choos an order 
+
+among them. thi order alway respect parent-child dependences. 
+
+timestamp let program convey their specif order requirements, 
+
+e.g., the order that event need to run in a simulator. for example, 
+
+1mis-swarm’ order constraint make it deterministic, which some user may find 
+
+desir [9, 23]. 
+
+B 
+
+A 
+
+C 
+
+F 
+
+I 
+
+M 
+G L H 
+
+K 
+J 
+
+E 
+
+D 
+
+N 
+
+O P 
+
+1 2 3 4 
+
+f’ subdomain 
+
+b’ subdomain 
+
+d’ subdomain 
+
+root domain 
+
+m’ 
+subdomain 
+
+1 4 
+
+figur 7: element of the fractal execut model. arrow 
+
+point from parent to child tasks. parent enqueu their child 
+
+into order domain where task have timestamps, such a a’ 
+
+and m’ subdomains, or unord domains, such a the other 
+
+three domains. 
+
+in fig. 7, the timestamp of task F, G, L, and H ensur they ap- 
+
+pear to run in that fix order. these semant be the same a 
+
+swarm’ [36]. 
+
+semant across domains: each task can creat a singl subdo- 
+
+main and enqueu task into it. for example, in fig. 7, task B creat 
+
+a new subdomain and enqueu F and G into it. these task may 
+
+themselv creat their own subdomains. for example, F creat a 
+
+subdomain and enqueu I into it. 
+
+fractal provid strong atom guarante across domain 
+
+to allow parallel composit of specul algorithms. all task in 
+
+a domain appear to execut after the task that creat the domain and 
+
+be not interleav with task outsid their domain. In other words, 
+
+ani non-root domain togeth with it creator appear to execut a a 
+
+singl atom unit in isolation. for example, sinc F be order befor 
+
+G in b’ subdomain, all task in f’ subdomain (i, J, and K) must 
+
+appear to execut immedi after F and befor G. furthermore, 
+
+although no task in b’ subdomain be order with respect to ani task 
+
+in d’ subdomain, task in b’ and d’ subdomain be guarante 
+
+not to be interleaved. 
+
+task may also enqueu child task to their immedi enclos 
+
+domain, or superdomain. for example, in fig. 7, K in f’ subdomain 
+
+enqueu L to b’ subdomain. thi let a task deleg enqueu 
+
+futur work to descend within the subdomain it creates. A task 
+
+cannot enqueu child to ani domain beyond the domain it belong 
+
+to, it superdomain, and the singl subdomain it may create. 
+
+3.1 program interfac 
+
+We first expos fractal’ featur through a simpl low-level 
+
+c++ interface, then complement it with a high-level, openmp-styl 
+
+interfac that make it easi to write fractal applications. 
+
+low-level interface: list 1 illustr the key featur of the 
+
+low-level fractal interfac by show the implement of the 
+
+mis-fract task describ in sec. 2.3. A task be describ by it 
+
+function, arguments, and order properties. task function can take 
+
+arbitrari argument but do not return values. task creat child by 
+
+call one of three enqueu function with the appropri task func- 
+
+tion and arguments: fractal::enqueu place the child task in 
+
+the same domain a the caller, fractal::enqueue_sub place the 
+
+4 
+
+
+
+void exclude(node& n) { 
+n.state = excluded; 
+
+} 
+
+void include(node& n) { 
+if (n.state == unvisited) { 
+n.state = included; 
+fractal::create_subdomain(unordered); 
+for (node& ngh: n.neighbors) 
+fractal::enqueue_sub(exclude, ngh); 
+
+} 
+} 
+
+list 1: fractal implement of mi tasks. 
+
+void include(node& n) { 
+if (n.state == unvisited) { 
+n.state = included; 
+foral (node& ngh: n.neighbors) 
+ngh.state = excluded; 
+
+} 
+} 
+
+list 2: pseudocod for fractal implement of mis’ 
+includ use the high-level interface. 
+
+child in the caller’ subdomain, and fractal::enqueue_sup 
+
+place the child in the caller’ superdomain. If the destin do- 
+
+main be ordered, the enqueu function also take the child task’ 
+
+timestamp. thi isn’t the case in list 1, a mi be unordered. 
+
+befor call fractal::enqueue_sub to place task in a sub- 
+
+domain, a task must call fractal::create_subdomain exactli 
+
+onc to specifi the subdomain’ order semantics: unordered, or 
+
+order with 32- or 64-bit timestamps. In list 1, each includ 
+
+task may creat an unord subdomain to atom run exclud 
+
+task for all it neighbors. the initi code (not shown) creat 
+
+an includ task for everi node in an unord root domain. 
+
+task enqueu function also take one option argument, a spatial 
+
+hint [35], which be an integ that abstractli indic what data the 
+
+task be like to access. hint aid the system in perform locality- 
+
+awar task map and load balancing. hint be orthogon to 
+
+fractal. We adopt them becaus we studi system of up to 256 
+
+cores, and sever of our benchmark suffer from poor local with- 
+
+out hints, which limit their scalabl beyond ten of cores. 
+
+high-level interface: although our low-level interfac be simple, 
+
+break straight-lin code into mani task function can be tedious. 
+
+To eas thi burden, we implement a high-level interfac in the style 
+
+of openmp and opentm [7]. tabl 1 detail it main constructs, 
+
+and list 2 show it in action with pseudocod for include. 
+
+nest parallel be express use forall, which automat 
+
+creat an unord subdomain and enqueu each loop iter 
+
+a a separ task. thi avoid break code into small function 
+
+like exclude. these construct can be arbitrarili nested. our actual 
+
+syntax be slightli more complic becaus we do not modifi the 
+
+compiler, and we implement these construct use macros.2 
+
+4 fractal implement 
+
+our fractal implement seek three desir properties. first, 
+
+the architectur should perform fine-grain speculation, carri 
+
+out conflict resolut and commit at the level of individu tasks, 
+
+not complet domains. thi avoid the granular issu of nest 
+
+2 the differ between the pseudocod in list 2 and our actual code be that we have 
+
+to tag the end of control blocks, i.e., use forall_begin(...) {...} forall_- 
+
+end();. thi could be avoid with compil support, a in openmp. 
+
+function descript 
+
+foral 
+atom unordr loop. enqueu each iter a 
+
+a a task in a new unord subdomain. 
+
+forall_ord 
+
+atom order loop. enqueu task to a new 
+
+order subdomain, use the iter index a a 
+
+timestamp. 
+
+forall_reduc atom unord loop with a reduct variable. 
+
+forall_reduce_ord atom order loop with a reduct variable. 
+
+parallel execut multipl code block a parallel tasks. 
+
+parallel_reduc 
+execut multipl code block a parallel tasks, 
+
+follow by a reduction. 
+
+enqueue_al 
+enqueu a sequenc of task with the same (or no) 
+
+timestamp. 
+
+enqueue_all_ord 
+enqueu a sequenc of task with a rang of 
+
+timestamps. 
+
+task 
+
+start a new task in the middl of a function. 
+
+implicitli encapsul the rest of the function into 
+
+a lambda, then enqueu it. use to break long 
+
+function into small tasks. 
+
+callcc 
+
+call with current continu [59]. allow call 
+
+a function that might enqueu tasks, return 
+
+control to the caller by invok it continuation. 
+
+the continu run a a separ task. 
+
+tabl 1: high-level interfac functions. 
+
+64-tile, 256-core chip 
+
+core core core core 
+
+l1i/d l1i/d l1i/d l1i/d 
+
+L2 
+
+L3 slicerout 
+
+tile organ 
+
+task unit 
+mem / IO 
+
+M 
+e 
+m 
+
+/ 
+IO 
+
+mem / IO 
+
+M 
+e 
+m 
+
+/ IO 
+
+tile 
+
+figur 8: 256-core swarm chip and tile configuration. 
+
+parallel htm (sec. 7). second, creat a domain should be cheap, 
+
+a domain with few task be common (e.g., mi in sec. 2.3). third, 
+
+while the architectur should support unbound nest depth to 
+
+enabl softwar composition, parallel compound quickli with 
+
+depth, so hardwar onli need to support a few concurr depths. 
+
+To meet these objectives, our fractal implement build on 
+
+swarm, and dynam choos a task commit order that satisfi 
+
+fractal’ semantics. We first describ the swarm microarchitec- 
+
+ture, then introduc the modif need to support fractal. 
+
+4.1 baselin swarm microarchitectur 
+
+swarm uncov parallel by execut task specul and 
+
+out of order. To uncov enough parallelism, swarm can specul 
+
+thousand of task ahead of the earli unfinish task. swarm 
+
+introduc modest chang to a tiled, cache-coher multicore, 
+
+show in fig. 8. each tile have a group of simpl cores, each with it 
+
+own privat L1 cache. all core in a tile share an L2 cache, and each 
+
+tile have a slice of a fully-shar L3 cache. everi tile be augment 
+
+with a task unit that queues, dispatches, and commit tasks. 
+
+swarm hardwar effici support fine-grain task and a larg 
+
+specul window through four main mechanisms: low-overhead 
+
+hardwar task management, larg task queues, scalabl data-depen- 
+
+denc specul techniques, and high-throughput order commits. 
+
+5 
+
+
+
+hardwar task management: task creat child task and enqueu 
+
+them to a tile use an enqueu instruct with argument store in 
+
+registers. each tile’ task unit queue runnabl task and maintain 
+
+the specul state of finish task that cannot yet commit. each 
+
+task be repres by a task descriptor that contain it function 
+
+pointer, arguments, timestamp, and spatial hint [35]. 
+
+core dequeu task for execut from the local task unit. task 
+
+unit can dispatch ani avail task to cores, howev distant in 
+
+program order. dequeu initi specul execut at the task’ 
+
+function pointer and make the task’ timestamp and argument 
+
+avail in registers. A core stall if there be no task available. 
+
+larg task queues: the task unit have two main structures: (i) a 
+
+task queue that hold task descriptor for everi task in the tile, and 
+
+(ii) a commit queue that hold the specul state of task that have 
+
+finish execut but cannot yet commit. together, these queue 
+
+implement a task-level reorder buffer. 
+
+task and commit queue support ten of specul task per 
+
+core (e.g., 64 task queue entri and 16 commit queue entri per 
+
+core) to implement a larg window of specul (e.g., 16384 task 
+
+in the 256-core chip in fig. 8). nevertheless, becaus program can 
+
+enqueu task with arbitrari timestamps, task and commit queue 
+
+can fill up. task that have not be dequeu and whose parent 
+
+have commit can be spill to memori to free task queue entries. 
+
+queue resourc exhaust can also be handl by either stall the 
+
+enqueuer or abort higher-timestamp task to free space [36]. 
+
+scalabl data-depend speculation: swarm us eager (undo- 
+
+log-based) version manag and eager conflict detect use 
+
+bloom filters, similar to logtm-s [65]. swarm alway forward 
+
+still-specul data read by a late task. On a conflict, swarm abort 
+
+onli descend and data-depend tasks. 
+
+high-throughput order commits: finally, swarm adapt the vir- 
+
+tual time algorithm [34] to achiev high-throughput order commits. 
+
+tile period commun with a central arbit (e.g., everi 
+
+200 cycles) to discov the earli unfinish task in the system. all 
+
+task that preced thi earli unfinish task can safe commit. 
+
+thi scheme can sustain multipl task commit per cycl on average, 
+
+effici support order task a short a a few ten of cycles. 
+
+45 2 
+
+64-bit 
+
+timestamp dispatch cycl tile ID 
+
+64-bit 
+
+tiebreak 
+
+128 bit 
+
+23 ++ 
+
+23, 45:2 
+
+= 
+
+figur 9: swarm VT con- 
+
+struction. 
+
+swarm maintain a consist 
+
+order among task by give 
+
+a uniqu virtual time (vt) to 
+
+each task when it be dispatched. 
+
+swarm vt be 128-bit integ 
+
+that extend the 64-bit program- 
+
+assign timestamp with a 64-bit 
+
+tiebreaker. thi tiebreak be the 
+
+concaten of the dispatch cy- 
+
+cle and tile id, a show in fig. 9. thus, swarm vt break tie 
+
+among same-timestamp task sensibl (priorit old tasks), and 
+
+they satisfi swarm’ semant (they order a child task after it par- 
+
+ent, sinc the child be alway dispatch at a late cycle). however, 
+
+fractal need a differ schema to match it semantics. 
+
+4.2 fractal virtual time 
+
+fractal assign a fractal virtual time (fractal vt) to each task. 
+
+thi fractal VT be the concaten of one or more domain virtual 
+
+time (domain vts). 
+
+23 56:4 
+
+23 56:4 
+
+56:4 
+
+32 bit 
+
+tiebreak 
+64-bit 
+
+timestamp 
+
+32-bit timestamp 
+
+unord 
+
++ 
+
++ 
+
+= 96 bit 
+
+= 64 bit 
+
+= 32 bit 
+
+figur 10: domain VT formats. 
+
+23, 45:2 57:4 
+96 bit 32 bit 
+
+64-bit order 
+domain virtual time 
+
+unord domain 
+virtual time 
+
+four unord domain virtual time 
+
+56:4 
+
+4 × 32 bit 
+
+76:1 94:389:2 
+
+figur 11: exampl 128-bit 
+
+fractal vts. 
+
+domain vt order all task in a domain and be construct simi- 
+
+larli to swarm vts. In an order domain, each task’ domain VT be 
+
+the concaten of it 32- or 64-bit timestamp and a tiebreaker. In 
+
+an unord domain, task do not have timestamps, so each task’ 
+
+domain VT be just a tiebreaker, assign at dispatch time. 
+
+fractal us 32-bit rather than 64-bit tiebreak for efficiency. 
+
+As in swarm, each tiebreak be the concaten of dispatch cy- 
+
+cle and tile id, which order parent befor children. while 32-bit 
+
+tiebreak be efficient, they can wrap around. sec. 4.4 discu 
+
+how fractal handl wrap-arounds. fig. 10 illustr the possibl 
+
+format of a domain vt, which can take 32, 64, or 96 bits. 
+
+fractal vt enforc a total order among task in the system. thi 
+
+order satisfi fractal’ semant across domains: all task within 
+
+each domain be order immedi after the domain’ creator and 
+
+befor ani other task outsid the domain. these semant can be 
+
+implement with two simpl rules. first, the fractal VT of a task 
+
+in the root domain be just it root domain vt. second, the fractal 
+
+VT of ani other task be equal to it domain VT append to the 
+
+fractal VT of the task that creat it domain. fig. 11 show some 
+
+exampl fractal VT formats. A task’ fractal VT be thu make up of 
+
+one domain VT for each enclos domain. two fractal vt can be 
+
+compar with a natur lexicograph comparison. 
+
+fractal vt be easi to support in hardware. We use a fixed-width 
+
+field in the task descriptor to store each fractal vt, 128 bit in our 
+
+implementation. fractal vt small than 128 bit be right-pad 
+
+with zeros. thi fixed-width format make compar fractal vt 
+
+easy, requir convent 128-bit comparators. with a 128-bit 
+
+budget, fractal hardwar can support up to four level of nesting, 
+
+depend on the size of domain vts. sec. 4.3 describ how to 
+
+support level beyond those that can be repres in 128 bits. 
+
+fig. 12 show fractal vt in a system with three domains: an 
+
+unord root domain, b’ subdomain (order with 64-bit time- 
+
+stamps), and d’ subdomain (unordered). idl task do not have 
+
+tiebreakers, which be assign on dispatch. ani two dispatch 
+
+task can be order by compar their fractal vts. for example, 
+
+F (in b’ subdomain) be order after B, but befor M (in d’ sub- 
+
+domain). fractal perform fine-grain specul by use the 
+
+B 
+
+A 
+
+C 
+
+M 
+G H 
+
+E 
+
+D 
+
+b’ subdomain 
+d’ subdomainf 
+
+45:2 0 
+
+— 0 
+
+78:6 0 
+
+37:3 0 
+
+42:1 0 
+
+45:2 1, 51:4 
+
+45:2 2, 71:5 
+
+45:2 4, — 
+root 
+
+domain vt 
+
+subdomain vt 
+
+root domain 
+
+78:6 — 0 
+
+unus bit 
+
+zero out 
+
+idl 
+
+task 
+T 
+
+legend 
+
+unset tiebreak 
+
+figur 12: fractal vt in action. 
+
+6 
+
+
+
+root domain (base) 
+
+M 
+
+db’ subdomain 
+
+d’ subdomain 
+G H 
+
+78:6 0 
+
+45:2 1, 51:4 
+
+45:2 2, 71:5 78:6 — 0 
+
+E 
+
+— 0 
+
+F 
+
+F creat subdomain 
+
+45:2 4, — 
+
+(a) after B commits. 
+
+E 
+
+D 
+
+b’ subdomain 
+G H 
+
+45:2 1, 51:4 
+
+45:2 2, 71:5 
+
+45:2 4, — 
+F 
+
+F creat subdomain 
+
+— 0 
+— 0 
+
+root domain (base) 
+
+(b) base-domain task abort. 
+
+memori 
+
+E 
+
+D 
+
+b’ subdomain 
+F 
+
+F creat 
+
+subdomain 
+
+G H 
+
+S 
+
+45:2 max, — 
+splitter 
+
+root domain (base) 
+
+45:2 1, 51:4 
+
+45:2 2, 71:5 
+
+45:2 4, — 
+
+(c) base-domain task be spilled. 
+
+b’ subdomain (base) 
+F G H 
+
+f’ subdomain 
+I 
+
+02, 71:5 
+
+—1, 51:4 
+
+0max, — 
+S 
+
+splitter 
+
+04, —01, 51:4 
+
+(d) b’ subdomain becom 
+
+the base domain. 
+
+figur 13: start from fig. 12, zoom in allow F to creat and enqueu to a subdomain by shift fractal vts. 
+
+total order among run task to commit and resolv conflict 
+
+at the level of individu tasks. for example, although all task in 
+
+b’ subdomain must stay atom with respect to task in ani other 
+
+domain, fractal can commit task B and F individually, without 
+
+wait for G and H to finish. fractal guarante that b’ subdo- 
+
+main execut atom becaus G and H be order befor ani 
+
+of the remain uncommit tasks. 
+
+fractal vt also make it trivial to creat a new domain. In hard- 
+
+ware, enqueu to a subdomain simpli requir includ the par- 
+
+ent’ full fractal VT in the child’ task descriptor. for instance, when 
+
+B enqueu F in fig. 12, it tag F with (45:2; 1)—b’ fractal VT 
+
+(45:2) follow by f’ timestamp (1). similarly, enqueu to the 
+
+same domain use the enqueuer’ fractal VT without it final domain 
+
+VT (e.g., when A enqueu C, c’ fractal VT us no more bit than 
+
+a’s), and enqueu to the superdomain use the enqueuer’ fractal VT 
+
+without it final two domain vts. 
+
+In summary, fractal vt captur all the inform need for 
+
+order and task enqueues, so these oper do not reli on 
+
+central structures. moreover, the rule of fractal VT construct 
+
+automat enforc fractal’ semant across domain while 
+
+perform specul onli at the level of fine-grain tasks—no 
+
+track be do at the level of whole domains. 
+
+4.3 support unbound nest 
+
+larg applic may consist of parallel algorithm nest with 
+
+arbitrari depth. fractal support thi unbound nest depth 
+
+by spill task from shallow domain to memory. these spill 
+
+task be fill back into the system after deeper domain finish. 
+
+thi process, which we call zooming, be conceptu similar to 
+
+the stack spill-fil mechan in architectur with regist win- 
+
+dow [30]. zoom in allow fractal to continu fine-grain spec- 
+
+ulat among task in deeper domains, without requir addit 
+
+structur to track specul state. note that, although zoom be 
+
+involved, it impos neglig overheads: zoom be not need in 
+
+our full applic (which use two nest levels), and it happen 
+
+infrequ in microbenchmark (sec. 6.3). 
+
+zoom in spill task from the shallowest activ domain, which 
+
+we call the base domain, to make space for deeper domains. suppos 
+
+that, in fig. 12, F in b’ subdomain want to creat an unord 
+
+subdomain and enqueu a child into it. the child’ fractal VT must 
+
+includ a new subdomain vt, but no bit be avail to the right 
+
+of f’ fractal vt. To solv this, F issu a zoom-in request to the 
+
+central arbit with it fractal vt. 
+
+fig. 13 illustr the action take dure a zoom-in. To avoid 
+
+prioriti inversion, the task that request the zoom-in wait until the 
+
+base domain task that share it base domain VT commits. thi 
+
+guarante that no activ base domain task preced the request 
+
+task. In our example, F wait until B commits. fig. 13a show the 
+
+state of the system at thi point—not that F and all other task in b’ 
+
+subdomain preced the remain base-domain tasks. the arbit 
+
+broadcast the zoom-in request and save ani timestamp compon 
+
+of the base domain VT to an in-memori stack. In fig. 13a, the base 
+
+domain be unord so there be no timestamp for the arbit to save. 
+
+each zoom-in proce in two steps. first, all task in the base 
+
+domain be spill to memory. for simplicity, specul state be 
+
+never spilled. instead, ani base-domain task that be run or 
+
+have finish be abort first, which recurs abort and elimi- 
+
+nate their descendants. fig. 13b show the state of the system after 
+
+these aborts. note how d’ abort elimin M and d’ entir sub- 
+
+domain. although spill task to memori be complex, it reus 
+
+the spill mechan alreadi present in swarm [36]: task unit 
+
+dispatch coalesc task that remov base-domain task from task 
+
+queues, store them in memory, and enqueu a splitter task that will 
+
+late re-enqueu the spill tasks. the splitter task be depriorit 
+
+rel to all regular tasks. fig. 13c show the state of the system 
+
+onc all base-domain task have be spilled. A new splitter task, S, 
+
+will re-enqueu D and E to the root domain when it runs. 
+
+In the second step of zoom in, the system turn the outermost 
+
+subdomain into the base domain. At thi point, all task belong to 
+
+one subdomain (b’ subdomain in our example), so their fractal vt 
+
+all begin with the same base domain vt. thi common prefix may 
+
+be elimin while preserv order relations. each tile walk it 
+
+task queue and modifi the fractal vt of all task by shift 
+
+out the common base domain vt. each tile also modifi it canari 
+
+vts, which enabl the L2 to filter conflict check [36]. overall, thi 
+
+requir modifi a few ten to hundr of fractal vt per tile 
+
+(in our implementation, up to 256 in the task queue and up to 128 
+
+canaries). fig. 13d show the state of the system after zoom in. 
+
+b’ subdomain have becom the base domain. thi process have freed 
+
+32 bit of fractal vt, so F can enqueu I into it new subdomain. 
+
+zoom out rever the effect of zoom in. It be trigger when 
+
+a task in the base domain want to enqueu to it superdomain. the 
+
+enqueu task first wait until all task preced it have committed. 
+
+then, it send a zoom-out request to the central arbit with it fractal 
+
+vt. If the previou base domain be ordered, the central arbit pop 
+
+a timestamp from it stack to broadcast with the zoom-out request. 
+
+zoom out restor the previou base domain: each tile walk 
+
+it task queues, right-shift each fractal VT and add back the 
+
+7 
+
+
+
+base domain timestamp, if any. the restor base domain VT have it 
+
+tiebreak set to zero, but thi do not chang ani order relat 
+
+becaus the domain from which we be zoom out contain all the 
+
+earli activ tasks. 
+
+avoid quiescence: As explain so far, the system would have 
+
+to be complet quiesc while fractal vt be be shifted. thi 
+
+overhead be small—a few hundr cycles—but introduc mecha- 
+
+nism to quiesc the whole system would add complexity. instead, 
+
+we use an alternating-bit protocol [60] to let task continu run 
+
+while fractal vt be modified. each fractal VT entri in the system 
+
+have an extra bit that be flip on each zoom in/out operation. when 
+
+the bit of two fractal vt be compar differ, one of them be 
+
+shift appropri to perform the comparison. 
+
+4.4 handl tiebreak wrap-around 
+
+use 32-bit tiebreak make fractal vt compact, but caus 
+
+tiebreak to wrap around everi few ten of milliseconds. sinc 
+
+domain can exist for long period of time, the rang of exist 
+
+tiebreak must be compact to make room for new ones. when 
+
+tiebreak be about to wrap around, the system walk everi fractal 
+
+VT and perform the follow actions: 
+
+(1) subtract 231 (half the range) with saturate-to-0 from each 
+
+tiebreak in the fractal VT (i.e., flip the msb from 1 to 0, 
+
+or zero all the bit if the msb be 0). 
+
+(2) If a task’ final tiebreak be 0 after subtract and the task be 
+
+not the earli unfinish task, abort it. 
+
+when thi process finishes, all tiebreak be < 231, so the system 
+
+continu assign tiebreak from 231. 
+
+thi exploit the properti that, if the task that creat a domain 
+
+preced all other activ tasks, it tiebreak can be set to zero 
+
+without affect order relations. If the task be abort becaus it 
+
+tiebreak be set to 0, ani subdomain it creat will be squashed. In 
+
+practice, we find thi have no effect on performance, because, to be 
+
+aborted, a task would have to remain specul for far longer than 
+
+we observ in ani benchmark. 
+
+4.5 put it all togeth 
+
+our fractal implement add small hardwar overhead over 
+
+swarm. (swarm itself impos modest overhead to implement spec- 
+
+ul execut [36].) each fractal VT consum five addit 
+
+bit beyond swarm’ 128: four to encod it format (14 possibilities), 
+
+and one for the alternating-bit protocol. thi add storag overhead 
+
+of 240 byte per 4-core tile. fractal also add simpl logic to each 
+
+tile to walk and modifi fractal vts—for zoom and tiebreak 
+
+wrap-arounds—and add a shifter to fractal VT compar to han- 
+
+dle the alternating-bit protocol. 
+
+fractal make small chang to the isa: it modifi the enqueu 
+
+instruct and add a create_subdomain instruction. task en- 
+
+queue messag carri a fractal VT without the final tiebreak (up 
+
+to 96+5 bits) compar to the 64-bit timestamp in swarm. 
+
+finally, in our implementation, zoom-in/out request and tiebreak 
+
+wrap-around be handl by the global virtual time arbit (the unit 
+
+that run the ordered-commit protocol). thi add a few messag 
+
+type between thi arbit and the tile to carri out the step in each 
+
+of these operations. the arbit must manag a simpl in-memori 
+
+stack to save and restor base domain timestamps. 
+
+core 
+
+256 core in 64 tile (4 cores/tile), 2 ghz, x86-64 isa; 8b-wide 
+
+ifetch, 2-level bpred with 256×9-bit bhsr + 512×2-bit pht, 
+
+single-issu in-ord scoreboard (stall-on-use), function unit 
+
+latenc a in nehalem [52], 4-entri load and store buffer 
+
+L1 cach 16 kb, per-core, split d/i, 8-way, 2-cycl latenc 
+
+L2 cach 
+256 kb, per-tile, 8-way, inclusive, 7-cycl latenc 
+
+32 line per fractal VT canari 
+
+L3 cach 
+64 mb, shared, static nuca [38] (1 MB bank/tile), 
+
+16-way, inclusive, 9-cycl bank latenc 
+
+coher mesi, 64 B lines, in-cach directori 
+
+noc 
+8×8 mesh, 128-bit links, x-i routing, 1 cycle/hop when go 
+
+straight, 2 cycl on turn (like tile64 [64]) 
+
+main mem 4 control at chip edges, 120-cycl latenc 
+
+queue 
+
+64 task queue entries/cor (16384 total), 
+
+16 commit queue entries/cor (4096 total), 
+
+128-bit fractal vt 
+
+fractal 
+
+instruct 
+
+5 cycl per enqueue/dequeue/finish_task 
+
+2 cycl per create_subdomain instruct 
+
+schedul spatial hint with load balanc [35] 
+
+conflict 
+
+2 kbit 8-way bloom filters, H3 hash function [13] 
+
+tile check take 5 cycl (bloom filters) + 1 cycl per 
+
+timestamp compar in the commit queue 
+
+commit tile send updat to gvt arbit everi 200 cycl 
+
+spill 
+coalesc fire when a task queue be 85% full 
+
+coalesc spill up to 15 task each 
+
+tabl 2: configur of the 256-core system. 
+
+applic input 
+1-core runtim 
+
+(B cycles) 
+
+S 
+w 
+
+a 
+rm 
+
+color [33] com-youtub [39] 0.968 
+
+msf [54] kron_g500-logn16 [4, 21] 0.717 
+
+silo [61] tpc-c, 4 whs, 32 ktxn 2.98 
+
+S 
+T 
+
+A 
+M 
+
+P 
+[4 
+
+2 
+] 
+
+ssca2 -s15 -i1.0 -u1.0 -l6 -p6 10.6 
+
+vacat -n4 -q60 -u90 -r1048576 -t262144 4.31 
+
+genom -g4096 -s48 -n1048576 2.26 
+
+kmean -m40 -n40 -i rand-n16384-d24-c16 8.75 
+
+intrud -a10 -l64 -s32768 2.12 
+
+yada -a15 -i ttimeu100000.2 3.41 
+
+labyrinth random-x128-y128-z5-n128 4.41 
+
+bay -v32 -r4096 -n10 -p40 -i2 -e8 -s1 8.81 
+
+maxflow [8] rmf-wide [18, 29], 65 K nodes, 314 K edg 16.7 
+
+mi [54] r-mat [15], 8 M nodes, 168 M edg 1.34 
+
+tabl 3: benchmark information: sourc implementations, in- 
+
+puts, and execut time on a single-cor system. 
+
+5 experiment methodolog 
+
+model system: We use a cycle-accurate, event-driven simula- 
+
+tor base on pin [40, 47] to model fractal system of up to 
+
+256 cores, a show in fig. 8, with paramet in tabl 2. swarm 
+
+paramet (task and commit queue sizes, etc.) match those from 
+
+prior work [35, 36, 37]. We use detail core, cache, network, and 
+
+main memori models, and faith simul all specul over- 
+
+head (e.g., run misspecul task until they abort, simul 
+
+conflict check and rollback delay and traffic, etc.). our 256-core 
+
+configur be similar to the kalray mppa [22]. We also simul 
+
+small system with squar mesh (k×k tile for K ≤ 8). We keep 
+
+per-cor l2/l3 size and queue capac constant across system 
+
+sizes. thi captur perform per unit area. As a result, larg 
+
+system have high queue and cach capacities, which sometim 
+
+caus superlinear speedups. 
+
+benchmarks: tabl 3 report the benchmark we evaluate. bench- 
+
+mark have 1-core run-tim of about 1 B cycl or longer. We 
+
+8 
+
+
+
+perf. v serial avg task length 
+
+nest type@ 1-core (cycles) 
+
+flat fractal flat fractal 
+
+maxflow 0.92× 0.68× 3260 373 unord ֒→ ord-32b 
+
+labyrinth 1× 0.62× 16 M 220 unord ֒→ ord-32b 
+
+bay 1× 1.11× 1.8 M 3590 unord ֒→ unord 
+
+silo 1.14× 1.10× 80 K 3420 unord ֒→ ord-32b 
+
+mi 0.79× 0.26× 162 115 unord ֒→ unord 
+
+color 1.06× 0.80× 633 96 ord-32b ֒→ ord-32b 
+
+msf 3.1× 1.73× 113 49 ord-64b ֒→ unord 
+
+tabl 4: benchmark with parallel nesting: perform of 1- 
+
+core flat/fract v tune serial version (higher be better), 
+
+averag task lengths, and nest semantics. 
+
+use three exist swarm benchmark [35, 36], which we adapt to 
+
+fractal; fractal implement of the eight stamp bench- 
+
+mark [42]; and two new fractal benchmarks: maxflow, adapt 
+
+from prsn [8], and mis, adapt from pbb [54]. 
+
+benchmark adapt from swarm use their same input [35, 36]. 
+
+msf includ an optim to filter out non-span edg effi- 
+
+cientli [9]. thi optim improv absolut perform but 
+
+reduc the amount of highli parallel work, so msf have low scala- 
+
+biliti than the unoptim swarm version [36]. 
+
+stamp benchmark use input between the recommend “+” 
+
+and “++” sizes, to achiev a run-tim larg enough to evalu 256- 
+
+core systems, yet small enough to be simul in reason time. 
+
+maxflow us rmf-wide [29], one of the harder graph famili 
+
+from the dimac maxflow challeng [8]. mi us an r-mat 
+
+graph [15], which have a power-law distribution. 
+
+We fast-forward each benchmark to the start of it parallel region 
+
+(skip initialization), and report result for the full parallel re- 
+
+gion. On all benchmark except bayes, we perform enough run 
+
+to achiev 95% confid interv ≤ 1%. bay be highli non- 
+
+deterministic, so we report it averag result with 95% confid 
+
+interv over 50 runs. 
+
+6 evalu 
+
+We now analyz the benefit of fractal in depth. As in sec. 2, 
+
+we begin with applic where fractal uncov abund 
+
+fine-grain parallel through nesting. We then discu fractal’ 
+
+benefit from avoid over-serialization. finally, we character 
+
+the perform overhead of zoom to support deeper nesting. 
+
+6.1 fractal uncov abund parallel 
+
+fractal’ support for nest parallel greatli benefit three 
+
+benchmarks: maxflow, a well a labyrinth and bayes, the two 
+
+least scalabl benchmark from stamp. 
+
+maxflow, a discuss in sec. 2.1, be limit by long global-relabel 
+
+tasks. our fractal version perform the breadth-first search nest 
+
+within each global relabel in parallel. 
+
+labyrinth find non-overlap path between pair of (start, end) 
+
+cell on a 3D grid. each transact oper on one pair: it find 
+
+the shortest path on the grid and claim the cell on the path for 
+
+itself. In the stamp implementation, each transact perform 
+
+thi shortest-path search sequentially. our fractal version run the 
+
+shortest-path search nest within each transact in parallel, use 
+
+an order subdomain. 
+
+flat fractal precisebloom 
+
+1 
+
+256 
+
+512 
+
+S 
+p 
+e 
+e 
+d 
+u 
+p 
+
+1c 128c 256c 
+
+maxflow 
+
+1 
+
+64 
+
+128 
+
+1c 128c 256c 
+
+labyrinth 
+
+1 
+
+128 
+
+256 
+
+1c 128c 256c 
+
+279x 
+
+bay 
+
+(a) speedup from 1 to 256 core rel to 1-core flat. 
+
+0 
+
+20 
+
+40 
+
+60 
+
+80 
+
+100 
+
+F 
+ra 
+
+c 
+ti 
+o 
+n 
+o 
+
+f 
+c 
+o 
+re 
+
+c 
+y 
+c 
+le 
+
+s 
+( 
+
+% 
+) 
+
+B P B P B P B P B P B P 
+flat fractal flat fractal flat fractal 
+
+maxflow labyrinth bay 
+
+4 
+.9 
+
+x 
+
+4 
+.8 
+
+x 
+
+3 
+2 
+
+2 
+x 
+
+3 
+2 
+
+3 
+x 
+
+0 
+.8 
+
+x 
+
+4 
+.2 
+
+x 
+
+8 
+8 
+
+x 
+
+8 
+8 
+
+x 
+
+2 
+.7 
+
+x 
+
+4 
+.3 
+
+x 
+
+2 
+4 
+
+6 
+x 
+
+2 
+7 
+
+9 
+x 
+
+§ 
+1 
+
+8 
+% 
+
+§ 
+2 
+
+9 
+% 
+
+§ 
+1 
+
+6 
+% 
+
+§ 
+1 
+
+3 
+% 
+
+empti 
+
+stall 
+
+spill 
+
+abort 
+
+commit 
+
+(b) breakdown of core cycl at 256 cores, with speedup on top. 
+
+figur 14: perform of flat and fractal version of appli- 
+
+cation with abund nest parallelism, use bloom filter– 
+
+base or precis conflict detection. 
+
+bay learn the structur of a bayesian network, a dag where 
+
+node denot random variabl and edg denot condit depen- 
+
+denci among variables. bay spend most time decid whether 
+
+to insert, remove, or revers network edges. evalu each deci- 
+
+sion requir perform mani queri to an adtre data structure, 
+
+which effici repres probabl estimates. In the stamp 
+
+implementation, each transact evalu and appli an insert/re- 
+
+move/revers decision. sinc the adtre queri perform depend 
+
+on the structur of the network, transact serial often. our 
+
+fractal version run adtre queri nest within each transac- 
+
+tion in parallel, use an unord subdomain. 
+
+tabl 4 compar the 1-core perform and averag task length 
+
+of flat and fractal versions. flat version of these benchmark 
+
+have long, unord transact (up to 16 M cycles). fractal 
+
+version have much small task (up to 3590 cycl on averag in 
+
+bayes). these short task hurt serial perform (bi up to 38% in 
+
+labyrinth), but expos plenti intra-domain parallel (e.g., a 
+
+parallel breadth-first search), yield great scalability. 
+
+beyond limit parallelism, the long transact of flat ver- 
+
+sion have larg read/writ set that often overflow fractal’ 
+
+bloom filters, caus false-posit aborts. therefore, we also 
+
+present result under an idealized, precis conflict detect scheme 
+
+that do not incur fals positives. high fals posit rate be not 
+
+specif to fractal—prior htm use similarly-s bloom fil- 
+
+ter [14, 43, 53, 65]. 
+
+fig. 14a show the perform of the flat and fractal ver- 
+
+sion when scale from 1- to 256-core systems. all speedup re- 
+
+port be over the 1-core flat version. solid line show speedup 
+
+when use bloom filters, while dash one show speedup un- 
+
+der precis conflict detection. flat version scale poorly, espe- 
+
+cialli when use bloom filters: the maximum speedup across 
+
+9 
+
+
+
+all system size rang from 1.0× (labyrinth at 1 core) to 4.9× 
+
+(maxflow). By contrast, fractal version scale much better, from 
+
+88× (labyrinth) to 322× (maxflow).3 
+
+fig. 14b give more insight into these differ by show 
+
+the percentag of cycl that core spend on differ activities: 
+
+(i) run task that be ultim committed, (ii) run task 
+
+that be late aborted, (iii) spill task from the hardwar task 
+
+queues, (iv) stall on a full task or commit queue, or (v) stall 
+
+due to lack of tasks. each group of bar show result for a differ 
+
+applic at 256 cores. 
+
+fig. 14b show that flat version suffer from lack of work caus 
+
+by insuffici parallelism, and stall caus by long task that even- 
+
+tualli becom the earli activ task and prevent other from com- 
+
+mitting. moreover, most of the work perform by flat version 
+
+be abort a task have larg read/writ set and frequent con- 
+
+flict. labyrinth-flat and bayes-flat also suffer frequent false- 
+
+posit abort that hurt perform with bloom filter conflict de- 
+
+tection. although precis conflict detect help labyrinth-flat 
+
+and bayes-flat, both benchmark still scale poorli (to 4.3× and 
+
+6.8×, respectively) due to insuffici parallelism. 
+
+By contrast, fractal version spend most cycl execut use- 
+
+ful work, and abort cycl be rel small, from 7% (bayes) to 
+
+24% (maxflow). fractal version perform just a well with bloom 
+
+filter a with precis conflict detection. these result show that 
+
+exploit fine-grain nest specul parallel be an effect 
+
+way to scale challeng applications. 
+
+6.2 fractal avoid over-seri 
+
+fractal’ support for nest parallel avoid over-seri 
+
+on four benchmarks: silo, mis, color, and msf. swarm can exploit 
+
+nest parallel in these benchmark by impos a total order 
+
+among coarse-grain oper or group of task (sec. 2.3). sec. 2 
+
+show that thi have a neglig effect on silo, so we focu on the 
+
+other three applications. 
+
+mis, color, and msf be graph-process applications. their 
+
+flat version perform oper on multipl graph node that 
+
+can be parallel but must remain atomic—e.g., in mis, add a 
+
+node to the independ set and exclud it neighbor (sec. 2.3). 
+
+mis-flat be unordered, while color-flat and msf-flat visit 
+
+node in a partial order (e.g., color visit larger-degre node first). 
+
+our fractal version use one subdomain per coarse-grain opera- 
+
+tion to exploit thi nest parallel (tabl 4). the swarm-fg ver- 
+
+sion of these benchmark use the same fine-grain task a fractal 
+
+but use a uniqu timestamp or timestamp rang per coarse-grain 
+
+oper to guarante atomicity, impos a fix order among 
+
+coarse-grain operations. 
+
+fig. 15 show the scalabl and cycl breakdown for these 
+
+benchmarks. flat version achiev the low speedups, from 26× 
+
+(msf at 64 cores) to 98× (mis). fig. 15b show that they be dom- 
+
+inat by aborts, which take up to 73% of cycl in color-flat, 
+
+and empti cycl caus by insuffici parallel in msf and mis. 
+
+In msf-flat, frequent abort hurt perform beyond 64 cores. 
+
+By contrast, fractal version achiev the high performance, 
+
+from 40× (msf) to 145× (mis). At 256 cores, the major of time 
+
+3 note that system with more tile have high cach and queue capacities, which 
+
+sometim caus superlinear speedup (sec. 5). 
+
+flat fractalswarm-fg 
+
+1 
+
+64 
+
+128 
+
+S 
+p 
+e 
+e 
+d 
+u 
+p 
+
+1c 128c 256c 
+
+145x 
+
+mi 
+
+1 
+
+64 
+
+128 
+
+1c 128c 256c 
+
+color 
+
+1 
+
+32 
+
+64 
+
+1c 128c 256c 
+
+msf 
+
+(a) speedup from 1 to 256 core rel to 1-core flat. 
+
+0 
+
+20 
+
+40 
+
+60 
+
+80 
+
+100 
+
+F 
+ra 
+
+c 
+ti 
+o 
+
+n 
+o 
+
+f 
+c 
+o 
+
+re 
+c 
+
+y 
+c 
+le 
+
+s 
+( 
+
+% 
+) 
+
+flat s frac flat s frac flat s frac 
+
+mi color msf 
+
+9 
+8 
+x 
+
+1 
+1 
+7 
+x 
+
+1 
+4 
+5 
+x 
+
+7 
+4 
+x 
+
+1 
+1 
+9 
+x 
+
+1 
+2 
+6 
+x 
+
+9 
+.3 
+
+x 
+
+2 
+1 
+x 
+
+4 
+0 
+x 
+
+empti 
+
+stall 
+
+spill 
+
+abort 
+
+commit 
+
+(b) breakdown of core cycl at 256 cores, with speedup on top. 
+
+figur 15: perform of flat, swarm-fg, and fractal ver- 
+
+sion of applic where swarm extract nest parallel 
+
+through strict ordering, but fractal outperform it by avoid- 
+
+ing undu serialization. 
+
+be spent on commit work, although abort be still notic 
+
+(up to 30% of cycl in color). while fractal version perform 
+
+good at 256 cores, their tini task impos high overheads, so they 
+
+underperform flat on small core counts. thi be most appar in 
+
+msf, where fractal task be just 49 cycl on averag (tabl 4). 
+
+finally, swarm-fg version follow the same scale trend a 
+
+fractal ones, but over-seri make them 6% (color), 24% 
+
+(mis), and 93% (msf) slower. fig. 15b show that these slowdown 
+
+primarili stem from more frequent aborts. thi be becaus in swarm-fg 
+
+versions, conflict resolut prioriti be static (determin by time- 
+
+stamps), while in fractal versions, it be base on the dynam exe- 
+
+cution order (determin by tiebreakers). In summary, these result 
+
+show that fractal make fine-grain parallel more attract by 
+
+avoid needl order constraints. 
+
+6.3 zoom overhead 
+
+although our fractal implement support unbound nest 
+
+(sec. 4.3), two nest level suffic for all the benchmark we eval- 
+
+uate. larger program should requir deeper nesting. therefore, we 
+
+use a microbenchmark to character the overhead of fractal’ 
+
+zoom technique. 
+
+our microbenchmark stress fractal by creat mani nest 
+
+domain that contain few task each. specifically, it gener a 
+
+depth-8 tree of nest domain with fanout F . all task perform 
+
+a small, fix amount of work (1500 cycles). non-leaf task then 
+
+creat an unord subdomain and enqueu F child into it. We 
+
+sweep both the fanout (F = 4 to 12) and the maximum number 
+
+of concurr level D in fractal, from 2 (64-bit fractal vts) 
+
+to 8 (256-bit fractal vts). At D = 8, the system do not perform 
+
+ani zooming. our default hardwar configur support up to 4 
+
+concurr levels. 
+
+10 
+
+
+
+2 4 6 8(no zooming)max. depth support in hardware: 
+
+fanout 
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+P 
+e 
+
+rf 
+o 
+
+rm 
+a 
+
+n 
+c 
+e 
+
+4 6 8 12 
+
+(a) 1 core. 
+
+fanout 
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+P 
+e 
+
+rf 
+o 
+
+rm 
+a 
+
+n 
+c 
+e 
+
+4 6 8 12 
+
+(b) 256 cores. 
+
+figur 16: character of zoom overheads. 
+
+fig. 16a report perform on a 1-core system. each group of 
+
+bar show result for a singl fanout, and bar within a group show 
+
+how perform chang a the maximum concurr level D 
+
+grow from 2 to 8. perform be rel to the D = 8, no-zoom 
+
+system. use a 1-core system let u focu on the overhead of 
+
+zoom without factor in limit parallelism. larger fanout and 
+
+concurr level increas the amount of work execut between 
+
+zoom operations, reduc overheads. nonetheless, overhead 
+
+be modest even for F = 4 and D = 2 (21% slowdown). 
+
+fig. 16b report perform on a 256-core system. support a 
+
+limit number of level reduc parallelism, especi with small 
+
+fanouts, which hurt performance. nonetheless, a long a F ≥ 8, 
+
+support at least four level keep overhead small. 
+
+all of our applic have much high parallel than 8 con- 
+
+current task in at least one of their two nest levels, and often 
+
+in both. therefore, on applic with deeper nesting, zoom 
+
+should not limit perform in most cases. however, these be 
+
+care cod applic that avoid unnecessari nesting. nest 
+
+could be overus (e.g., increas the nest depth at everi inter- 
+
+mediat step of a divide-and-conqu algorithm), which would limit 
+
+parallelism. To avoid this, a compil pa may be abl to safe 
+
+flatten unnecessari nest levels. We leav thi to futur work. 
+
+6.4 discuss 
+
+We consid 18 benchmark to evalu fractal: all eight from 
+
+swarm [35, 36], all eight from stamp [42], a well a maxflow and 
+
+mis. We look for opportun to exploit nest parallelism, focus- 
+
+ing on benchmark with limit speedups. In summary, fractal 
+
+benefit 7 out of these 18 benchmarks. We do not find opportu- 
+
+niti to exploit nest parallel in the five swarm benchmark 
+
+not present here (bfs, sssp, astar, des, and nocsim). these 
+
+benchmark alreadi use fine-grain task and scale well to 256 cores. 
+
+fig. 17 show how each stamp benchmark scale when us- 
+
+ing differ fractal features. all speedup report be over 
+
+the 1-core TM version. the TM line show the perform of the 
+
+origin stamp transact port to swarm tasks. three appli- 
+
+cation (intruder, labyrinth, and bayes) bare scale, while 
+
+two (yada and kmeans) scale well at small core count but suf- 
+
+fer on larg systems. By contrast, fractal’ featur make all 
+
+stamp applic scale, although speedup be not onli due to 
+
+nesting. first, the TM version of intrud and yada use soft- 
+
+ware task queue that limit their scalability. refactor them to use 
+
+swarm/fract hardwar task queue [36] make them scale. sec- 
+
+ond, spatial hint [35] improv genom and make kmean scale. 
+
+finally, a we saw in sec. 6.1, fractal’ support for nest make 
+
+1 
+
+128 
+
+256 
+
+S 
+p 
+e 
+e 
+d 
+u 
+p 
+
+293x 
+
+vacat 
+
+1 
+
+128 
+
+256 
+277x 
+
+ssca2 
+
+1 
+
+128 
+
+256 
+
+S 
+p 
+e 
+e 
+d 
+u 
+p 
+
+intrud 
+
+1 
+
+64 
+
+128 
+yada 
+
+1 
+
+64 
+
+128 
+labyrinth 
+
+1 
+
+128 
+
+256 
+
+S 
+p 
+e 
+e 
+d 
+u 
+p 
+
+1c 128c 256c 
+
+kmean 
+
+1 
+
+64 
+
+128 
+
+1c 128c 256c 
+
+genom 
+
+1 
+
+128 
+
+256 
+
+1c 128c 256c 
+
+bay 
+
+TM 
+
++hwqueue 
+
++hint 
+
+fractal 
+
+figur 17: differ fractal featur make all stamp appli- 
+
+cation scale well to 256 cores. 
+
+labyrinth and bay scale. therefore, fractal be the first ar- 
+
+chitectur that scale the full stamp suit to hundr of cores, 
+
+achiev a gmean speedup of 177× at 256 cores. 
+
+7 relat work 
+
+7.1 nest in transact memori 
+
+serial nesting: most htm support serial execut of nest trans- 
+
+actions, which make transact code easi to compos but forgo 
+
+intra-transact parallelism. nest can be trivial support by 
+
+ignor the boundari of all nest transactions, treat them a 
+
+part of the top-level one. some htm exploit nest to implement 
+
+partial abort [44]: they track the specul state of a nest trans- 
+
+action separ while it executes, so conflict that occur while the 
+
+nest transact run do not abort the top-level one. 
+
+even with partial aborts, htm ultim merg nest specu- 
+
+lativ state into the top-level transaction, result in larg atom 
+
+region that be hard to support in hardwar [2, 12, 19, 20] and make 
+
+conflict more likely. 
+
+prior work have explor relax nest semantics, like open 
+
+nest [41, 44, 46] and earli releas [55], which relax isol to 
+
+improv performance. fractal be orthogon to these techniqu 
+
+and could be extend to support them, but we do not see the need 
+
+on the applic we study. 
+
+parallel nesting: some TM system support run nest trans- 
+
+action in parallel [45]: a transact can launch multipl nest 
+
+transact and wait for them to finish. nest transact may run 
+
+in parallel and can observ updat from their parent transaction. As 
+
+in serial nesting, when a nest transact finishes, it specul 
+
+state be merg with it parent’s. when all nest transact finish, 
+
+the parent transact resum execution. 
+
+most of thi work have be in softwar TM (stm) implemen- 
+
+tation [1, 5, 24, 63], but these suffer from even high overhead 
+
+11 
+
+
+
+than flat stms. vachharajani [62, ch. 7] and fantm [6] introduc 
+
+hardwar support to reduc parallel nest overheads. even with 
+
+hardwar support, parallel-nest htm yield limit gains—e.g., 
+
+fantm be often slow than a flat htm, and moder outperform 
+
+it (bi up to 40%) onli on a microbenchmark. 
+
+parallel-nest tm suffer from three main problems. first, 
+
+nest transact merg their specul state with their parent’s, 
+
+and onli the coarse, top-level transact can commit. thi result 
+
+in larg atom block that be a expens to track and a prone 
+
+to abort a larg serial transactions. By contrast, fractal per- 
+
+form fine-grain speculation, at the level of individu tasks. It never 
+
+merg the specul state of tasks, and reli on order task to 
+
+guarante the atom of nest domains. 
+
+second, becaus the parent transact wait for it nest trans- 
+
+action to finish, there be a cyclic depend between the parent 
+
+and it nest transactions. thi introduc mani subtl problems, 
+
+includ data race with the parent, deadlock, and livelock [6]. 
+
+workaround for these issu be complex and sacrific perform 
+
+(e.g., a nest transact eventu abort all it ancestor for live- 
+
+lock avoid [6]). By contrast, all depend in fractal be 
+
+acyclic, from parent to children, which avoid these issues. frac- 
+
+tal support the fork-join semant of parallel-nest tm by 
+
+have nest transact enqueu their parent’ continuation. 
+
+finally, parallel-nest tm do not support order specul 
+
+parallelism. By contrast, fractal support arbitrari nest of 
+
+order and unord parallelism, which acceler a broader 
+
+rang of applications. 
+
+7.2 thread-level specul 
+
+thread-level specul (tls) scheme [28, 31, 50, 56, 58] ship 
+
+task from function call or loop iter to differ cores, run 
+
+them speculatively, and commit them in program order. prior tl 
+
+system scale poorli beyond few cores, cannot support larg specula- 
+
+tion windows, and be less gener than swarm’ timestamp-ord 
+
+execut model [36]. 
+
+A few tl system use timestamp internally, but do not let pro- 
+
+gram control them [32, 50, 57]. renau et al. [50] use timestamp 
+
+to allow out-of-ord task spawn. each task carri a timestamp 
+
+range, and split it in half when it spawn a successor. thi approach 
+
+could be adapt to support the order constraint requir by nesting. 
+
+however, while thi techniqu work well at the scale it be evalu- 
+
+ate (4 specul tasks), it would requir an impract number 
+
+of timestamp bit at the scale we consid (4096 specul tasks). 
+
+moreover, thi techniqu would caus over-seri and do 
+
+not support expos timestamp to programs. 
+
+7.3 nest with non-specul parallel 
+
+nest be support by most parallel program languages, such 
+
+a openmp [26]. In mani languages, such a nesl [10], cilk [27], 
+
+and x10 [16], nest be the natur way to express parallelism. sup- 
+
+port nest parallel in these non-specul system be easi 
+
+becaus parallel task have no atom requirements: they either 
+
+oper on disjoint data or use explicit synchronization, such a 
+
+lock [17] or dataflow annot [25], to avoid data races. though 
+
+nest non-specul parallel be often sufficient, mani algo- 
+
+rithm need specul to be parallel effici [48]. By make 
+
+nest specul parallel practical, fractal bring the bene- 
+
+fit of compos and fine-grain parallel to a broader set of 
+
+programs. 
+
+8 conclus 
+
+We have present fractal, a new execut model for fine-grain 
+
+nest specul parallelism. fractal let programm com- 
+
+pose order and unord algorithm without undu serialization. 
+
+our fractal implement build on the swarm architectur 
+
+and reli on a dynam chosen task order to perform fine-grain 
+
+speculation, oper at the level of individu tasks. our imple- 
+
+mentat sidestep the scalabl issu of parallel-nest htm 
+
+and requir simpl hardware. We have show that fractal can 
+
+parallel a broader rang of applic than prior work, and 
+
+outperform prior specul architectur by up to 88×. 
+
+acknowledg 
+
+We sincer thank nathan beckmann, nosayba el-sayed, harshad 
+
+kasture, po-an tsai, guowei zhang, anurag mukkara, yee ling 
+
+gan, and the anonym review for their help feedback. nikla 
+
+baumstark and julian shun gracious share their serial and parallel 
+
+implement of maxflow. 
+
+thi work be support in part by c-far, one of six src 
+
+starnet center by marco and darpa, and by nsf grant 
+
+career-1452994 and ccf-1318384. mark C. jeffrey be partial 
+
+support by an nserc postgradu scholarship; hyun ryong lee 
+
+be partial support by a kwanjeong educ foundat 
+
+scholarship; and victor A. ying be support by an mit eec 
+
+edwin S. webster graduat fellowship. 
+
+refer 
+[1] K. agrawal, J. T. fineman, and J. sukha, “nest parallel in transact 
+
+memory,” in proc. ppopp, 2008. 
+
+[2] C. S. ananian, K. asanović, B. C. kuszmaul, C. E. leiserson, and S. lie, “un- 
+
+bound transact memory,” in proc. hpca-11, 2005. 
+
+[3] R. J. anderson and J. C. setubal, “on the parallel implement of goldberg’ 
+
+maximum flow algorithm,” in proc. spaa, 1992. 
+
+[4] D. A. bader, H. meyerhenke, P. sanders, and D. wagner, eds., 10th dimac 
+
+implement challeng workshop, 2012. 
+
+[5] W. baek, N. bronson, C. kozyrakis, and K. olukotun, “implement and eval- 
+
+uat nest parallel transact in softwar transact memory,” in proc. 
+
+spaa, 2010. 
+
+[6] W. baek, N. bronson, C. kozyrakis, and K. olukotun, “make nest parallel 
+
+transact practic use lightweight hardwar support,” in proc. ics’10, 2010. 
+
+[7] W. baek, C. C. minh, M. trautmann, C. kozyrakis, and K. olukotun, “the 
+
+opentm transact applic program interface,” in proc. pact-16, 
+
+2007. 
+
+[8] N. baumstark, G. blelloch, and J. shun, “effici implement of a synchro- 
+
+nou parallel push-relabel algorithm,” in proc. esa, 2015. 
+
+[9] G. E. blelloch, J. T. fineman, P. B. gibbons, and J. shun, “intern determinist 
+
+parallel algorithm can be fast,” in proc. ppopp, 2012. 
+
+[10] G. E. blelloch, J. C. hardwick, S. chatterjee, J. sipelstein, and M. zagha, “imple- 
+
+mentat of a portabl nest data-parallel language,” in proc. ppopp, 1993. 
+
+[11] C. blundell, J. devietti, E. C. lewis, and M. M. martin, “make the fast case 
+
+common and the uncommon case simpl in unbound transact memory,” in 
+
+proc. isca-34, 2007. 
+
+[12] J. bobba, N. goyal, M. D. hill, M. M. swift, and D. A. wood, “tokentm: 
+
+effici execut of larg transact with hardwar transact memory,” in 
+
+proc. isca-35, 2008. 
+
+[13] J. L. carter and M. wegman, “univers class of hash function (extend 
+
+abstract),” in proc. stoc-9, 1977. 
+
+[14] L. ceze, J. tuck, J. torrellas, and C. caşcaval, “bulk disambigu of specula- 
+
+tive thread in multiprocessors,” in proc. isca-33, 2006. 
+
+[15] D. chakrabarti, Y. zhan, and C. faloutsos, “r-mat: A recurs model for graph 
+
+mining,” in proc. sdm, 2004. 
+
+[16] P. charles, C. grothoff, V. saraswat, C. donawa, A. kielstra, K. ebcioglu, C. von 
+
+12 
+
+
+
+praun, and V. sarkar, “x10: An object-ori approach to non-uniform cluster 
+
+computing,” in proc. oopsla-20, 2005. 
+
+[17] g.-i. cheng, M. feng, C. E. leiserson, K. H. randall, and A. F. stark, “detect 
+
+data race in cilk program that use locks,” in proc. spaa, 1998. 
+
+[18] B. V. cherkasski and A. V. goldberg, “on implement the push-relabel method 
+
+for the maximum flow problem,” algorithmica, 19(4), 1997. 
+
+[19] W. chuang, S. narayanasamy, G. venkatesh, J. sampson, M. van biesbrouck, 
+
+G. pokam, B. calder, and O. colavin, “unbound page-bas transact 
+
+memory,” in proc. asplos-xii, 2006. 
+
+[20] J. chung, C. C. minh, A. mcdonald, T. skare, H. chafi, B. D. carlstrom, 
+
+C. kozyrakis, and K. olukotun, “tradeoff in transact memori virtualization,” 
+
+in proc. asplos-xii, 2006. 
+
+[21] T. A. davi and Y. hu, “the univers of florida spars matrix collection,” acm 
+
+toms, 38(1), 2011. 
+
+[22] B. D. de dinechin, R. ayrignac, p.-e. beaucamps, P. couvert, B. ganne, P. G. 
+
+de massas, F. jacquet, S. jones, N. M. chaisemartin, F. riss, and T. strudel, “A 
+
+cluster manycor processor architectur for emb and acceler applica- 
+
+tions,” in proc. hpec, 2013. 
+
+[23] J. devietti, B. lucia, L. ceze, and M. oskin, “dmp: determinist share memori 
+
+multiprocessing,” in proc. asplos-xiv, 2009. 
+
+[24] N. diegu and J. cachopo, “practic parallel nest for softwar transact 
+
+memory,” in proc. disc, 2013. 
+
+[25] A. duran, E. ayguadé, R. M. badia, J. labarta, L. martinell, X. martorell, and 
+
+J. planas, “ompss: A propos for program heterogen multi-cor archi- 
+
+tectures,” parallel process letters, 21(02), 2011. 
+
+[26] A. duran, J. corbalán, and E. ayguadé, “evalu of openmp task schedul 
+
+strategies,” in 4th intl. workshop in openmp, 2008. 
+
+[27] M. frigo, C. E. leiserson, and K. H. randall, “the implement of the cilk-5 
+
+multithread language,” in proc. pldi, 1998. 
+
+[28] M. J. garzarán, M. prvulovic, J. M. llabería, V. viñals, L. rauchwerger, and 
+
+J. torrellas, “tradeoff in buffer specul memori state for thread-level 
+
+specul in multiprocessors,” in proc. hpca-9, 2003. 
+
+[29] D. goldfarb and M. D. grigoriadis, “A comput comparison of the dinic and 
+
+network simplex method for maximum flow,” annal of oper research, 
+
+13(1), 1988. 
+
+[30] D. C. halbert and P. B. kessler, “window of overlap regist frames,” CS 
+
+292r final report, UC berkeley, 1980. 
+
+[31] L. hammond, M. willey, and K. olukotun, “data specul support for a chip 
+
+multiprocessor,” in proc. asplos-viii, 1998. 
+
+[32] L. hammond, V. wong, M. chen, B. D. carlstrom, J. D. davis, B. hertzberg, 
+
+M. K. prabhu, H. wijaya, C. kozyrakis, and K. olukotun, “transact memori 
+
+coher and consistency,” in proc. isca-31, 2004. 
+
+[33] W. hasenplaugh, T. kaler, T. B. schardl, and C. E. leiserson, “order heurist 
+
+for parallel graph coloring,” in proc. spaa, 2014. 
+
+[34] D. R. jefferson, “virtual time,” acm toplas, 7(3), 1985. 
+
+[35] M. C. jeffrey, S. subramanian, M. abeydeera, J. emer, and D. sanchez, “data- 
+
+centric execut of specul parallel programs,” in proc. micro-49, 2016. 
+
+[36] M. C. jeffrey, S. subramanian, C. yan, J. emer, and D. sanchez, “A scalabl 
+
+architectur for order parallelism,” in proc. micro-48, 2015. 
+
+[37] M. C. jeffrey, S. subramanian, C. yan, J. emer, and D. sanchez, “unlock 
+
+order parallel with the swarm architecture,” ieee micro, 36(3), 2016. 
+
+[38] C. kim, D. burger, and S. W. keckler, “an adaptive, non-uniform cach structur 
+
+for wire-delay domin on-chip caches,” in proc. asplos-x, 2002. 
+
+[39] J. leskovec and A. krevl, “snap datasets: stanford larg network dataset collec- 
+
+tion,” http://snap.stanford.edu/data, 2014. 
+
+[40] c.-k. luk, R. cohn, R. muth, H. patil, A. klauser, G. lowney, S. wallace, V. J. 
+
+reddi, and K. hazelwood, “pin: build custom program analysi tool with 
+
+dynam instrumentation,” in proc. pldi, 2005. 
+
+[41] A. mcdonald, J. chung, B. D. carlstrom, C. C. minh, H. chafi, C. kozyrakis, 
+
+and K. olukotun, “architectur semant for practic transact memory,” 
+
+in proc. isca-33, 2006. 
+
+[42] C. C. minh, J. chung, C. kozyrakis, and K. olukotun, “stamp: stanford trans- 
+
+action applic for multi-processing,” in proc. iiswc, 2008. 
+
+[43] C. C. minh, M. trautmann, J. chung, A. mcdonald, N. bronson, J. casper, 
+
+C. kozyrakis, and K. olukotun, “an effect hybrid transact memori system 
+
+with strong isol guarantees,” in proc. isca-34, 2007. 
+
+[44] M. J. moravan, J. bobba, K. E. moore, L. yen, M. D. hill, B. liblit, M. M. swift, 
+
+and D. A. wood, “support nest transact memori in logtm,” in proc. 
+
+asplos-xii, 2006. 
+
+[45] J. E. B. moss and A. L. hosking, “nest transact memory: model and 
+
+architectur sketches,” scienc of comput programming, 63(2), 2006. 
+
+[46] Y. ni, V. S. menon, a.-r. adl-tabatabai, A. L. hosking, R. L. hudson, J. E. B. 
+
+moss, B. saha, and T. shpeisman, “open nest in softwar transact mem- 
+
+ory,” in proc. ppopp, 2007. 
+
+[47] H. pan, K. asanović, R. cohn, and c.-k. luk, “control program execut 
+
+through binari instrumentation,” sigarch comput. archit. news, 33(5), 2005. 
+
+[48] K. pingali, D. nguyen, M. kulkarni, M. burtscher, M. A. hassaan, R. kaleem, 
+
+t.-h. lee, A. lenharth, R. manevich, M. méndez-lojo, D. prountzos, and X. sui, 
+
+“the tao of parallel in algorithms,” in proc. pldi, 2011. 
+
+[49] N. rapolu, K. kambatla, S. jagannathan, and A. grama, “transmr: data-centr 
+
+program beyond data parallelism,” in hotcloud, 2011. 
+
+[50] J. renau, J. tuck, W. liu, L. ceze, K. strauss, and J. torrellas, “task with out- 
+
+of-ord spawn in tl chip multiprocessors: microarchitectur and compilation,” 
+
+in proc. ics’05, 2005. 
+
+[51] C. J. rossbach, O. S. hofmann, and E. witchel, “i transact program 
+
+actual easier?” in proc. ppopp, 2010. 
+
+[52] D. sanchez and C. kozyrakis, “zsim: fast and accur microarchitectur simu- 
+
+lation of thousand-cor systems,” in proc. isca-40, 2013. 
+
+[53] D. sanchez, L. yen, M. D. hill, and K. sankaralingam, “implement signatur 
+
+for transact memory,” in proc. micro-40, 2007. 
+
+[54] J. shun, G. E. blelloch, J. T. fineman, P. B. gibbons, A. kyrola, H. V. simhadri, 
+
+and K. tangwongsan, “brief announcement: the problem base benchmark suite,” 
+
+in proc. spaa, 2012. 
+
+[55] T. skare and C. kozyrakis, “earli release: friend or foe?” in proc. wtw, 2006. 
+
+[56] G. S. sohi, S. E. breach, and T. N. vijaykumar, “multiscalar processors,” in proc. 
+
+isca-22, 1995. 
+
+[57] J. G. steffan, C. B. colohan, A. zhai, and T. C. mowry, “A scalabl approach to 
+
+thread-level speculation,” in proc. isca-27, 2000. 
+
+[58] J. G. steffan and T. C. mowry, “the potenti for use thread-level data specula- 
+
+tion to facilit automat parallelization,” in proc. hpca-4, 1998. 
+
+[59] G. J. sussman and G. L. steel jr, “scheme: A interpret for extend lambda 
+
+calculus,” higher-ord and symbol computation, 11(4), 1998. 
+
+[60] A. S. tanenbaum and D. J. wetherall, comput networks, 5th ed., P. hall, ed., 
+
+2010. 
+
+[61] S. tu, W. zheng, E. kohler, B. liskov, and S. madden, “speedi transact in 
+
+multicor in-memori databases,” in proc. sosp-24, 2013. 
+
+[62] N. vachharajani, “intellig specul for pipelin multithreading,” ph.d. 
+
+dissertation, princeton university, 2008. 
+
+[63] H. volos, A. welc, a.-r. adl-tabatabai, T. shpeisman, X. tian, and 
+
+R. narayanaswamy, “nepaltm: design and implement of nest parallel 
+
+for transact memori systems,” in ecoop, 2009. 
+
+[64] D. wentzlaff, P. griffin, H. hoffmann, L. bao, B. edwards, C. ramey, M. mat- 
+
+tina, c.-c. miao, J. F. brown iii, and A. agarwal, “on-chip interconnect 
+
+architectur of the tile processor,” ieee micro, 27(5), 2007. 
+
+[65] L. yen, J. bobba, M. R. marty, K. E. moore, H. volos, M. D. hill, M. M. swift, 
+
+and D. A. wood, “logtm-se: decoupl hardwar transact memori from 
+
+caches,” in proc. hpca-13, 2007. 
+
+13 
+
+http://snap.stanford.edu/data 
+
+abstract 
+1 introduct 
+2 motiv 
+2.1 fractal uncov abund parallel 
+2.2 fractal ea parallel program 
+2.3 fractal avoid over-seri 
+
+3 fractal execut model 
+3.1 program interfac 
+
+4 fractal implement 
+4.1 baselin swarm microarchitectur 
+4.2 fractal virtual time 
+4.3 support unbound nest 
+4.4 handl tiebreak wrap-around 
+4.5 put it all togeth 
+
+5 experiment methodolog 
+6 evalu 
+6.1 fractal uncov abund parallel 
+6.2 fractal avoid over-seri 
+6.3 zoom overhead 
+6.4 discuss 
+
+7 relat work 
+7.1 nest in transact memori 
+7.2 thread-level specul 
+7.3 nest with non-specul parallel 
+
+8 conclus 
+acknowledg 
+refer 
+

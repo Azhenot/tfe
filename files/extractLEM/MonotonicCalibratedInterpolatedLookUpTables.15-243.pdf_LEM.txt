@@ -1,0 +1,2851 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Journal of Machine Learning Research 17 (2016) 1-47 Submitted 5/15; Revised 1/16; Published 7/16 
+
+Monotonic Calibrated Interpolated Look-Up Tables 
+
+Maya Gupta mayagupta@google.com 
+Andrew Cotter acotter@google.com 
+Jan Pfeifer janpf@google.com 
+Konstantin Voevodski kvodski@google.com 
+Kevin Canini canini@google.com 
+Alexander Mangylov amangy@google.com 
+Wojciech Moczydlowski wojtekm@google.com 
+Alexander van Esbroeck alexve@google.com 
+Google 
+
+1600 Amphitheatre Pkwy 
+
+Mountain View, CA 94301, USA 
+
+Editor: Saharon Rosset 
+
+Abstract 
+
+Real-world machine learn application may have requirement beyond accuracy, such a 
+fast evaluation time and interpretability. In particular, guaranteed monotonicity of the 
+learn function with respect to some of the input can be critical for user confidence. 
+We propose meeting these goal for low-dimensional machine learn problem by learn- 
+ing flexible, monotonic function use calibrate interpolate look-up tables. We extend 
+the structural risk minimization framework of lattice regression to monotonic function by 
+add linear inequality constraints. In addition, we propose jointly learn interpretable 
+calibration of each feature to normalize continuous feature and handle categorical or miss- 
+ing data, at the cost of make the objective non-convex. We address large-scale learn 
+through parallelization, mini-batching, and random sample of additive regularizer terms. 
+Case study on real-world problem with up to sixteen feature and up to hundred of 
+million of training sample demonstrate the propose monotonic function can achieve 
+state-of-the-art accuracy in practice while provide great transparency to users. 
+
+Keywords: interpretability, interpolation, look-up tables, monotonicity 
+
+1. Introduction 
+
+Many challenge issue arise when make machine learn useful in practice. Evaluation 
+of the train model may need to be fast. Features may be categorical, missing, or poorly 
+calibrated. A blackbox model may be unacceptable: user may require guarantee that 
+the function will behave sensibly for all samples, and prefer function that be easy to 
+understand and debug. In this paper we address these practical issues, without trading-off 
+for accuracy. 
+
+We have found that a key interpretability issue in practice be whether the learn model 
+can be guaranteed to be monotonic with respect to some features. For example, suppose 
+the goal be to estimate the value of a use car, and one of the feature be the number of km 
+it have be driven. If all the other feature value be held fixed, we expect the value of the 
+
+c©2016 Maya Gupta, Andrew Cotter, Jan Pfeifer, Konstantin Voevodski, Kevin Canini, Alexander Mangylov, Wojciech Moczydlowski, Alexander van Esbroeck. 
+
+
+
+Gupta, Cotter, Pfeifer, Voevodski, Canini, Mangylov, Moczydlowski, et al. 
+
+Θ[2] = 0.4 
+
+Θ[0] = 0.0 Θ[1] = 1.0 
+
+Θ[3] = 0.4 
+
+1.0 
+
+0.0 
+
+0.5 
+
+Scale Monotonic Monotonic Not Monotonic Not Monotonic 
+(a) (b) (c) (d) (e) 
+
+Figure 1: Example 2× 2 interpolate look-up table function over a unit square, with color 
+scale show in (a). Each function be define by a 2×2 lattice with four parameters, 
+which be the value of the function in the four corner (shown). The function be 
+linearly interpolate from it parameter (see Figure 2 for a pictorial description 
+of linear interpolation). The function in (b) be strictly monotonically increase 
+in both features, which can be verify by check that each upper parameter 
+be large than the parameter below it, and that each parameter on the right be 
+large than the parameter to it left. The function in (c) be strictly monotonically 
+increase in the first feature, and monotonically increase in the second feature 
+(but not strictly so since the parameter on the left be both zero). The function 
+in (d) be monotonically increase in the first feature (one verifies this by note 
+that 1 ≥ 0 and 0.4 ≥ 0.4), but non-monotonic in the second feature: on the 
+left side the function increase from 0 → 0.4, but on the right side the function 
+decrease from 1→ 0.4. The function in (e) be a saddle function interpolate an 
+exclusive-OR, and be non-monotonic in both features. 
+
+use car to never increase a the number of km driven increases. But a model learn from 
+a small set of noisy sample may not, in fact, respect this prior knowledge. 
+
+In this paper, we propose learn monotonic, efficient, and flexible function by con- 
+strain and calibrate interpolate look-up table in a structural risk minimization frame- 
+work. Learning monotonic function be difficult, and previously publish work have only 
+be illustrate on small problem (see Table 1). Our experimental result demonstrate 
+learn flexible, guaranteed monotonic function on more feature and data than prior 
+work, and that these function achieve state-of-the-art performance on real-world problems. 
+
+The parameter of an interpolate look-up table be simply value of the function, 
+regularly space in the input space, and these value be interpolate to compute f(x) for 
+any x. See Figures 1 and 2 for example of 2× 2 and 2× 3 look-up table and the function 
+produce by interpolate them. Each parameter have a clear meaning: it be the value of the 
+function for a particular input, for a set of input on a regular grid. These parameter can 
+be individually read and checked to understand the learn function’s behavior. 
+
+Interpolating look-up table be a classic strategy for represent low-dimensional func- 
+tions. For example, back of old textbook have page of look-up table for one-dimensional 
+function like sin(x), and interpolate look-up table be standardize by the ICC Profile for 
+the three and four dimensional nonlinear transformation need to color manage printer 
+(Sharma and Bala, 2002). In this paper we interpolate look-up table define over much 
+
+2 
+
+
+
+Monotonic Look-Up Tables 
+
+Θ[2] = 0.4 
+
+Θ[0] = 0.0 Θ[1] = 1.0 
+
+Θ[3] = 0.4 
+
+1.0 
+
+0.0 
+
+0.5 
+
+(a) (b) (c) 
+
+Figure 2: Figure illustrates a 3×2 lattice function and multilinear interpolation, with color 
+scale give by (a) and parameter a shown. The lattice function show be contin- 
+uous everywhere, and differentiable everywhere except at the boundary between 
+lattice cells, which be the vertical edge join the middle parameter 5 and 8. As 
+show in (b), to evaluate f(x), any x that fall in the left cell of the lattice be 
+linearly interpolate from the parameter at the vertex of the left cell, here 6, 
+3, 5 and 8. Linear interpolation be linear not in x but in the lattice parameters, 
+that be f(x) be a weight combination of the parameter value 6, 3, 5, and 8. The 
+weight on the parameter be the area of the four box form by the dot 
+line drawn orthogonally through x, with each parameter weight by the area 
+of the box farthest from it, so that a x move closer to a parameter the weight 
+on that parameter get bigger. Because the dot line partition a unit square 
+cell, the sum of these linear interpolation weight be always one. As show in (c), 
+sample like the marked x that fall in the right cell of the lattice be interpolate 
+from that cell’s parameters: 8, 5, 6 and 8. 
+
+large feature spaces. Using an efficient linear interpolation method we refer to a sim- 
+plex interpolation, the interpolation of a D-dimensional look-up table can be compute in 
+O(D logD) time. For example, we found that interpolate a look-up table define over 
+D = 20 feature take only 2 microsecond on a standard CPU. The number of parameter 
+in the look-up table scale a 2D, which limit the size of D, but still enables u to learn 
+higher-dimensional flexible monotonic function than ever before. 
+
+Estimating the parameter of an interpolate look-up table use structural risk mini- 
+mization be propose by Garcia and Gupta (2009) and call lattice regression. Lattice 
+regression can be view a a kernel method that us the explicit nonlinear feature transfor- 
+mation form by mapping an input x ∈ [0, 1]D to a vector of linear interpolation weight 
+φ(x) ∈ ∆2D over the 2D vertex of the look-up table cell that contains x, where ∆ de- 
+note the standard simplex. Then the function be linear in these transform features: 
+f(x) = θTφ(x). We will refer to the look-up table parameter θ a the lattice, and to the 
+interpolate look-up table f(x) a the lattice function. Earlier work in lattice regression 
+focus on learn highly nonlinear function over 2 to 4 feature with fine-grained lattices, 
+such a a 17 × 17 × 17 lattice for model a color printer or super-resolution of spherical 
+
+3 
+
+
+
+Gupta, Cotter, Pfeifer, Voevodski, Canini, Mangylov, Moczydlowski, et al. 
+
+image (Garcia et al., 2010, 2012). In this paper, we apply lattice regression to more generic 
+machine learn problem with D = 5 to 16 features, and show that 2D lattice work well 
+for many real-world classification and rank problems, especially when pair with jointly 
+train one-dimensional pre-processing functions. 
+
+We begin with a survey of related work in machine learn of interpretable and mono- 
+tonic functions. Then we review lattice regression in Section 3. The main contribution be 
+learn monotonic lattice in Section 4. We discus efficient linear interpolation in Section 
+5. We propose an interpretable torsion lattice regularizer in Section 6. We propose jointly 
+learn one-dimensional calibration function in Section 7, and consider two strategy for 
+supervise handle of miss data for lattice regression in Section 8. In Section 9, we 
+consider strategy for speed up training and handle large-scale problem and large- 
+scale constraint-handling. A series of case study in Section 10 experimentally explore the 
+paper’s proposals, and demonstrate that monotonic lattice regression achieves similar ac- 
+curacy a a random forest, and that monotonicity be a common issue that arises in many 
+different applications. The paper end with conclusion and open question in Section 11. 
+
+2. Related Work 
+
+We give a brief overview of related work in interpretable machine learning, then survey 
+related work in learn monotonic functions. 
+
+2.1 Related Work in Interpretable Machine Learning 
+
+Two key theme of the prior work on interpretable machine learn be (i) interpretable 
+function classes, and (ii) prefer simpler function within a function class. 
+
+2.1.1 Interpretable Function Classes 
+
+The function class of decision tree and rule be generally regard a relatively inter- 
+pretable. Näıve Bayes classifier can be interpret in term of weight of evidence (Good, 
+1965; Spiegelhalter and Knill-Jones, 1984). Similarly, linear model form an interpretable 
+function class in that the parameter dictate the relative importance of each feature. Lin- 
+ear approach can be generalize to sum nonlinear components, a in generalize additive 
+model (Hastie and Tibshirani, 1990) and some kernel methods, while still retain some 
+of their interpretable aspects. 
+
+The function class of interpolate look-up table be interpretable in that the function’s 
+parameter be the look-up table values, and so be semantically meaningful: they be simply 
+example of the function’s output, regularly space in the domain. Given two look-up table 
+with the same structure and the same features, one can analyze how their function differ 
+by analyze how the look-up table parameter differ. Analyzing which parameter change 
+by how much can help answer question like “If I add training example and re-train, what 
+change about the model?” 
+
+2.1.2 Prefer Simpler Functions 
+
+Another body of work focus on choose simpler function within a function class, opti- 
+mizing an objective of the form: minimize empirical error and maximize simplicity, where 
+
+4 
+
+
+
+Monotonic Look-Up Tables 
+
+simplicity be usually define a some manifestation of Occam’s Razor or variant of Kol- 
+mogorov complexity. For example, Ishibuchi and Nojima (2007) minimize the number of 
+fuzzy rule in a rule set, Osei-Bryson (2007) prune a decision tree for interpretability, 
+Rätsch et al. (2006) find a sparse convex combination of kernel for a multi-kernel sup- 
+port vector machine, and Nock (2002) prefers small committee of ensemble classifiers. 
+Similarly, Garcia et al. (2009) measure the interpretability of rule-based classifier in term 
+of the number of rule and number of feature used. More generally, this category of in- 
+terpretability include model selection criterion like the Bayesian information criterion and 
+Akaike information criterion (Hastie et al., 2001), sparsity regularizers like sparse linear re- 
+gression models, and feature selection methods. Other approach to simplicity may include 
+simplify structure in graphical model or neural nets, such a the structure neural net 
+of Strannegaard (2012). 
+
+While sparsity-based approach to interpretability can provide regularization that re- 
+duce over-fitting and hence increase accuracy, it have also be note that such strategy 
+may create a trade-off between interpretability and accuracy (Casillas et al., 2002; Nock, 
+2002; Yu and Xiao, 2012; Shukla and Tripathi, 2012). We hypothesize this occurs when the 
+assume simpler structure be a poor model of the true function. 
+
+Monotonicity be another way to choose a semantically simpler function to increase in- 
+terpretability (and regularize). Our case study in Section 10 illustrate that when apply 
+to problem where monotonicity be warrant true, we do not see a trade-off with accuracy. 
+
+2.2 Related Work in Monotonic Functions 
+
+A function f(x) be monotonically increase with respect to feature d if f(xi) ≥ f(xj) for 
+any two feature vector xi, xj ∈ RD where xi[d] ≥ xj [d] and xi[m] = xj [m] for m 6= d. 
+
+A number of approach have be propose for enforce and encourage monotonicity 
+in machine learning. The computational complexity of these algorthims tends to be high, 
+and most method scale poorly in the number of feature D and sample n, a summarize 
+in Table 1. 
+
+We detail the related work in the follow section organize by the type of machine 
+learning, but these method could instead be organize by strategy, which mostly fall into 
+one of four categories: 
+
+1. Constrain a more flexible function class to be monotonic, such a linear function with 
+positive coefficients, or a sigmoidal neural network with positive weights. 
+
+2. Post-process by prune or reduce monotonicity violation after training. 
+
+3. Penalize monotonicity violation by pair of sample or sample derivative when train- 
+ing. 
+
+4. Re-label sample to be monotonic before training. 
+
+2.2.1 Monotonic Linear and Polynomial Functions 
+
+Linear function can be easily constrain to be monotonic in certain input by require 
+the correspond slope coefficient to be non-negative, but linear function be not suf- 
+
+5 
+
+
+
+Gupta, Cotter, Pfeifer, Voevodski, Canini, Mangylov, Moczydlowski, et al. 
+
+ficiently flexible for many problems. Polynomial function (equivalently, linear function 
+with pre-defined cross of features) can also be easily force to be monotonic by require 
+all coefficient to be positive. However, this be only a sufficient and not necessary condition: 
+there be monotonic polynomial whose coefficient be not all positive. For example, con- 
+sider the simple case of second degree multilinear polynomial define over the unit square 
+f : [0, 1]2 → R such that: 
+
+f(x) = a0 + a1x[0] + a2x[1] + a3x[0]x[1]. (1) 
+
+Restricting the function to a bound domain the domain x ∈ [0, 1]2 and force the deriva- 
+tive to be positive over that domain, one see that the complete set of monotonic function 
+of the form (1) on the unit square be described by four linear inequalities: 
+
+a1 > 0 a2 > 0 
+a1 + a3 > 0 a2 + a3 > 0. 
+
+The general problem of check whether a particular choice of polynomial coefficient 
+produce a monotonic function require check whether the polynomial’s derivative (also 
+a polynomial) be positive everywhere, which be equivalent to check if the derivative have 
+any real roots, which can be computationally challenge (see, for example, Sturm’s theorem 
+for details). 
+
+Functions of the form (1) can be equivalently express a a 2 × 2 lattice interpolate 
+with multilinear interpolation, but a we will show in Section 4, with this alternate param- 
+eterization it be easy to check and enforce the complete set of monotonic functions. 
+
+2.2.2 Monotonic Splines 
+
+In this paper we extend lattice regression, which be a spline method with fix knot on 
+a regular grid and a linear kernel (Garcia et al., 2012), to be monotonic. There have 
+be a number of proposal to learn monotonic one-dimensional splines. For example, 
+building on Ramsay (1998), Shively et al. (2009) parameterize the set of all smooth and 
+strictly monotonic one-dimensional function use an integrate exponential form f(x) = 
+a+ 
+
+∫ x 
+0 e 
+
+b+u(t)dt, and show good performance than the monotone function estimator of 
+Neelon and Dunson (2004) and Holmes and Heard (2003) for smooth functions. In other 
+related spline work, Villalobos and Wahba (1987) consider smooth spline with linear 
+inequality constraints, but do not address monotonicity. 
+
+2.2.3 Monotonic Decision Trees and Forests: 
+
+Stumps and forest of stump be easily constrain to be monotonic. However, for deeper 
+or broader trees, all pair of leaf must be checked to verify monotonicity (Potharst and 
+Feelders, 2002b). Non-monotonic tree can be prune to be monotonic use various strate- 
+gy that iteratively reduce the non-monotonic branch (Ben-David, 1992; Potharst and 
+Feelders, 2002b). Monontonicity can also be encourage during tree construction by pe- 
+nalizing the splitting criterion to reduce the number of non-monotonic leaf a split would 
+create (Ben-David, 1995). Potharst and Feelders (2002a) achieve completely flexible mono- 
+tonic tree use a strategy akin to bogosort (Gruber et al., 2007): train many tree on 
+different random subset of the training samples, then select one that be monotonic. 
+
+6 
+
+
+
+M 
+o 
+n 
+o 
+t 
+o 
+n 
+ic 
+
+L 
+o 
+o 
+k 
+-U 
+
+p 
+T 
+a 
+b 
+l 
+e 
+s 
+
+Method Monotonicity Strategy Guaranteed Monotonic? Max D Max n 
+
+Archer and Wang (1993) neural net constrain function yes 2 50 
+Wang (1994) neural net constrain function yes 1 150 
+Mukarjee and Stern (1994) kernel estimate post-process yes 2 2447 
+Ben-David (1995) tree penalize split yes 8 125 
+Sill and Abu-Mostafa (1997) neural net penalize pair no 6 550 
+Sill (1998) neural net constrain function yes 10 196 
+Kay and Ungar (2000) neural net constrain function yes 1 100 
+Potharst and Feelders (2002a) tree randomize yes 8 60 
+Potharst and Feelders (2002b) tree prune yes 11 1090 
+Spouge et al. (2003) isotonic regression constrain yes 2 100,000 
+Duivesteijn and Feelders (2008) k-NN re-label sample no 12 768 
+Lauer and Bloch (2008) svm sample derivative no none none 
+Dugas et al. (2000, 2009) neural net constrain function yes 4 3434 
+Shively et al. (2009) spline constrain function yes 1 100 
+Kotlowski and Slowinski (2009) rule-based re-label sample yes 11 1728 
+Daniels and Velikova (2010) neural net constrain function yes 6 174 
+Riihimäki and Vehtari (2010) Gaussian process sample derivative no 7 1222 
+Qu and Hu (2011) neural net derivative / constrain yes 1 30 
+Neumann et al. (2013) neural net sample derivative no 3 625 
+
+Table 1: Some related work in learn monotonic functions. Many of these method guarantee a monotonic solution, but some 
+only encourage monotonicity. The last two column give the large number of feature D and the large number of 
+sample n use in any of the experiment in that paper (generally not the same experiment). 
+
+7 
+
+
+
+Gupta, Cotter, Pfeifer, Voevodski, Canini, Mangylov, Moczydlowski, et al. 
+
+2.2.4 Monotonic Support Vector Machines 
+
+With a linear kernel, it may be easy to check and enforce monotonicity of support vector 
+machines, but for nonlinear kernel it will be more challenging. Lauer and Bloch (2008) 
+encourage support vector machine to be more monotonic by constrain the derivative of 
+the function at the training samples. Riihimäki and Vehtari (2010) use the same strategy 
+to encourage more monotonic Gaussian processes. 
+
+2.2.5 Monotonic Neural Networks 
+
+In perhaps the early work on monotonic neural networks, Archer and Wang (1993) adap- 
+tively down-weighted sample during training whose gradient update would violate mono- 
+tonicity, to produce a positive weight neural net. Other researcher explicitly propose 
+constrain the weight to be positive in a single hidden-layer neural network with the 
+sigmoid or other monotonic nonlinear transformation (Wang, 1994; Kay and Ungar, 2000; 
+Dugas et al., 2000, 2009; Minin et al., 2010). Dugas et al. (2009) show with simulation 
+of four feature and 400 training sample that both bias and variance be reduce by en- 
+force monotonicity. However, Daniels and Velikova (2010) show this approach require 
+D hidden layer to arbitrarily approximate any D-dimensional monotonic function. In ad- 
+dition to a general proof, they provide a simple and realistic example of a two-dimensional 
+monotonic function that cannot be fit with one hidden layer and positive weights. 
+
+Abu-Mostafa (1993) and Sill and Abu-Mostafa (1997) propose regularize a function 
+to be more monotonic by penalize square deviation in monotonicity for virtual pair 
+of input sample that be add for this purpose. Unfortunately, it generally do not 
+guarantee monotonicity everywhere, only with respect to those virtual input pairs. (And in 
+fact, to guarantee monotonicity for the sample pairs, an exact penalty function would be 
+need with a sufficiently large regularization parameter to ensure the regularization be 
+equivalent to a constraint). 
+
+Lauer and Bloch (2008), Riihimäki and Vehtari (2010), and Neumann et al. (2013) 
+encourage extreme learn machine to be more monotonic by constrain the derivative 
+of the function to be positive for a set of sample points. 
+
+Qu and Hu (2011) do a small-scale comparison of encourage monotonicity by con- 
+strain input pair to be monotonic, versus encourage monotonic neural net by con- 
+strain the function’s derivative at a subset of sample (analogous to Lauer and Bloch 
+(2008)), versus use a sigmoidal function with positive weights. They conclude the 
+positive-weight sigmoidal function be best. 
+
+Sill (1998) propose a guaranteed monotonic neural network with two hidden layer 
+by require the first linear layer’s weight to be positive, use hidden node that take 
+the maximum of group of first layer variables, and a second hidden layer that take the 
+minimum of the maxima. The result surface be piecewise linear, and a such can represent 
+any continuous differentiable function arbitrarily well. The result objective function 
+be not strictly convex, but the author propose training such monotonic network use 
+gradient descent where sample be associate with one active hyperplane at each iteration. 
+Daniels and Velikova (2010) generalize this approach to handle the “partially monotonic” 
+case that the function be only monotonic with respect to some features. 
+
+8 
+
+
+
+Monotonic Look-Up Tables 
+
+2.2.6 Isotonic Regression and Monotonic Nearest Neighbors 
+
+Isotonic regression re-labels the input sample with value that be monotonic and close to 
+the original labels. These monotonically re-labeled sample can then be used, for example, 
+to define a monotonic piecewise constant or piecewise linear surface. This be an old approach; 
+see Barlow et al. (1972) for an early survey. Isotonic regression can be solve in O(n) time 
+if monotonicity implies a total order of the n samples. But for usual multi-dimensional 
+machine learn problems, monotonicity implies only a partial order, and solve the n- 
+parameter quadratic program be generally O(n4), and O(n3) for two-dimensional sample 
+(Spouge et al., 2003). Also problematic for large n be the O(n) evaluation time for new 
+samples. 
+
+Mukarjee and Stern (1994) propose a suboptimal monotonic kernel regression that be 
+computationally easy to train than isotonic regression. It computes a standard kernel 
+estimate, then locally upper and low bound it to enforce monotonicity. 
+
+The isotonic separation method of Chandrasekaran et al. (2005) be like the work of Abu- 
+Mostafa (1993) in that it penalizes violation of monotonicity by pair of training samples. 
+Like isotonic regression, the output be a re-labeling of the original samples, the solution be 
+at least O(n3) in the general case, and evaluation time be O(n). 
+
+Ben-David et al. (1989); Ben-David (1992) construct a monotonic rule-based classifier 
+by sequentially add training example (each of which defines a rule) that do not violate 
+monotonicity restrictions. 
+
+Duivesteijn and Feelders (2008) propose re-labeling sample before apply near 
+neighbor base on a monotonicity violation graph with the training example at the ver- 
+tices. Coupled with a propose modify version of k-NN, they can enforce monotonic 
+outputs. Similar pre-processing of sample can be use to encourage any subsequently 
+train classifier to be more monotonic (Feelders, 2010). 
+
+Similarly, Kotlowski and Slowinski (2009) try to solve the isotonic regression problem to 
+re-label the dataset to be monotonic, then fit a monotonic ensemble of rule to the re-labeled 
+data, require zero training error. They show overall good performance than the ordinal 
+learn model of Ben-David et al. (1989) and isotonic separation (Chandrasekaran et al., 
+2005). 
+
+3. Review of Lattice Regression 
+
+Before propose monotonic lattice regression, we review lattice regression (Garcia and 
+Gupta, 2009; Garcia et al., 2012). Key notation be list in Table 2. 
+
+Let Md ∈ N be a hyperparameter specify the number of vertex in the look-up 
+table (that is, lattice) for the dth feature. Then the lattice be a regular grid of M 
+
+4 
+= 
+
+M1 × M2 × . . .MD parameter place at natural number so that the lattice span the 
+hyper-rectangle M 4= [0,M1 − 1]× [0,M2 − 1]× . . . [0,MD − 1]. See Figure 1 for example 
+of 2× 2 lattices, and Figure 2 for an example 3× 2 lattice. For machine learn problem 
+we find Md = 2 for all d to often work well in practice, a detailed in the case study in 
+Section 10. For image processing application with only two to four features, much large 
+value of Md be need (Garcia et al., 2012). 
+
+9 
+
+
+
+Gupta, Cotter, Pfeifer, Voevodski, Canini, Mangylov, Moczydlowski, et al. 
+
+D number of feature 
+n number of sample 
+Md ∈ N number of vertex in the lattice along the dth feature 
+M ∈ N total number of vertex in the lattice: M = 
+
+∏ 
+dMd 
+
+M hyper-rectangular span of the lattice: [0,M1 − 1]× . . .× [0,MD − 1] 
+xi ith training sample with D components. Domain depends on section. 
+yi ∈ R ith training sample label 
+x[d] dth component of feature vector x 
+φ(x) ∈ [0, 1]M linear interpolation weight for x 
+θ ∈ RM lattice value (parameters) 
+vj ∈ {0, 1}D jth vertex of a 2D lattice 
+
+Table 2: Key Notation 
+
+The feature value be assume to be bound and linearly scale to fit the lattice, so 
+that the dth feature vector value x[d] lie in [0,Md − 1]. (We propose learn non-linear 
+scaling of feature jointly with the lattice parameter in Section 7.) 
+
+Lattice regression be a kernel method that map x ∈M to a transform feature vector 
+φ(x) ∈ [0, 1]M . The value of φ(x) be the interpolation weight for x for the 2D index 
+correspond to the 2D vertex of the hypercube surround x; for all other indices, 
+φ(x) = 0. 
+
+The function f(x) be linear in φ(x) such that f(x) = θTφ(x). That is, the function 
+parameter θ each correspond to a vertex in the lattice, and f(x) linearly interpolates the 
+θ for the lattice cell contain x. 
+
+Before review the lattice regression objective for learn the parameter θ, we review 
+standard multilinear interpolation to define φ(x). 
+
+3.1 Multilinear Interpolation 
+
+Multilinear interpolation be the multi-dimensional generalization of the familiar bilinear 
+interpolation that be commonly use to up-sample images. See Figure 2 for a pictorial 
+explanation. 
+
+For notational simplicity, we assume a 2D lattice such that x ∈ [0, 1]D. For multi-cell 
+lattices, the same math and logic be apply to the lattice cell contain the x. Denote the 
+kth component of φ(x) a φk(x). Let vk ∈ {0, 1}D be the kth vertex of the unit hypercube. 
+The multilinear interpolation weight on the vertex vk be 
+
+φk(x) = 
+
+D−1∏ 
+d=0 
+
+x[d]vk[d](1− x[d])1−vk[d]. (2) 
+
+Note the exponent in (2) be vk and 1 − vk[d], which either equal 0 and 1, or equal 1 
+and 0, so these exponent act like selector that multiply in either x[d] or 1− x[d] for each 
+
+10 
+
+
+
+Monotonic Look-Up Tables 
+
+dimension d. Equivalently, one can write 
+
+φk(x) = 
+
+D−1∏ 
+i=0 
+
+((1− bit[i, k]) (1− x[i]) + bit[i, k]x[i]) , (3) 
+
+where bit[i, k] ∈ {0, 1} denotes the ith bit of vertex vk, and can be compute bit[i, k] = 
+(k � i) &1 use bitwise arithmetic. 
+
+The result f(x) = θTφ(x) be a multilinear polynomial over each lattice cell. For 
+example, a 2× 2 lattice interpolate with multilinear interpolation gives: 
+
+f(x) = θ[0](1− x[0])(1− x[1]) + θ[1]x[0](1− x[1]) + θ[2](1− x[0])x[1] + θ[3]x[0]x[1]. (4) 
+
+Expanding (4), one see it be a different parameterization of the multilinear function give 
+in (1), where the parameter vector be related by a linear matrix transform: a = Tθ 
+for T ∈ R4×4. But the θ parameterization have the advantage that each parameter be the 
+function value for a feature vector at the vertex of the lattice (see Figure 1), and a we show 
+in Section 4, make it easy to learn the complete set of monotonic functions. 
+
+The linear interpolation be apply per lattice cell. At lattice cell boundary the result 
+function be continuous, but not differentiable. The overall function be piecewise polynomial, 
+and hence a spline, and can be equivalently formulate use a linear basis function. Higher- 
+order basis function like the popular cubic spline will lead to smoother and potentially 
+slightly more accurate function (Garcia et al., 2012). However, higher-order basis function 
+destroy the interpretable localize effect of the parameters, and increase the computational 
+complexity. 
+
+The multilinear interpolation weight be just one type of linear interpolation. In general, 
+linear interpolation weight be define a solution to the system of D + 1 equations: 
+
+2D∑ 
+k=0 
+
+φk(x)vk = x and 
+2D∑ 
+k=0 
+
+φk(x) = 1. (5) 
+
+This system of equation be under-determined and have many solution for an x in the 
+convex hull of a lattice cell. The multilinear interpolation weight give in (2) be the 
+maximum entropy solution to (5) (Gupta et al., 2006), and thus have good noise average 
+and smoothness property compare to other solutions. We discus a more efficient linear 
+interpolation in Sec. 5.2. 
+
+3.2 The Lattice Regression Objective 
+
+Consider the standard supervise machine learn set-up of a training set of randomly 
+sample pair {(xi, yi)} pairs, where xi ∈ M and yi ∈ R, for i = 1, . . . , n. Historically, 
+people create look-up table by first fitting a function h(x) to the {xi, yi} use a regression 
+algorithm such a a neural net or local linear regression, and then evaluate h(x) on a 
+regular grid to produce the look-up table value (Sharma and Bala, 2002). However, even 
+if they fit the function to minimize empirical risk on the training samples, they do not 
+minimize the actual empirical risk because these approach do not take into account that 
+the train look-up table would be interpolate at run-time, and this interpolation change 
+the error on the training samples. 
+
+11 
+
+
+
+Gupta, Cotter, Pfeifer, Voevodski, Canini, Mangylov, Moczydlowski, et al. 
+
+Garcia and Gupta (2009) propose directly optimize the look-up table parameter 
+θ to minimize the actual empirical error between the training label and the interpolate 
+look-up table: 
+
+arg min 
+θ∈RM 
+
+n∑ 
+i=1 
+
+`(yi, θ 
+Tφ(xi)) +R(θ), (6) 
+
+where ` be a loss function such a square error, φ(xi) ∈ [0, 1]M be the vector of linear 
+interpolation weight over the lattice for training sample xi (detailed in Section 3.1 and Sec. 
+5.2), f(xi) = θ 
+
+Tφ(xi) be the linear interpolation of xi from the look-up table parameter θ, 
+and R(θ) be a regularizer on the lattice parameters. In general, we assume the loss ` and 
+regularizer R be convex function of θ so that solve (6) be a convex optimization. Prior 
+work focus on square error loss, and use graph regularizers R(θ) of the form θTKθ for 
+some PSD matrix K, in which case (6) have a closed-form solution which can be compute 
+with sparse matrix inversion (Garcia and Gupta, 2009; Garcia et al., 2010, 2012). 
+
+4. Monotonic Lattices 
+
+In this section we propose constrain lattice regression to learn monotonic functions. 
+
+4.1 Monotonicity Constraints For a Lattice 
+
+In general, simply check whether a nonlinear function be monotonic can be quite difficult 
+(see the related work in Section 2.2). But for a linearly interpolate look-up table, check 
+for monotonicity be relatively easy: if the lattice value increase in a give direction, then 
+the function increase in that direction. See Figure 1 for examples. Specifically, one must 
+check that θs > θr for each pair of adjacent look-up table parameter θr and θs. If all 
+feature be specify to be monotonic for a 2D lattice, this result in D2D−1 pairwise linear 
+inequality constraint to check. 
+
+These same pairwise linear inequality constraint can be impose when learn the 
+parameter θ to ensure a monotonic function be learned. The follow result establishes 
+these constraint be sufficient and necessary for a 2D lattice to be monotonically increase 
+in the dth feature (the result extends trivially to large lattices): 
+
+Lemma 1 (Monotonicity Constraints) Let f(x) = θTφ(x) for x ∈ [0, 1]D and φ(x) 
+give in (2). The partial derivative ∂f(x)/∂x[d] > 0 for fix d and any x iff θk′ > θk for 
+all k, k′ such that vk[d] = 0, vk′ [d] = 1 and vk[m] = vk′ [m] for all m 6= d. 
+
+Proof First we show the constraint be necessary to ensure monotonicity. Consider 
+the function value f(vk) and f(vk′) for some adjacent pair of vertex vk, vk′ that differ 
+only in the dth feature. For f(vk) and f(vk′), all of the interpolation weight fall on θk 
+or θk′ respectively, such that f(vk) = θk and f(vk′) = θk′ . So θk′ > θk be necessary for 
+∂f(x)/∂x[d] > 0 everywhere. 
+
+Next we show the constraint be sufficient to ensure monotonicity. Pair the term in 
+the interpolation f(x) = θTφ(x) correspond to adjacent parameter θk, θk′ so that for 
+
+12 
+
+
+
+Monotonic Look-Up Tables 
+
+each k, k′ it hold that vk[d] = 0, vk′ [d] = 1, vk[m] = vk′ [m] for m 6= d: 
+
+f(x) = 
+∑ 
+k,k′ 
+
+θkφk(x) + θk′φk′(x), then expand φk(x) and φk′(x) use (2) : 
+
+= 
+∑ 
+k,k′ 
+
+αk 
+
+( 
+θkx[d] 
+
+vk[d](1− x[d])(1−vk[d]) + θk′x[d]vk′ [d](1− x[d])(1−vk′ [d]) 
+) 
+, 
+
+where αk be the product of the m 6= d term in (2) that be the same for k and k′, 
+
+= 
+∑ 
+k,k′ 
+
+αk (θk(1− x[d]) + θk′x[d]) by the definition of vk and vk′ . (7) 
+
+The partial derivative of (7) be ∂f(x)∂x[d] = 
+∑ 
+
+k,k′ αk(θk′ − θk). Because each αk ∈ [0, 1], it be 
+sufficient that θk′ > θk for each k, k 
+
+′ pair to guarantee this partial be positive for all x. 
+
+4.2 Monotonic Lattice Regression Objective 
+
+We relax strict monotonicity to monotonicity by allow equality in the adjacent parameter 
+constraint (for an example, see the second function from the left in Figure 1). Then the set 
+of pairwise constraint can be express a Aθ ≤ 0 for the appropriate sparse matrix A with 
+one 1 and −1 per row of A, and one row per constraint. Each feature can independently 
+be left unconstrained, or constrain to be either monotonically increase or decrease by 
+the specification of A. 
+
+Thus the propose monotonic lattice regression objective be convex with linear inequality 
+constraints: 
+
+arg min 
+θ 
+
+n∑ 
+i=1 
+
+`(yi, θ 
+Tφ(xi)) +R(θ), s.t. Aθ ≤ b. (8) 
+
+Additional linear constraint can be include in Aθ ≤ b to also constrain the fit function 
+in other practical ways, such a f(x) ∈ [0, 1] or f(x) ≥ 0. 
+
+The approach extends to the standard learn to rank from pair problem (Liu, 2011), 
+where the training data be pair of sample x+i and x 
+
+− 
+i and the goal be to learn a function 
+
+such that f(x+i ) ≥ f(x 
+− 
+i ) for a many pair a possible. For this case, the monotonic lattice 
+
+regression objective is: 
+
+arg min 
+θ 
+
+n∑ 
+i=1 
+
+`(1, θTφ(x+i )− θ 
+Tφ(x−i )) +R(θ), s.t. Aθ ≤ b. (9) 
+
+The loss function in (6), (8) and (9) all have the same form, for example, square loss 
+`(y, z) = (y − z)2, hinge loss `(y, z) = max(0, 1 − yz), or logistic loss `(y, z) = log(1 + 
+exp(y − z)). 
+
+5. Faster Linear Interpolation 
+
+Interpolating a look-up table have long be consider an efficient way to specify and 
+evaluate a low-dimensional non-linear function (Sharma and Bala, 2002; Garcia et al., 2012). 
+
+13 
+
+
+
+Gupta, Cotter, Pfeifer, Voevodski, Canini, Mangylov, Moczydlowski, et al. 
+
+But compute linear interpolation weight with (3) require O(D) operation for each of 
+the 2D interpolation weights, for a total cost of O(D2D) to evaluate a sample. In Section 5.1, 
+we show the multilinear interpolation weight of (3) can be compute in O(2D) operations. 
+Then, in Section 5.2, we review and analyze a different linear interpolation that we refer to 
+a simplex interpolation that take only O(D logD) operations. 
+
+5.1 Fast Multilinear Interpolation 
+
+Much of the computation in (3) can be share between the different weights. In Algorithm 
+1 we give a dynamic program solution that loop D times, where the dth loop take 
+2d time, so in total there be 
+
+∑D−1 
+d=0 2 
+
+d = O(2D) operations. 
+
+Algorithm 1 Computes the multilinear interpolation weight and correspond vertex 
+index for a unit lattice cell [0, 1]D and an x ∈ [0, 1]D. Let the lattice parameter be 
+indexed such that sd = 2 
+
+d be the difference in the index of the parameter correspond to 
+any two vertex that be adjacent in the dth dimension, for example, for the 2× 2 lattice, 
+order the vertex [0 0], [1 0], [0 1], [1 1] and index the correspond lattice parameter in 
+that order. 
+
+CalculateMultilinearInterpolationWeightsAndParameterIndices(x) 
+1 Initialize indices[] = [0], weights[] = [1] 
+2 For d = 0 to D − 1: 
+3 For k = 0 to 2d − 1: 
+4 Append sd + indices[k] to index 
+5 Append x[d]× weights[k] to weight 
+6 Update weights[k] = (1− (x[d]))× weights[k] 
+7 Return index and weight 
+
+The follow lemma establishes the correctness of Algorithm 1. 
+
+Lemma 2 (Fast Multilinear Interpolation) Under it assumptions, Algorithm 1 re- 
+turn the index of the 2D parameter correspond to the vertex of the lattice cell con- 
+taining x: 
+
+indices[k] = 
+D−1∑ 
+d=0 
+
+(bx[d]c+ biti(k)) sd, for k = 1, 2, . . . , 2D (10) 
+
+and the correspond 2D multilinear interpolation weight give by (3). 
+
+Proof At the end of the D′th iteration over the dimension in Algorithm 1: 
+
+size (indices) = size (weights) = 2D 
+′+1 
+
+indices[k] = 
+
+D′∑ 
+d=0 
+
+(bx[d]c+ bitd(k)) sd 
+
+weights[k] = 
+
+D′∏ 
+d=0 
+
+((1− bitd(k)) (1− (x[d]− bxdc)) + bitd(k)(x[d]− bxdc)) . 
+
+14 
+
+
+
+Monotonic Look-Up Tables 
+
+Θ[2] = 0.4 
+
+Θ[0] = 0.0 Θ[1] = 1.0 
+
+Θ[3] = 0.4 
+
+1.0 
+
+0.0 
+
+0.5 
+
+0 1 0 1 
+
+0 0.5 0 0.5 
+Scale Simplex Interpolation Multilinear Interpolation 
+
+Figure 3: Illustration of two different linear interpolation of the same 2 × 2 look-up table 
+with parameter 0, 0, 0.5 and 1. The simplex interpolation split the unit square 
+into two simplices (the upper and low triangle) and interpolates within each. 
+The function be continuous because the point along the diagonal be interpolate 
+from only the two corner vertices, and the interpolate function be linear over each 
+simplex. Both interpolation produce monotonic function over both features. 
+
+The above hold for the D′ = 1 case by the initialization and inspection of the loop. It be 
+straightforward to verify that if the above hold for D′, then they also hold for D′+ 1. Then 
+by induction it hold for D′ = D − 1, a claimed. 
+
+5.2 Simplex Linear Interpolation 
+
+For speed, we propose use a more efficient linear interpolation for lattice regression that 
+linearly interpolates each x from only D+ 1 of the 2D surround vertices. Many different 
+linear interpolation strategy have be propose to interpolate look-up table use only 
+a subset of the 2D vertex (for a review, see Kang (1997)). However, most such strategy 
+suffer from be too computationally expensive to determine the subset of vertex need 
+to interpolate a give x. The wonder of simplex interpolation be that it take only O(D logD) 
+operation to determine the D+1 vertex need to interpolate any give x, and then only 
+O(D) operation to interpolate the identify D + 1 vertices. An illustrative comparison of 
+simplex and multilinear interpolation be give in Figure 3 for the same lattice parameters. 
+
+Simplex interpolation be propose in the color management literature by Kasson et al. 
+(1993), and independently late by Rovatti et al. (1998). Simplex interpolation be also know 
+a the Lovasz extension in submodular optimization, where it be use to extend a function 
+define on the vertex of a unit hypercube to be define on it interior (Bach, 2013). 
+
+After review how simplex interpolation works, we show in Section 5.2.3 that it re- 
+quire the same constraint for monotonicity a multilinear interpolation, and then we 
+discus how it rotational dependence impact it use for machine learn in Section 5.2.4. 
+We give example runtime comparison in Section 10.7. 
+
+15 
+
+
+
+Gupta, Cotter, Pfeifer, Voevodski, Canini, Mangylov, Moczydlowski, et al. 
+
+Figure 4: Simplex interpolation decomposes the D-dimensional unit hypercube into D! sim- 
+plices. Left: For the unit square, there be two simplices, one be define by the 
+three vertex [0 0], [0 1], and [1 1], and the other be define by the three vertex 
+[0 0], [1 0], and [1 1]. Right: For the unit cube there be 3! = 6 simplices, each 
+define by four vertices. The first have vertices: [0 0 0], [0 0 1], [0 1 1] , [1 1 1]. The 
+second have vertices: [0 0 0], [0 0 1], [1 0 1], [1 1 1]. And so on. All six simplices 
+have vertex [0 0 0] and [1 1 1], and thus share the diagonal between those two 
+vertices. 
+
+5.2.1 Partitioning of the Unit Hypercube Into Simplices 
+
+Simplex interpolation implicitly partition the hypercube into the set of D! congruent sim- 
+plices that satisfy the following: each simplex include the all 0’s vertex, one vertex be all 
+zero but have a single 1, one vertex be all zero but have two 1’s, and so on, end with 
+one vertex that be all 1’s, for a total of D + 1 vertex in each simplex. Figure 4 show the 
+partition for the D = 2 and D = 3 unit hypercubes. 
+
+This decomposition can also be described by the hyperplanes xk = xr for 1 ≤ k ≤ r ≤ D 
+(Schimdt and Simon, 2007). Knop (1973) discuss this decomposition a a special case 
+of Eulerian partition of the hypercube, and Mead (1979) show this be the small 
+possible equivolume decomposition of the unit hypercube. 
+
+5.2.2 Simplex Interpolation 
+
+Given x ∈ [0, 1]D, the D + 1 vertex that specify the simplex that contains x can be 
+compute in O(D logD) operation by sort the D value of the feature vector x, and 
+then the dth simplex vertex have one in the first d sort component of x. For example, if 
+x =[.8 .2 .3], the D + 1 vertex of it simplex be [0 0 0], [1 0 0], [1 0 1], [1 1 1]. 
+
+Let V be the D+1 by D matrix whose dth row be the dth vertex of the simplex contain 
+x. Then the simplex interpolation weight ψ(x) must satisfy the linear interpolation equa- 
+
+tions give in (5) such that 
+
+[ 
+V T 
+
+1T 
+
+] 
+ψ(x) = 
+
+[ 
+x 
+1 
+
+] 
+. Thus ψ(x) = 
+
+[ 
+V T 
+
+1T 
+
+]−1 [ 
+x 
+1 
+
+] 
+, where because 
+
+of the highly structure nature of the simplex decomposition the require inverse always 
+exists, and have a simple form such that ψ(x) be the vector of difference of sequential sort 
+component of x. For example, for a 2×2×2 lattice, and an x such that x[0] > x[1] > x[2], 
+the simplex interpolation weight ψ(x) = [1−x[0], x[0]−x[1], x[1]−x[2], x[2]] on the vertex 
+
+16 
+
+
+
+Monotonic Look-Up Tables 
+
+[0, 0, 0], [1, 0, 0], [1, 1, 0], [1, 1, 1], respectively. The general formula be detailed in Algorithm 
+2; for more mathematical detail see Rovatti et al. (1998). 
+
+Algorithm 2 Computes the simplex interpolation weight and correspond vertex index 
+for a unit lattice cell [0, 1]D and an x ∈ [0, 1]D. Let the lattice parameter be indexed such 
+that sd = 2 
+
+d be the difference in the index of the parameter correspond to any two 
+vertex that be adjacent in the dth dimension, for example, for the 2× 2 lattice, order the 
+vertex [0 0], [1 0], [0 1], [1 1] and index the correspond lattice parameter in that order. 
+
+CalculateSimplexInterpolationWeightsAndParameterIndices(x) 
+1 Compute the sort order π of the component of x such that x[π[k]] be the kth large value of x, 
+2 that is, x[π[1]] be the large value of x, etc. 
+3 Initialize index = 0, z = 1, indices[] = [], weights[] = [] 
+4 For d = 0 to D − 1: 
+5 Append index to index 
+6 Append z − x[π[d]] to weight 
+7 Update index = index + sπ[d] 
+8 Update z = x[π[d]] 
+9 Append index to index 
+
+10 Append z to weight 
+11 Return index and weight 
+
+5.2.3 Simplex Interpolation and Monotonicity 
+
+We show that the same linear inequality constraint that guarantee monotonicity for mul- 
+tilinear interpolation also guarantee monotonicity with simplex interpolation: 
+
+Lemma 3 (Monotonic Constraints with Simplex Interpolation) Let f(x) = θTφ(x) 
+for φ(x) give in Algorithm 2. The partial derivative ∂f(x)/∂x[d] > 0 iff θk′ > θk for all 
+k, k′ such that vk[d] = 0, vk′ [d] = 1, and vk[m] = vk′ [m] for all m 6= d. 
+
+Proof Simplex interpolation linearly interpolates from D + 1 vertex at a time, and thus 
+the result function be linear over each simplex. Thus to prove that the function be mono- 
+tonic everywhere, we need only to show that each locally linear function be monotonically 
+increase in dimension d, and that the function be continuous everywhere. Each simplex 
+only have one pair of vertex vk and vk′ that differ in dimension d such that vk[d] = 0, 
+vk′ [d] = 1, and vk[m] = vk′ [m] for all m 6= d. In addition, we can verify that for the linear 
+function over this simplex, ∂f(x)/∂x[d] = θk′ − θk, where θk and θk′ be the parameter 
+correspond to these vertices. Therefore if θk′ > θk, then the linear function over that 
+simplex must be increase with respect to d. Conversely, if it do not hold that θk′ > θk, 
+then the linear function over that simplex must have non-positive slope with respect to d. 
+Further, f(x) be continuous for all x, because any x on a boundary between simplices only 
+have nonzero interpolation weight on the vertex define that boundary. In conclusion, the 
+function be piecewise monotonic and continuous, and thus monotonic everywhere. 
+
+17 
+
+
+
+Gupta, Cotter, Pfeifer, Voevodski, Canini, Mangylov, Moczydlowski, et al. 
+
+Figure 5: Illustrates rotational dependence of simplex interpolation for a 2 × 2 lattice and 
+it impact on a binary classification problem. Green thick line denotes the true 
+decision boundary of a binary classification problem. Red thin line denote the 
+piecewise linear decision boundary fit by lattice regression use simplex interpo- 
+lation. Dotted gray line separate the two simplices; the function be locally linear 
+over each simplex. Left: The true decision boundary (green) cross the two sim- 
+plices. The simplex decision boundary (red) have two linear piece and can fit the 
+green boundary well. Right: The same green boundary have be rotate ninety 
+degrees, and now lie entirely in one simplex. The simplex decision boundary (in 
+red) be linear within each simplex, and hence have less flexibility to fit the true 
+green decision boundary. 
+
+5.2.4 Using Simplex Interpolation for Machine Learning 
+
+Simplex interpolation produce a locally linear continuous function made-up of D! hyper- 
+plane orient around the main diagonal axis of the unit hypercube. Compared to multi- 
+linear interpolation, simplex interpolation be not a smooth (though continuous), and it be 
+rotationally-dependent. 
+
+For low-dimensional regression problem use a look-up table with many cells, perfor- 
+mance of the two interpolation method have be found to be similar, particularly if one be 
+use a fine-grained lattice with many cells. For example, in a comparison by Sun and Zhou 
+(2012) for the three-dimensional regression problem of color manage an LCD monitor, 
+multilinear interpolation of a 9 × 9 × 9 look-up table (also call trilinear interpolation in 
+the special case of three-dimensions) produce around 1% bad average error than simplex 
+interpolation, but the maximum error with multilinear interpolation be only 60% of the 
+maximum simplex interpolation error. Another study by Kang (1995) use simulation 
+conclude that the interpolation error of these method be “about the same.” 
+
+However, when use a coarser lattice like 2D, a we have found useful in practice for 
+machine learning, the rotational dependence of simplex interpolation can cause problem 
+because the flexibility of the interpolate function f(x) differs in different part of the 
+feature space. Figure 5 illustrates this for a binary classifier on two features. 
+
+To address the rotational dependence, we recommend use prior knowledge to define 
+the feature positively or negatively in a way that aligns the simplices’ share diagonal axis 
+along the assume slope of f(x). If there be monotonicity constraints, this be do by 
+specify each feature so that it be monotonically increasing, rather than monotonically 
+
+18 
+
+
+
+Monotonic Look-Up Tables 
+
+decreasing. For binary classification, feature should be specify so that the feature vector 
+for the most prototypical example of the negative class be the all-zeros feature vector, and 
+the feature vector for the most prototypical example of a positive class be the all-ones feature 
+vector. This should put the decision boundary a orthogonal to the share diagonal axis 
+a possible, provide the interpolate function the most flexibility to model that decision 
+boundary. In addition, for low-dimensional problems, use a finer-grained lattice will 
+produce more flexibility overall, so that the flexibility within each lattice cell be less of an 
+issue. 
+
+Following these guidelines, we surprisingly and consistently find that simplex interpola- 
+tion of 2D lattice be roughly a accurate a multilinear interpolation, and much faster for 
+D ≥ 8. This be demonstrate in the case study of Section 10 (runtime comparison give 
+in Section 10.7). 
+
+6. Regularizing the Lattice Regression To Be More Linear 
+
+We propose a new regularizer that take advantage of the lattice structure and encourages 
+the fit function to be more linear by penalize difference in parallel edges: 
+
+Rtorsion(θ) = 
+
+D∑ 
+d=1 
+
+D∑ 
+d̃=1 
+d̃ 6=d 
+
+∑ 
+r,s,t,u such that 
+
+vr and v adjacent in dimension d, 
+vt and vu adjacent in dimension d, 
+
+vr and vt adjacent in dimension d̃ 
+
+((θr − θs)− (θt − θu))2. (11) 
+
+This regularizer penalizes how much the lattice function twist from side-to-side, and 
+hence we refer to this a the torsion regularizer. The large the weight on the torsion 
+regularizer in the objective function, the more linear the lattice function will be over each 
+2D lattice cell. 
+
+Figure 6 illustrates the torsion regularizer and compare it to previously propose lattice 
+regularizers, the standard graph Laplacian (Garcia and Gupta, 2009) and graph Hessian 
+(Garcia et al., 2012). As show in the figure, for multi-cell lattices, the torsion and graph 
+Hessian regularizers make the function more linear in different ways, and may both be 
+need to closely approximate a linear function. Like the graph Laplacian and graph Hessian 
+regularizers, the propose torsion regularizer be convex but not strictly convex, and can be 
+express in quadratic form a θTKθ, where K be a positive semidefinite matrix. 
+
+7. Jointly Learning Feature Calibrations 
+
+One can learn arbitrary bound function with a sufficiently fine-grained lattice, but in- 
+crease the number of lattice vertex Md for the dth feature multiplicatively grows the 
+total number of parameter M = 
+
+∏ 
+dMd. However, we find in practice that if the feature 
+
+be first each transform appropriately, then many problem require only a 2D lattice to 
+capture the feature interactions. For example, a feature that measure distance might be 
+good specify a log of the distance. Instead of rely on a user to determine how to 
+best transform each feature, we automate this feature pre-processing by augment our 
+function class with D one-dimensional transformation cd(x[d]) that we learn jointly with 
+the lattice, a show in Figure 7. 
+
+19 
+
+
+
+Gupta, Cotter, Pfeifer, Voevodski, Canini, Mangylov, Moczydlowski, et al. 
+
+A B 
+
+C D 
+
+A B 
+
+C D 
+
+A B 
+
+C D 
+
+E F 
+
+AC BD 
+
+AC 
+
+Graph Laplacian: 
+flatter function 
+
+Penalizes: 
+(A-C)2 + (A-B)2 + (C-D)2 + (B-D)2 
+= AC 
+
+2 + AB 
+2 + CD 
+
+2 + BD 
+2 
+
+Graph Hessian: 
+more linear function 
+
+Penalizes: 
+((A-C) - (C-E))2 + ((B-D) - (D-F))2 
+= ( AC 
+
+- CE) 
+2 + ( BD 
+
+- DF) 
+2 
+
+Torsion Regularizer: 
+more linear function 
+
+Penalizes: 
+((A-C) - (B-D))2 + ((A-B) - (C-D))2 
+= ( AC - 
+
+
+BD) 
+
+2 + ( AB - CD) 
+2 
+
+CE DF 
+
+BD 
+
+CD 
+
+AB 
+
+AC BD 
+
+CD 
+
+AB 
+
+Figure 6: Comparison of lattice regularizers. The lattice parameter be denote by 
+A,B,C,D,E, and F . The delta indicate the difference between adjacent pa- 
+rameters along each edge, and thus each delta be the slope of the function along 
+it edge. Each color corresponds to a different additive term in a regularizer. The 
+graph Laplacian regularizer (left) minimizes the sum of the square slopes, pro- 
+ducing a flatter function. The graph Hessian regularizer (middle) minimizes the 
+change in slope in each direction of a multi-cell lattice, keep the function from 
+bending too much between lattice cells. The propose torsion regularizer (right) 
+minimizes the change in slope between side of the lattice, for each direction, 
+minimize the twist of the function. 
+
+7.1 Calibrating Continuous Features 
+
+We calibrate each continuous feature with a one-dimensional monotonic piecewise linear 
+function, a illustrate in Figure 8. Our approach be similar to the work of Howard and 
+Jebara (2007), which jointly learns monotonic piecewise linear one-dimensional transforma- 
+tions and a linear function. 
+
+This joint estimation make the objective non-convex, discuss further in Section 9.3. 
+To simplify estimate the parameters, we treat the number of changepoints Cd for the dth 
+feature a a hyperparameter, and fix the Cd changepoint location (also call knots) at 
+equally-spaced quantiles of the feature values. The changepoint value be then optimize 
+jointly with the lattice parameters, detailed in Section 9.3. 
+
+20 
+
+
+
+Monotonic Look-Up Tables 
+
+x 2 RD 
+... 
+
+x(2) 2 R 
+x(1) 2 R 
+
+x(3) 2 R 
+
+x(D ) 2 R 
+
+c1(¢) 
+
+... 
+
+c2(¢) 
+c3(¢) 
+
+cD (¢) 
+
+c1(x 
+(1)) 2 R 
+
+c2(x 
+(2)) 2 R 
+
+c3(x 
+(3)) 2 R 
+
+cD (x 
+(D )) 2 R 
+
+c(x) 2 RD f (¢) f (c(x)) 2 R 
+
+Figure 7: Block diagram show one-dimensional calibration function {cd(·)} to pre- 
+process each feature before the lattice f(·) fuse the feature together nonlinearly. 
+
+Distance Calibration Address Similarity Calibration 
+
+Figure 8: Learned one-dimensional piecewise linear calibration function for a distance and 
+address-similarity feature for the business-matching case study in Section 10.2. 
+Left: The raw distance be measure in meters, and it calibration have a log- 
+like effect. Right: The raw address feature be calibrate with a sigmoid-like 
+transformation. 
+
+7.2 Calibrating Categorical Features 
+
+If the dth feature be categorical, we propose use a calibration function cd(·) to map each 
+category to a real value in [0,Md − 1]. That is, let the set of possible category for the 
+dth feature be denote Gd, then cd : Gd → [0,Md − 1], add |Gd| additional parameter 
+to the model. Figure 9 show an example lattice with a categorical country feature that 
+have be calibrate to lie on [0, 2]. If prior knowledge be give about the order of the 
+original discrete value or categories, then partial or full pairwise constraint can be add 
+on the mapped value to respect the know order information. These can be express 
+a additional sparse linear constraint on pair of parameters. 
+
+8. Calibrating Missing Data and Using Missing Data Vertices 
+
+We propose two supervise approach to handle miss value in the training or test set. 
+
+First, one can do a supervise imputation of miss data value by calibrate a miss 
+data value for each feature. This be the same approach propose for calibrate categorical 
+
+21 
+
+
+
+Gupta, Cotter, Pfeifer, Voevodski, Canini, Mangylov, Moczydlowski, et al. 
+
+Figure 9: A 2× 2× 3 lattice illustrate calibrate a categorical feature. In this example, 
+each sample be a pair of business listings, and the problem be to classify whether 
+the two listing be about the same business, base on the similarity of their street 
+names, titles, and the country. A score f(x) be interpolate from the parameter 
+correspond to the vertex of the 2 × 2 × 2 lattice cell in which x lies, then 
+thresholded at 0.5. The red parameter value be below the match threshold 
+of 0.50, and the green parameter be above the match threshold. The blue 
+arrow denote that the lattice be constrain to be monotonically increase in 
+the street name similarity and the title similarity. In this toy example, we only 
+show the calibrate value for a few countries: US map to 0, Great Britain map 
+to .3, Brazil to .4, Netherlands to .9, Germany to 1, Argentina to 1.5, and Canada 
+to 2. One can interpret this lattice a model three classifiers, slice along the 
+country vertices: a classifier for country = 0, one for country = 1, and one for 
+country = 2. Samples from Argentina (AR) be interpolate equally from the 
+parameter where country = 1 and country = 2. Samples from Great Britain, 
+and Netherlands be interpolate from the two classifier specify at country = 0 
+and 1, with Netherlands put the most weight on the classifier where country 
+= 1. The lattice parameter can be interpret a show that both the street 
+name and title feature be strong positive evidence in the US than in Canada. 
+
+value in Section 7.2: learn the numeric value in [0,Md − 1] to impute if the dth feature be 
+miss that minimizes the structural risk minimization obejctive. In this approach, miss 
+data be handle by a calibration function cd(·), and like the other calibration function pa- 
+rameters. Other researcher have also consider joint training of classifier and imputation 
+for miss data, for example van Esbroeck et al. (2014) and Liao et al. (2007). 
+
+Second, a more flexible option be to give miss data it own miss data vertex in 
+the lattice, a show in Figure 10. This be similar to a decision tree handle a miss 
+data value by splitting a node on whether that feature be missing. For example, the non- 
+
+22 
+
+
+
+Monotonic Look-Up Tables 
+
+Θ[2] = 0.4 
+
+Θ[0] = 0.0 Θ[1] = 1.0 
+
+Θ[3] = 0.4 
+
+1.0 
+
+0.0 
+
+0.5 
+
+Scale Lattice with Missing Data Vertices 
+
+Figure 10: Illustration of handle miss data by assign miss data to it own slice 
+of vertex in the lattice. In this example, one feature be a title similarity and 
+be always given, and the other feature be a street name similarity that can be 
+missing. The lattice have 3 × 2 = 6 parameters, with the parameter value 
+shown. For example, give a feature vector x with title similarity 0.5 and miss 
+street name similarity, the two parameter correspond to the miss street 
+name slice of the lattice would be interpolate with equal weights, produce 
+the output f(x) = 0.25. 
+
+miss feature value can be scale to [0,Md − 2], and if the data be miss be it mapped 
+to Md − 1. This increase the number of parameter but give the model the flexibility 
+to handle miss data differently than non-missing data. For example, miss the street 
+number in a business description may correlate with low quality information for all the 
+features. 
+
+To regularize the lattice parameter correspond to miss data vertices, we apply the 
+graph regularizers detailed in Section 6. These could be use to tie any of the parameter to 
+the miss data parameters. In our experiments, for the purpose of graph regularization, 
+we treat the miss data vertex a though they be adjacent to the minimum and 
+maximum vertex of that feature in the lattice. 
+
+With either of these two propose strategies, linear inequality can be add on the 
+appropriate parameter (the calibrator parameter in the first proposal, or the miss data 
+vertex parameter in the second proposal) to ensure that the function value for miss data 
+be bound by the minimum and maximum function values, that is, that miss x[d] never 
+produce a small f(x) than x[d] = 0, nor a large f(x) than x[d] = Md. 
+
+9. Large-Scale Training 
+
+For convex loss function `(θ) and convex regularizers R(θ), any solver for convex problem 
+with linear inequality constraint can be use to optimize the lattice parameter θ in (8). 
+However, for large n and for even relatively small D, training the propose calibrate mono- 
+tonic lattice be challenge due to the number of linear inequality constraints, the number 
+
+23 
+
+
+
+Gupta, Cotter, Pfeifer, Voevodski, Canini, Mangylov, Moczydlowski, et al. 
+
+of term in the graph-regularizers, and the non-convexity create by use calibration func- 
+tions. 
+
+In this section we discus various standard and new strategy we found useful in prac- 
+tice: our use of stochastic gradient descent (SGD), stochastic handle of the regularizers, 
+parallelizing-and-averaging for distribute training, handle the large number of constraint 
+in the context of SGD, and finally some detail on how we optimize the non-convex problem 
+of training the calibrator function and the lattice parameters. Throughout this section, we 
+assume the standard set of (8); the generalization to the pairwise rank problem of 
+(9) be straightforward. 
+
+9.1 SGD and Reducing Variance of the Subgradients 
+
+To scale to a large number of sample n, we use SGD for all our experiments. For each SGD 
+iteration t, a label training sample (xi, yi) be sample uniformly from the set of training 
+sample pairs. One find the correspond subgradient of (8), and take a tiny step in it 
+negative gradient direction. (The result parameter may then violate the constraints, 
+which we discus in Section 9.4.) 
+
+A straightforward SGD implementation for (8) would use the subgradient: 
+
+∆ = ∇θ` 
+( 
+θTφ (xi) , yi 
+
+) 
++∇θR (θ) , (12) 
+
+where the ∇θ operator find an arbitrary subgradient of it argument w.r.t. θ. Ideally, these 
+subgradients should be cheap-to-compute, so each iteration be fast. The computational cost 
+be dominate by compute the regularizer, if use any of the graph regularizers discuss 
+in Section 6. 
+
+Because the training example (xi, yi) in (12) be randomly sampled, the above subgradient 
+be a realization of a stochastic subgradient whose expectation be equal to the true gradient. 
+The number of iteration need for the SGD to converge depends on the square Euclidean 
+norm of the stochastic subgradients (Nemirovski et al., 2009), with large norm result 
+in slow convergence. The expect square norm of the stochastic subgradient can be 
+decompose into the sum of two terms: the square expect subgradient magnitude, and 
+the variance. We can do little about the expect magnitude, but we can improve the trade- 
+off between the computational cost of each subgradient and the variance of the stochastic 
+subgradients. In the next two sub-sections, we describe two such strategies. 
+
+9.1.1 Mini-Batching 
+
+We reduce the variance of the stochastic subgradient’s loss term by mini-batching over 
+multiple random sample (Dekel et al., 2012). Let S` denote a set of k` training index 
+sample uniformly with replacement from 1, . . . , n, then the mini-batched subgradient is: 
+
+∆ = 
+1 
+
+k` 
+
+∑ 
+i∈S` 
+
+∇θ` 
+( 
+θTφ (xi) , yi 
+
+) 
++∇θR (θ) . (13) 
+
+This simultaneously reduces the variance and increase the computational cost of the loss 
+term by a factor of k`. For sufficiently small k`, this be a net win because differentiate the 
+regularizer be the dominant computational term. 
+
+24 
+
+
+
+Monotonic Look-Up Tables 
+
+9.1.2 Stochastic Subgradients for Regularizers 
+
+We propose to reduce the computational cost of each SGD iteration by randomly sample 
+the additive term of the regularizer, for regularizers that can be express a a sum of 
+terms: R(θ) = 
+
+∑m 
+j=1 rj(θ). For example, for a 2 
+
+D lattice, each calculation of the graph 
+
+Laplacian regularizer subgradient sum over m = D2D−1 terms, and the graph torsion 
+regularizer subgradient sum over m = D(D − 1)2D−3 terms. 
+
+Let SR denote a set of kR index sample uniformly with replacement from 1, l . . . ,m, 
+then define the subgradient: 
+
+∆ = 
+1 
+
+k` 
+
+∑ 
+i∈S` 
+
+∇θ` 
+( 
+θTφ (Xi) , Yi 
+
+) 
++ 
+m 
+
+kR 
+
+∑ 
+j∈SR 
+
+∇θrj (θ) . (14) 
+
+While this make the subgradient’s regularizer term stochastic, and hence increase the 
+subgradient variance, we find that good choice of k` and kR in (14) can produce a useful 
+tradeoff between the computational cost of compute each subgradient and the number of 
+SGD iteration need for acceptable converge. For example, in one real-world application 
+use torsion regularization, the choice of kR = 1024 and k` = 1 lead to a 150× speed-up in 
+training and produce statistically indistinguishable accuracy on a held-out test set. 
+
+9.2 Parallelizing and Averaging 
+
+For a large number of training sample n, one can split the n training sample into K sets, 
+then independently and in-parallel train a lattice on each of the K sets. Once trained, the 
+vector lattice parameter for the K lattice can simply be averaged. This parallelize-and- 
+average approach be investigate for large-scale training of linear model by Mann et al. 
+(2009). Their result show similar accuracy to distribute gradient descent, but 1000× 
+less network traffic and reduce wall-clock time for large datasets. In our implementation 
+of the parallelize-and-average approach we do multiple syncs: average the lattices, then 
+send out the average lattice to parallelize worker to keep improve with further 
+training. We illustrate the performance and speed-up of this simple parallelize-and-average 
+for learn monotonic lattice in Section 10.6 and Section 10.7. A more complicate imple- 
+mentation of this strategy would use the alternate direction method of multiplier with 
+a consensus constraint (Boyd et al., 2010), but that require an additional regularization 
+towards a local copy of the most recent consensus parameters. 
+
+Note that if calibration function be used, they must be held fix during the paralleliza- 
+tion of the lattice training, a it do not make mathematical sense to average differently 
+calibrate lattices. 
+
+9.3 Jointly Optimizing Lattice and Calibration Functions 
+
+To learn a calibrate monotonic lattice, we jointly optimize the calibration function and the 
+lattice parameters. Let x denote a feature vector with D components, each of which be either 
+a continuous or categorical value (discrete feature can be model either a continuous 
+feature or categorical a the user see fit). Let cd(x[d];α 
+
+(d)) be a calibration function that 
+act on the dth component of x and have parameter α(d). 
+
+If the dth feature be continuous, we assume it have a bound domain such that x[d] ∈ 
+[ld, ud] for finite ld, ud ∈ R. Then the dth calibration function cd(x[d];α(d)) be a monotonic 
+
+25 
+
+
+
+Gupta, Cotter, Pfeifer, Voevodski, Canini, Mangylov, Moczydlowski, et al. 
+
+piecewise linear transform with fix knot at ld, ud, and the Cd−2 equally-spaced quantiles 
+of dth feature over the training set. Let the first and last knot of the piecewise linear 
+function map to the lattice bound 0 and Md − 1 respectively (as show in Figure 8), 
+that is, if Cd = 2 then cd(x[d];α 
+
+(d)) simply linearly scale the raw range [ld, ud] to the 
+lattice domain [0,Md − 1] and there be no parameter α(d). For Cd > 2, the parameter 
+α(d) ∈ [0,Md − 1]Cd−2 be the Cd − 2 output value of the piecewise linear function for the 
+middle Cd − 2 knots. 
+
+If the dth feature be categorical with finite category set Gd such that x[d] ∈ Gd, then 
+the dth calibration function map the category to the lattice span such that cd(x[d];α 
+
+(d)) : 
+Gd → [0,Md−1] and the parameter be the |Gd| categorical mapping such that cd(x[d];α(d)) = 
+α(d)[k] if x[d] belongs to category k and α(d) ∈ [0,Md − 1]|Gd|. 
+
+Let c(x;α) denote the vector function with dth component function cd(x[d];α 
+(d)), and 
+
+note c(x;α) map a feature vector x to the domain M of the lattice function. Use ed to 
+denote the standard unit basis vector that be one for the dth component and zero elsewhere 
+with length D, then one can write: 
+
+c(x;α) = 
+D∑ 
+d=1 
+
+edcd(e 
+T 
+d x;α 
+
+(d)), (15) 
+
+Then the propose calibrate monotonic lattice regression objective expands the mono- 
+tonic lattice regression objective (8) to: 
+
+arg min 
+θ,α 
+
+n∑ 
+i=1 
+
+`(yi, θ 
+Tφ(c(xi, α)) +R(θ) s.t. Aθ ≤ b and Ãα ≤ b̃, 
+
+where each row of A specifies a monotonicity constraint for a pair of adjacent lattice pa- 
+rameters (as before), and each row of Ã similarly specifies a monotonicity constraint for a 
+pair of adjacent calibration parameter for one of the piecewise linear calibration functions. 
+
+This turn the convex optimization problem (8) into a non-convex problem that be 
+marginally convex in the lattice parameter θ for fix α, but not necessarily convex with 
+respect to α even if θ be fixed. Despite the non-convexity of the objective, in our experiment 
+we found sensible and effective solution by use project SGD, update θ and α with the 
+appropriate stochastic subgradient for each xi. Calculate the subgradient w.r.t. θ hold 
+α constant, essentially the same a before. Calculate the subgradient w.r.t α by hold θ 
+constant and use the chain rule: 
+
+∂θTφ(c(xi, α)) 
+
+∂α(d) 
+= 
+∂θTφ(c(xi, α)) 
+
+∂c(xi, α) 
+
+∂c(xi, α) 
+
+∂α(d) 
+. (16) 
+
+If the dth feature be categorical, the partial derivative be 1 for the calibration mapping 
+parameter correspond to the category of xi[d] and zero otherwise: 
+
+∂c(xi, α) 
+
+∂α(d)[k] 
+= 1 if xi[d] be the kth category and 0 otherwise. (17) 
+
+If the dth feature be continuous, then the parameter α(j)[d] be the value of the cali- 
+bration function at the knot of the piecewise linear function. If xi[d] lie between the kth 
+
+26 
+
+
+
+Monotonic Look-Up Tables 
+
+and (k + 1)th knot at (fixed) position βk and βk+1, then 
+
+∂c(xi, α) 
+
+∂α(d)[k] 
+= 
+
+(βk+1 − xi[d]) 
+(βk+1 − βk) 
+
+∂c(xi, α) 
+
+∂α(d)[k + 1] 
+= 
+
+(xi[d]− βk) 
+(βk+1 − βk) 
+
+, 
+
+and the partial derviative be zero for all other component of α(d). After take an SGD 
+step that update α(d)[k] and α(d)[k+ 1], the α(d) may violate the monotonicity constraint 
+that ensure a monotonic calibration function, which can be fix with a projection onto the 
+constraint (see Section 9.4 for details). 
+
+A standard strategy with nonconvex gradient descent be to try multiple random ini- 
+tializations of the parameters. We do not explore this avenue; instead we simply try to 
+initialize sensibly. Each lattice parameter be initialize to be the sum of it monotonically 
+increase component (multiply by -1 for any monotonically decrease components) so 
+that the lattice initialization respect the monotonicity constraint and be a linear function. 
+The piecewise linear calibration function be initialize to scale linearly to [0,Md−1]. The 
+categorical calibration parameter be order by their mean label, then space uniformly 
+on [0,Md − 1] in that order. 
+
+9.4 Large-Scale Projection Handling 
+
+Standard project stochastic gradient descent project the parameter onto the constraint 
+after each stochastic gradient update. Given the extremely large number of linear inequality 
+constraint need to enforce monotonicity for even small D, we found a full projection each 
+iteration impractical and un-necessary. We avoid the full projection at each iterate by use 
+one of two strategies. 
+
+9.4.1 Suboptimal Projections 
+
+We found that modify the SGD update to approximate the projection work well. 
+Specifically, for each new stochastic subgradient η∆, we create a set of active constraint 
+initialize to ∅, and, start from the last parameter values, move along the portion of 
+η∆ that be orthogonal to the current active set until we encounter a constraint, add this 
+constraint to the active set, and then continue until the update η∆ be exhaust or it be not 
+possible to move orthogonal to the current active set. At all times, the parameter satisfy 
+the constraints. It can be particularly fast because it be possible to exploit the sparsity 
+of the monotonicity constraint (each of which depends on only two parameters) and the 
+sparsity of ∆ (when use simplex interpolation) to optimize the implementation. 
+
+But, this strategy be sub-optimal because we do not remove any constraint from the 
+active set during each iteration, and thus parameter can “get stuck” at a corner of the 
+feasible set, a illustrate in Figure 11. In practice, we found such problem resolve them- 
+self because the stochasticity of the subsequent stochastic gradient eventually jiggle the 
+parameter free. Experimentally, we found this suboptimal strategy to be very effective and 
+to produce statistically similar objective function value and test accuracy more optimal 
+approaches. All of the experimental result report in this paper use this strategy. See 
+Section 10.7 for example runtimes. 
+
+27 
+
+
+
+Gupta, Cotter, Pfeifer, Voevodski, Canini, Mangylov, Moczydlowski, et al. 
+
+* 
+
+* 
+
+(a) (b) 
+* 
+
+* 
+
+(c) (d) 
+
+Figure 11: Four example of the suboptimal projection stochastic gradient descent step de- 
+scribed in Section 9.4. In each case, the constraint be marked by thin solid 
+lines, the black dot represent the parameter at the end of the last SGD itera- 
+tion, and the new full stochastic gradient descent update be marked by the dash 
+line, end in a star. The optimal projection of the star onto the constraint 
+be marked by the dot line. The stochastic gradient be follow until it hit 
+a constraint, and then the component of the remain gradient orthogonal to 
+the active constraint be applied. The update end at the light gray dot. In case 
+(a) and (b), the result light dot be the optimal projection of the star onto the 
+constraints. But in case (c), first one constraint be hit, and then another con- 
+straint be hit, and the update get stuck at the corner of the feasible set without 
+be able to apply all of the stochastic gradient. The result light gray dot be 
+not the projection of the star onto the constraints, hence the projection for this 
+iteration be suboptimal. However, it be likely that a future stochastic gradient 
+will jiggle the optimization loose, a picture in (d), produce an update that 
+be again an optimal projection of the late stochastic gradient. 
+
+9.4.2 Stochastic Constraints with LightTouch 
+
+An optimal approach we compare with for handle large-scale constraint be call Light- 
+Touch (Cotter et al., 2015). At each iteration, LightTouch do not project onto any 
+constraints, but rather move the constraint into the objective, and applies a random sub- 
+
+28 
+
+
+
+Monotonic Look-Up Tables 
+
+set of constraint each iteration a stochastic gradient update to the parameters, where the 
+distribution over the constraint be learn a the optimization proceeds to focus on con- 
+straints that be more likely to be active. This replaces the per-iteration projection with 
+cheap gradient updates. Intermediate solution may not satisfy all the constraints, but one 
+full projection be perform at the very end to ensure final satisfaction of the constraints. 
+Experimentally, we found LightTouch generally converge faster (see Cotter et al. (2015) for 
+it theoretical convergence rate), while produce similar experimental result to the above 
+approximate project SGD. LightTouch do require a more complicate implementation 
+to effectively learn the distribution over the constraints. 
+
+9.4.3 Adapting Stepsizes with Adagrad 
+
+One can generally improve the speed of SGD with adagrad (Duchi et al., 2011), even for 
+nonconvex problem (Gupta et al., 2014). Adagrad decay the step-size adaptively for each 
+parameter, so that parameter update more often or with large magnitude gradient have 
+a small step size. We found adagrad do speed up convergence slightly, but require 
+a complicate implementation to correctly handle the constraint because the projection 
+must be with respect to the adagrad norm rather than the Euclidean norm. We experi- 
+mented with approximate the adagrad norm projection with the Euclidean projection, 
+but found this approximation result in poor convergence. The experimental result do 
+not make use of adagrad. 
+
+10. Case Studies 
+
+We present a series of experimental case study on real world problem to demonstrate 
+different aspect of the propose methods, follow by some example runtimes for inter- 
+polation and training in Section 10.7, and some observation about the practical value of 
+impose monotonicity in Section 10.8. 
+
+Previous datasets use to evaluate monotonic algorithm have be small, both in the 
+number of sample and the number of dimensions, a detailed in Table 1. In order to produce 
+statistically significant experimental results, and to good demonstrate the practical need 
+for monotonicity constraints, we use real-world case study with relatively large datasets, 
+and for which the application engineer have confirm that they expect or want the learn 
+function to be monotonic with respect to some subset of features. The datasets use be 
+detailed in Table 3, and include datasets with eight thousand to 400 million samples, and 
+nine to sixteen features, most of which be constrain to be monotonic. 
+
+The case study demonstrate that for problem where the monotonicity assumption be 
+warranted, the propose calibrate monotonic lattice regression produce similar accuracy 
+to random forests. Random forest be an unconstrained method that consistently provide 
+competitive result on benchmark datasets, compare to many other type of machine 
+learn method (Fernandez-Delgado et al., 2014)). 
+
+Because any bound function can be express use a sufficiently fine-grained interpo- 
+lation look-up table, we expect that with appropriate use of regularizers, monotonic lattice 
+regression will perform similarly to other guaranteed monotonic method that use a flex- 
+ible function class and be appropriately regularized, such a monotonic neural net (see 
+2.2.5). However, of guaranteed monotonic methods, the only monotonic strategy that have 
+
+29 
+
+
+
+Gupta, Cotter, Pfeifer, Voevodski, Canini, Mangylov, Moczydlowski, et al. 
+
+# Training # Test # Lattice 
+Dataset Samples Samples # Features Parameters 
+
+Business Matching 8,000 4,000 9 1728 
+Ad–Query Matching 235,996 58,224 5 32 
+Rendering Classifier 20,000 2,500 16 65,536 
+Fusing Pipelines 1.6 million 390k 12 24,576 
+Video Ranking 400 million 25 million 12 531,441 
+
+Table 3: Summary of datasets use in the case studies. 
+
+be demonstrate to scale to the number of training sample and the number of feature 
+treat in our case study be linear regression with non-negative coefficient (see Table 1). 
+
+10.1 General Experimental Details 
+
+We use ten-fold cross-validation on each training set to choose hyperparameters, including: 
+whether to use graph Laplacian regularization or torsion regularization, how much regular- 
+ization (in power of ten), whether to calibrate miss data or use a miss data vertex, the 
+number of change-points if feature calibration be use from the choices: {2, 3, 5, 10, 20, 50}, 
+and the number of vertex for each feature be start at 2 and increase by 1 a long a 
+cross-validation accuracy increased. The step size be tune use ten-fold cross-validation 
+and choice be power of 10; it be usually chosen to be one of {.01, .1, 1}. If calibration 
+function be used, a hyperparameter be use to scale the step size for the calibration 
+function gradient compare to the lattice function gradients; this calibration step size scale 
+be also chosen use ten-fold cross-validation and power of 10, and be usually chosen to 
+be one of {.01, .1, 1, 10}. Multilinear interpolation be use unless it be note that simplex 
+interpolation be used. The loss function be square error, unless note that logistic loss 
+be used. 
+
+Comparisons be make to random forest (Breiman, 2001), and to linear models, with 
+either the logistic loss (logistic regression) or square error loss (linear regression), and a 
+ridge regularizer on the linear coefficients, with any categorical or miss feature con- 
+verted to Boolean features. All comparison be train on the same training set, hyper- 
+parameter be tune use cross-validation, and test on the same test set. Statistical 
+significance be measure use a binomial statistical significance test with a p-value of .05 
+on the test sample rat differently by two models. 
+
+10.2 Case Study: Business Entity Resolution 
+
+In this case study, we compare the relative impact of several of our propose extension to 
+lattice regression. The business entity resolution problem be to determine if two business 
+description refer to the same real-world business. This problem be also treat by Dalvi 
+et al. (2014), where they focus on define a good title similarity. Here, we consider only 
+the problem of fuse different similarity (such a a title similarity and phone similarity) 
+into one score that predicts whether a pair of business be the same business. The learn 
+function be require to be monotonically increase in seven attribute similarities, such a 
+
+30 
+
+
+
+Monotonic Look-Up Tables 
+
+the similarity between the two business title and the similarity between the street names. 
+There be two other feature with no monotonicity constraints, such a the geographic 
+region, which take on one of 14 categorical values. Each sample be derive from a pair of 
+business descriptions, and a label provide by an expert human rater indicate whether that 
+pair of business description describe the same real-world business. We measure accuracy 
+in term of whether a predict label match the ground truth label, but in actual usage, 
+the learn function be also use to rank multiple match that pas the decision threshold, 
+and thus a strictly monotonic function be prefer to a piecewise constant function. The 
+training and test sets, detailed in Table 3, be randomly split from the complete label 
+set. Most of the sample be drawn use active sampling, so most of the sample be 
+difficult to classify correctly. 
+
+Table 4 report results. The linear model perform poorly, because there be many 
+important high-order interaction between the features. For example, the pair of business 
+might describe two pizza place at the same location, one of which recently closed, and the 
+other recently opened. In this case, location-based feature will be strongly positive, but the 
+classifier must be sensitive to low title similarity to determine the business be different. 
+On the other hand, high title similarity be not sufficient to classify the pair a the same, for 
+example, two Starbucks cafe across the street from each other in downtown London. 
+
+The lattice regression model be first optimize use cross-validation, and then we 
+make the series of minor change (with all else held constant) list in Table 4 to illustrate 
+the impact of these change on accuracy. First, remove the monotonicity constraint re- 
+sulted in a statistically significant drop in accuracy of half a percent. Thus it appear the 
+monotonicity constraint be successfully regularize give the small amount of training 
+data and the know high Bayes error in some part of the feature space. Lattice regres- 
+sion without the monotonicity constraint perform similarly to random forest (and not 
+statistically significantly better), a expect due to the similar model ability of the 
+methods. 
+
+The cross-validated lattice be 3 × 3 × 3 × 26, where the first three feature use a 
+miss data vertex (so the non-missing data be interpolate from a 29 lattice). Calibrating 
+the miss value for those three feature instead of use miss data vertex statistically 
+significantly drop the accuracy from 81.9% to 80.7%. (However, if one subsamples the 
+training set down to 3000 samples, then the less flexible option of calibrate the miss 
+value work good than use miss data vertices.) 
+
+The cross-validated calibration use five changepoints for two of the four continuous 
+features, and no calibration for the two other continuous features. Figure 8 show the 
+calibration learn in the optimize lattice regression. Removing the continuous signal 
+calibration result in a statistically significant drop in accuracy. 
+
+Another important proposal of this paper be calibrate categorical feature to real- 
+value features. For this problem, this be apply to a feature specify which of 14 possible 
+geographical category the business be in. Removing this geographic feature statistically 
+significantly reduce the accuracy by half a percent. 
+
+The amount of torsion regularization be cross-validated to be 10−4. Changing to graph 
+Laplacian and re-optimizing the amount of regularization decrease accuracy slightly, but 
+not statistically significantly so. This be consistent with what we often find: torsion be 
+
+31 
+
+
+
+Gupta, Cotter, Pfeifer, Voevodski, Canini, Mangylov, Moczydlowski, et al. 
+
+Test Set Accuracy Monotonic Guarantee? 
+
+Linear Model 66.6% yes 
+Random Forest 81.2% no 
+Lattice Regression, Optimized 81.9% yes 
+... Remove Monotonicity Constraints 81.4% no 
+... Calibrate All Missing Data 80.7% yes 
+... Remove Calibration 81.1% yes 
+... Remove the Geographic Feature 81.4% yes 
+... Change to Graph Laplacian 81.7% yes 
+... Change to Simplex Interpolation 81.6% yes 
+
+Table 4: Comparison on a business entity resolution problem. 
+
+often slightly better, but often not statistically significantly so, than the graph Laplacian 
+regularizer. 
+
+Changing the multilinear interpolation to simplex interpolation (see Section 5.2) drop 
+the accuracy slightly, but not statistically significantly. For some problem we even see 
+simplex interpolation provide slightly good results, but generally the accuracy difference 
+between simplex and multilinear interpolation be negligible. 
+
+10.3 Case Study: Scoring Ad–Query Pairs 
+
+In this case study, we demonstrate the potential of the calibration functions. The goal be to 
+score how well an ad match a web search query, base on five different feature that each 
+measure a different notion of a good match. The score be require to be monotonic with 
+respect to all five features. The label be binary, so this be train and test a a classi- 
+fication problem. The train and test set be independently and identically distributed, 
+and be detailed in Table 3. 
+
+Results be show in Table 5. The cross-validated lattice size be 2× 2× 2× 2× 2, and 
+the calibration function each use 5 changepoints. Removing the calibration function and 
+re-cross-validating the lattice size result in a large lattice size 4×4×4×4×4, and slightly 
+bad (but not statistically significantly worse) accuracy. In total, the uncalibrated lattice 
+model use 1024 parameters, whereas the calibrate lattice model use only 57 parameters. 
+We hypothesize that the small calibrate lattice will be more robust to feature noise and 
+drift in the test sample distribution than the large uncalibrated lattice model. In general, 
+we find that the one-dimensional calibration function be a very efficient way to capture 
+the flexibility needed, and that in conjunction with good one-dimensional calibrations, only 
+coarse-grained (e.g. 2D) lattice be needed. 
+
+Both with and without calibration functions, the lattice regression model be statis- 
+tically significantly good than the linear model. The random forest perform well, but 
+be not statistically significantly good than the lattice regression. 
+
+A boost stump model be also train for this problem. See Fig. 12 for a comparison 
+of two-dimensional slice of the boost stump and lattice functions. The boost stumps’ 
+test set accuracy be relatively low at 75.4%. In practice, the goal of this problem be to have 
+
+32 
+
+
+
+Monotonic Look-Up Tables 
+
+Test Set Accuracy Monotonic Guarantee? 
+
+Linear Model 77.2% yes 
+Random Forests 78.8% no 
+Lattice Regression 78.7% yes 
+... Remove Continuous Signal Calibration 78.4% yes 
+
+Table 5: Comparison on an ad-query score problem. 
+
+Θ[2] = 0.4 
+
+Θ[0] = 0.0 Θ[1] = 1.0 
+
+Θ[3] = 0.4 
+
+1.0 
+
+0.0 
+
+0.5 
+
+Scale Boosted Stumps Lattice Regression 
+
+Figure 12: Slices of the learn ad-query match function for boost stump and a 2× 
+2×2×2×2 lattice regression, plot a a function of two of the five features, with 
+median value chosen for the other three features. The boost stump require 
+hundred of stump to approximate the function, and the result function be 
+piecewise constant, create frequent tie when rank a large number of ad 
+for a give query, despite a priori knowledge that the output should be strictly 
+monotonic in each of the features. 
+
+a score useful for rank candidate a well a determine if they be a sufficiently good 
+match. Even with many trees, this model produce many tie due it piecewise-constant 
+surface. In addition, the live experiment with the boost stump show that the output 
+be problematically sensitive to feature noise, which would cause sample near the boundary 
+of two piecewise constant surface to experience fluctuate scores. 
+
+10.4 Case Study: Rendering Classifier 
+
+This case study demonstrates training a flexible function (using a lattice) that be monotonic 
+with respect to fifteen features. The goal be to score whether a particular display element 
+should be render on a webpage. The score be require to be monotonic in fifteen of the 
+features, and there be a sixteenth Boolean feature that be not constrained. The training and 
+test set (detailed in Table 3) consist almost entirely of sample know to be difficult to 
+correctly classify (hence the rather low accuracies). 
+
+We use a fix 216 lattice size, a fix 5 changepoints per feature for the six continuous 
+signal (the other ten signal be Boolean), and no graph regularization, so no hyperpa- 
+
+33 
+
+
+
+Gupta, Cotter, Pfeifer, Voevodski, Canini, Mangylov, Moczydlowski, et al. 
+
+Test Set Accuracy Monotonic Guarantee? 
+
+Linear Model 54.6% yes 
+Random Forest 61.3% no 
+Lattice Regression 63.0% yes 
+
+Table 6: Comparison on a render classifier. 
+
+rameters be optimize for this case study. Simplex interpolation be use for speed. A 
+single training loop through the 20,000 training sample take around five minute on a 
+Xeon-type Intel desktop use a single-threaded C++ implementation with sparse vectors, 
+with the training time dominate by the constraint handling. Training in total take around 
+five hours. 
+
+Results in Table 6 show substantial gain over the linear model, while still produce a 
+monotonic, smooth function. The lattice regression be also statistically significantly good 
+than random forests, we hypothesize due to the regularization provide by the monotonicity 
+constraint which be important in this case due to the difficulty of the problem on the give 
+example and the relatively small number of training samples. 
+
+10.5 Case Study: Fusing Pipelines 
+
+While this paper focus on learn monotonic functions, we believe it be also the first 
+paper to propose apply lattice regression to classification problems, rather than only 
+regression problems. With that in mind, we include this case study demonstrate that 
+lattice regression without constraint also performs similarly to random forest on a real- 
+world large-scale multi-class problem. 
+
+The goal in this case study be to fuse the prediction from two pipelines, each of which 
+make a prediction about the likelihood of seven user category base on a different set of 
+high-dimensional features. Because each pipeline’s probability estimate sum to one, only 
+the first six probability estimate from each pipeline be need a feature to the fusion, 
+for a total of twelve features. The training and test set be split by time, with the old 
+1.6 million sample use for training, and the new 390,000 sample use a a test set. 
+
+The lattice be train with a multi-class logistic loss, and use simplex interpolation 
+for speed. The cross-validated model be a 212 lattice for six of the output class (with the 
+probability of the seventh class be subtract from one) and no calibration functions, 
+result in a total of 212 × 6 = 24, 576 parameters. 
+
+The result be report in Table 7. Even though Pipeline 2 alone be 6.5% more accurate 
+than Pipeline 1 alone, the test set accuracy can be increase by fuse the estimate from 
+both pipelines, with a small improvement in accuracy by lattice regression over the random 
+forest classifier, logistic regression, or simply average the two pipeline estimates. 
+
+10.6 Case Study: Video Ranking and Large-Scale Learning 
+
+This case study demonstrates large-scale training of a large monotonic lattice and learn 
+from ranked pairs. The goal be to learn a function to rank video a user might like to watch, 
+
+34 
+
+
+
+Monotonic Look-Up Tables 
+
+Test Set Accuracy Gain 
+on top of Pipeline 1 Accuracy 
+
+Pipeline 2 Only 6.5% 
+Average the Two Pipeline Estimates 7.4% 
+Fuse with Linear Model 8.5% 
+Fuse with Random Forest 9.3% 
+Fuse with Lattice Regression 9.7% 
+
+Table 7: Comparison on fuse user category prediction pipelines. 
+
+base on the video they have just watched. Experiments be perform on anonymized 
+data from YouTube. 
+
+Each feature vector xi be a vector of feature about a pair of videos, xi = h(vj , vk), where 
+vj be the watch video, vk be a candidate video to watch next, and h be a function that 
+take a pair of video and output a twelve-dimensional feature vector xi. For example, a 
+feature might be the number of time that video vj and video vk be watch in the same 
+session. 
+
+Each of the twelve feature be specify to be positively correlate with user view 
+preference, and thus we constrain the model to be monotonically increase with respect 
+to each. Of course, human preference be complicate and these monotonicity constraint 
+cannot fully model human judgement. For example, know that a video that have be 
+watch many time be generally a very good indicator that it be good to suggest, and yet 
+a very popular video at some point will flare out and become less popular. 
+
+Monotonicity constraint can also be useful to enforce secondary objectives. For ex- 
+ample, all other feature equal, one might prefer to serve fresher videos. While user in 
+the long-run want to see fresh videos, they may preferentially click on familiar videos, thus 
+click data may not capture this desire. This secondary goal can be enforce by constrain- 
+ing the learn function to be monotonic in a feature that measure video freshness. This 
+achieves a multi-objective function without overly-complicating or distort the training 
+label definition. 
+
+There be billion of video in YouTube, and thus many many pair of watched-and- 
+candidate video to score and re-score a the underlie feature value change over time. 
+Thus it be important the learn rank function to be cheap to evaluate, and so we use 
+simplex interpolation for it evaluation speed; see Section 10.7 for comparison of evaluation 
+speeds. 
+
+We train to minimize the ranked pair objective from (9), such that the learn 
+function f be train for the goal of minimize pairwise rank errors, 
+
+f(h(vj , v 
++ 
+k )) > f(h(vj , v 
+
+− 
+k )), 
+
+for each training event consist of a watch video vj , and a pair of candidate video v 
++ 
+k 
+
+and v−k where there be information that a user who have just watch video vj prefers to 
+watch v+k next over v 
+
+− 
+k . 
+
+35 
+
+
+
+Gupta, Cotter, Pfeifer, Voevodski, Canini, Mangylov, Moczydlowski, et al. 
+
+10.6.1 Which Pairs of Candidate Videos? 
+
+A key question be which sample pair of candidate video v+k and v 
+− 
+k should be use a the 
+
+prefer and unpreferred video for a give watch video vj . We use anonymized click 
+data from YouTube’s current video-suggestion system. For each watch video vj , if a user 
+clicked a suggest video in the second position or below, then we take the clicked video 
+a the prefer video v+k , and the video suggest right above the clicked video a the 
+unpreferred video v−j . We call this choice of v 
+
++ 
+k and v 
+
+− 
+k a bottom-clicked pair. This choice 
+
+be consistent with the finding of Joachims et al. (2005), whose eye-tracking experiment on 
+webpage search result show that user on average look at least at one result above the 
+clicked result, and that these pair of preferred/unpreferred sample correlate strongly with 
+explicit relevance judgements. Also, use bottom-clicked pair remove the trust bias that 
+user know they be be present with a ranked list and prefer sample that be ranked- 
+high (Joachims et al., 2005). In a set of preliminary experiments, we also try training 
+use either a randomly sample video a v−k , or the video just after the clicked video, and 
+then test on bottom-clicked pairs. Those result show test accuracy on bottom-clicked 
+pair be up to 1% more accurate if the training set only include the bottom-clicked pairs, 
+even though that meant few training pairs. 
+
+An additional goal (and one that be common in commercial large-scale machine learn 
+system for various practical reasons) be for the learn rank function to be a similar 
+to the current rank function a possible. That is, we wish to minimize change to the 
+current score if they do not improve accuracy; such accuracy-neutral change be refer 
+to a churn. To reduce churn, we add in additional pair that reflect the decision of the 
+current rank function. Each of these pair also take the clicked video a the prefer 
+v+k , but set the unpreferred video v 
+
+− 
+k to be the video that the current system ranked ten 
+
+candidate low than the clicked video. The dataset be a 50-50 mix of these churn-reducing 
+pair and bottom-clicked pairs. 
+
+10.6.2 More Experimental Details 
+
+The dataset be randomly split into mutually exclusive training, test, and validation set of 
+size 400 million, 25 million, and 25 million pairs, respectively. To ensure privacy, the dataset 
+only contain the feature vector, and no information identify the video or user. The 
+disadvantage of that be the train, test and validation set be likely to have some sample 
+from the same video and same users. However, in total the datasets capture million of 
+unique user and unique watch videos. 
+
+We use a fix 312 lattice, for a total of 531,441 parameters. The pre-processing 
+function be fix in this case, so no calibration function be learned. We compare 
+training on increasingly-larger randomly-sampled subset of the 400 million training set (see 
+Figure 13 for training set sizes). We compare training on a single worker to the parallelize- 
+and-average strategy explain in Section 9.2. Parallel result be parallelize over 100 
+workers. The stepsize be chosen independently for each training set base on accuracy on 
+the validation set. 
+
+We report result with and without monotonicity constraints. For the unconstrained 
+results, each training (single or parallel) touch each sample in the training set once. 
+For the monotonic result (single or parallelized), each sample be touch ten times, and 
+
+36 
+
+
+
+Monotonic Look-Up Tables 
+
+minibatching be use with a minibatch size of 32 stochastic gradients. Logistic loss be 
+used. 
+
+10.6.3 Results 
+
+Figure 13 compare test set accuracy for single and parallelize training for different amount 
+of training data, with and without monotonicity constraints. For each dataset, the single 
+and parallel training saw the same total number of training sample and be allow the 
+same total number of stochastic gradient updates. 
+
+Figure 13: Comparison of training with a single worker versus 100 worker in parallel, a a 
+function of training set size. 
+
+On the click data test set, not use monotonicity constraint (the dark lines) be about 
+.5% good at pairwise accuracy than if we constrain the function to be monotonic. However, 
+in live experiment that require rank all video (not only one that have be top-ranked 
+in the past, and hence include in the click data sets), model train with monotonicity 
+constraint show good performance on the actual measure of user-engagement (as op- 
+pose to the training metric of pairwise accuracy). This discrepancy appear to be due to 
+the bias sample of the click data, a the click-data have a bias distribution over the 
+feature space compare to the distribution of all video which must get ranked in practice. 
+The bias distribution of the click data appear to cause parameter in sparser region of 
+the feature space to be non-monotonic in an effort to increase the flexibility (and accuracy) 
+of the function in the denser regions, thus increase the accuracy on the click data. En- 
+force monotonicity help address this sample bias problem by not allow the training 
+to ignore the accuracy in sparser region that be important in practice to accurately rank 
+all videos. 
+
+Even though there be 500k parameter to train, the click-data accuracy be already very 
+good with only 500k training samples, and test accuracy increase only slightly when train 
+on 400 million sample compare to 10 million samples. This be largely because the click- 
+
+37 
+
+
+
+Gupta, Cotter, Pfeifer, Voevodski, Canini, Mangylov, Moczydlowski, et al. 
+
+data sample be densely cluster in the feature space, and with simplex interpolation, 
+only a small fraction of the 500k parameter control the function over the dense part of the 
+feature space. 
+
+The darker line of Figure 13 show the parallelization versus single-machine result 
+without monotonicity constraints. Unconstrained, the parallelize run appear to perform 
+slightly good to the single-machine training give the same number of training sample 
+(and the same total number of gradient updates). We hypothesize this slight improvement 
+be due to some noise-averaging across the 100 parallelize train lattices. The lighter line 
+of Figure 13 show the parallelization versus single-machine result with monotonicity con- 
+straints. Trained on 500k pairs, the parallelize training and single-machine monotonic 
+training produce the same test accuracy. However, a the training set size increases, the 
+parallelize training take more data to achieve the same accuracy a the single-machine 
+training. We believe this be because average the 100 monotonic lattice be a convex combi- 
+nation of lattice likely on the edge of the monotonicity constraint set, produce an average 
+lattice in the interior of the constraint set, that is, the average lattice be over-constrained. 
+
+10.7 Run Times 
+
+We give some timing example for the different interpolation and for training. 
+
+Figure 14 show average evaluation time for multilinear and simplex interpolation of 
+one sample from a 2D lattice for D = 4 to D = 20 use a single-threaded 3.5GHz Intel Ivy 
+Bridge processor. Note the multilinear evaluation time be report on a log-scale, and 
+on a log scale the evaluation time increase roughly linearly in D, match the theoretical 
+O(2D) complexity give in Section 5.1. The simplex evaluation time scale roughly linearly 
+with D, consistent with the theoretical O(D logD) complexity. For D = 6 features, simplex 
+interpolation be already three time faster than multilinear. With D = 20 features, the 
+simplex interpolation be still only 750 nanoseconds, but the multilinear interpolation be 
+about 15, 000 time slower, at around 12 milliseconds. 
+
+Training time be difficult to report in an accurate or meaningful way due to the 
+high-variance of run on a large, shared, distribute cluster. Here be one example: 
+with every feature constrain to be monotonic, a single worker training one loop of a 212 
+
+lattice on 4 million sample usually take around 15 minutes, whereas with 100 parallelize 
+worker one loop through 400 million sample (4 million sample for each worker) usually 
+take around 20 minutes. Large step-sizes can take much longer than small stepsizes, 
+because large update tend to violate more monotonicity constraint and thus require more 
+expensive projections. Minibatching be particularly effective at speed up training because 
+the average batch of stochastic gradient reduces the number of monotonicity violation 
+and the need for projections. Without monotonicity constraints, training be generally 10× 
+to 1000× faster, depend on how non-monotonic the data is. 
+
+10.8 Interpretability in Practice 
+
+It be difficult to quantify interpretability, but we summarize our observation from work 
+with around 50 different user on around a dozen different real-world machine learn 
+problem where there be a relatively small number of semantically meaningful features. 
+
+38 
+
+
+
+Monotonic Look-Up Tables 
+
+(a) Multilinear Interpolation (b) Simplex Interpolation 
+
+Figure 14: Average evaluation time to interpolate a sample from a 2D lattice. Figure (a) 
+show the multilinear interpolation time on a log2 scale in nanoseconds. Figure 
+(b) show the much faster simplex interpolation time in nanoseconds. Simplex 
+interpolation be 10× faster than multilinear for D = 9 features, about 100× 
+faster for D = 13 features, and over 1, 000× faster for D = 17 features. 
+
+First, we do find that be able to summarize a model a be a positive or negative 
+function with respect to each input feature do help user feel that they understand and can 
+predict the model’s behavior good than a comparable unconstrained model. In particular, 
+while aggregate measure like accuracy, precision, or recall over a test set provide summary 
+statistic over that particular test set, we find that user in some case do worry about 
+the unknown unknown of use a machine learn model, and that add monotonicity 
+constraint give these user more confidence that the model can be trust not to behave 
+unreasonably for any examples. And this confidence be well-founded: a discuss in the 
+video rank case study in Section 10.6, monotonicity constraint do in practice guard 
+against potentially strange behavior of highly nonlinear function in rarer part of the 
+feature space. 
+
+We have also found that monotonicity constraint make debug highly nonlinear 
+model easier. We find that one particularly useful debug tool be sensitivity plot like 
+the one show in Figure 15, which show how f(x) relates to each feature value of x, for 
+a particular sample x. Monotonicity constraint make these sensitivity plot monotonic, 
+which we find make it easy to identify problem with signal and training data. 
+
+Apart from the issue of monotonicity, we expect that use one-dimensional calibra- 
+tion function and interpolate look-up table would produce parameter that be inter- 
+pretable. These expectation be half-right. We do find it helpful and common for user to 
+check and analyze the signals’ calibration functions, and that the calibration provide use- 
+ful information to user about what the model have learned, and help identify unexpected 
+behavior or problem with features. But, we do not find that user examine the lattice 
+parameter directly very often, and that the readability of the lattice parameter becomes 
+generally less useful a D increases. Users be more likely to utilize other analytics, such a 
+how correlate the output be with each calibrate feature. While this information do not 
+
+39 
+
+
+
+Gupta, Cotter, Pfeifer, Voevodski, Canini, Mangylov, Moczydlowski, et al. 
+
+control for between-feature correlation (so a feature might be highly correlate with the 
+output but not need if it correlate with another feature), user can conclude the model 
+behaves a lot like highly-correlated features, and this aid model understanding. Low corre- 
+lation between a calibrate feature and the output either indicates an unimportant feature, 
+or, if the feature be know to be important (because drop it hurt accuracy), that it 
+play an important role interact or conditioning other features. 
+
+To understand feature interactions, again we find that rather than analyze the lattice 
+parameter explicitly, user generally prefer to analyze two-dimensional visualization of 
+the model over pair of feature (averaged or slice over the other features), or to examine 
+example to check their hypothesis about expect higher-order interactions. 
+
+Another common problem be to understand how two similar model be different (for 
+example, one might have be train with more training data, or one might use an ad- 
+ditional feature). For this purpose, we find it be again rare that user want to directly 
+analyze difference in model parameter except for very tiny models, prefer instead to 
+look at example that be score differently by the two models, and analyze these example 
+sample in their raw form (for example, look at the video that have be promote or 
+demote by a new model, in conjunction with the feature use by the model). 
+
+Figure 15: Illustration of a sensitivity plot for a calibrate monotonic lattice with respect 
+to one of the D features. The blue line show how the output f(x) (y-axis) of a 
+calibrate monotonic lattice change if only this one feature value of x (x-axis) be 
+changed, but all other component of x be kept fixed. The green dot mark the 
+current input and output. The yellow line show the model output if the first 
+feature be missing. The red dot line show the binary classification thresh- 
+old. This plot be piecewise linear because the calibrator function be piecewise 
+linear and the simplex interpolation be also piecewise linear, and monotonically 
+increase because the function be constrain to be monotonic with respect to 
+this feature. In this example, one see that to change the classification decision 
+without change any other features, this feature would have to be increase 
+from it current value of 0.67 to at least 0.84 at which point it would cross the 
+red line mark the decision threshold. 
+
+40 
+
+
+
+Monotonic Look-Up Tables 
+
+11. Discussion and Some Open Questions 
+
+We have propose use constrain interpolate look-up table to effectively learn flexible, 
+monotonic function for low-dimensional machine learn problem of classification, rank- 
+ing, and regression. We address a number of practical issues, include interpretability, 
+evaluation speed, automate pre-processing of features, miss data, and categorical fea- 
+tures. Experimental result show state-of-the-art performance on the large training set 
+and large number of feature publish for monotonic methods. 
+
+Practical experience have show u that be able to check and ensure monotonicity help 
+user trust the model, and lead to model that generalize better. For us, the monotonicity 
+constraint have come from engineer who believe the output should be monotonic in the 
+feature. In the absence of clear prior information about monotonicity, it may be tempt to 
+use the direction of a linear fit to specify a monotonic direction and then use monotonicity 
+a a regularizer. Magdon-Ismail and Sill (2008) point out that use the linear regression 
+coefficient for this purpose can be mislead if feature be correlate and not jointly 
+Gaussian. 
+
+For classifiers, require the entire function to be monotonic be a strong requirement 
+than need to simply guarantee that the decision boundary (and hence classifier) be mono- 
+tonic. It be an open question how to enforce only the thresholded function to be monotonic, 
+and whether that would be more useful in practice. 
+
+One surprise be that for practical machine learn problem like those of Section 10, 
+we found a simple 2D lattice be often sufficient to capture the interaction of D features, 
+especially if we jointly optimize D one-dimensional feature calibration functions. When 
+we begin this work, we expect to have to use much more fine-grained lattice with many 
+vertex in each feature, or perhaps irregular lattice to achieve state-of-the-art accuracy. 
+In fact, calibration function help approximately linearize each feature with respect to the 
+label, make a 2D lattice sufficiently flexible for most of the real-world problem we have 
+encountered. 
+
+For some cases, a 2D lattice be too flexible. We reduce lattice flexibility with new 
+regularizers: monotonicity, and the torsion regularizer that encourages a more linear model. 
+While good for interpretability and accuracy, these regularization strategy do not reduce 
+the model size. 
+
+For a large number of feature D, the exponential model size of a 2D lattice be a memory 
+issue. On a single machine, training and evaluate with a few million parameter be viable, 
+but this still limit this approach to not much more than D = 20 features. An open question 
+be how such large model could be sparsified, and if useful sparsification approach could 
+also provide additional useful regularization. 
+
+A second surprise be that simplex interpolation provide similar accuracy to multi- 
+linear interpolation. The rotational dependence of simplex interpolation seem at first 
+troubling, but the propose approach of align the share axis of the simplices with the 
+main increase axis of the function appear to solve this problem in practice. The geom- 
+etry of the simplices at first seem odd in that it produce a locally linear surface over 
+elongate simplices. However, this partition turn out to work well because it provide 
+a very flexible piecewise linear decision boundary. Lastly, we found that the theoretical 
+
+41 
+
+
+
+Gupta, Cotter, Pfeifer, Voevodski, Canini, Mangylov, Moczydlowski, et al. 
+
+O(D logD) computational complexity do result in practice in order of magnitude faster 
+interpolation than multilinear interpolation a D increases. 
+
+A common practical issue in machine learn be handle categorical data. We propose 
+to learn a mapping from mutually exclusive category to feature values, jointly with the 
+other model parameters. We found categorical-mapping to be interpretable, flexible, and 
+accurate. The propose categorical mapping can be view a learn a one-dimensional 
+embed of the categories. Though we generally only need two vertex in the lattice 
+for continuous features, for categorical feature we often find it helpful to use more vertex 
+(a finer-grained lattice) for more flexibility. Some preliminary experiment learn two- 
+dimensional embeddings of category (that is, mapping one category to [0, 1]2) show 
+promise, but we found this require more careful initialization and handle of the increase 
+non-convexity. 
+
+Learning the monotonic lattice be a convex problem, but compose the lattice and the 
+one-dimensional calibration function creates a non-convex objective. We use only one 
+initialization of the lattice and calibrators for all our experiments, but tune the stepsize 
+of the stochastic gradient descent separately for the set of lattice parameter and the set 
+of calibration parameters. In some case we saw a substantial sensitivity of the accuracy 
+to the initial SGD stepsizes. We hypothesize that this be cause by some interplay of the 
+relative stepsizes and the relative size of the local optima. 
+
+We employ a number of strategy to speed up training. One of the big speed-ups 
+come from randomly sample the additive term of the graph regularizers, analogous to the 
+random sample of the additive term of the empirical loss that SGD uses. We show that 
+a parallelize-and-average strategy work for training the lattices. The large computational 
+bottleneck remains the projection onto the monotonicity constraints. Mini-batching the 
+sample reduces the number of projection and provide speed-ups, but a faster approach 
+to optimization give possibly hundred of thousand of constraint would be valuable. 
+
+Lastly, this work leaf open a number of theoretical question for the function class of 
+interpolate look-up tables, for example how monotonicity constraint theoretically affect 
+convergence speed. 
+
+12. Acknowledgments 
+
+We thank Sugato Basu, David Cardoze, James Chen, Emmanuel Christophe, Brendan 
+Collins, Mahdi Milani Fard, James Muller, Biswanath Panda, and Alex Vodomerov for help 
+with experiment and helpful discussions. 
+
+References 
+
+Y. S. Abu-Mostafa. A method for learn from hints. In Advances in Neural Information 
+Processing Systems, page 73–80, 1993. 
+
+N. P. Archer and S. Wang. Application of the back propagation neural network algorithm 
+with monotonicity constraint for two-group classification problems. Decision Sciences, 
+24(1):60–75, 1993. 
+
+42 
+
+
+
+Monotonic Look-Up Tables 
+
+F. Bach. Learning with submodular functions: A convex optimization perspective. Foun- 
+dations and Trends in Machine Learning, 6(2), 2013. 
+
+R. E. Barlow, D. J. Bartholomew, J. M. Bremner, and H. D. Brunk. Statistical inference 
+under order restrictions; the theory and application of isotonic regression. Wiley, New 
+York, USA, 1972. 
+
+A. Ben-David. Automatic generation of symbolic multiattribute ordinal knowledge base 
+DSS: methodology and applications. Decision Sciences, page 1357–1372, 1992. 
+
+A. Ben-David. Monotonicity maintenance in information-theoretic machine learn algo- 
+rithms. Machine Learning, 21:35–50, 1995. 
+
+A. Ben-David, L. Sterling, and Y. H. Pao. Learning and classification of monotonic ordinal 
+concepts. Computational Intelligence, 5(1):45–49, 1989. 
+
+S. Boyd, N. Parikh, E. Chu, B. Peleato, and J. Eckstein. Distributed optimization and 
+statistical learn via the alternate direction method of multipliers. Foundations and 
+Trends in Machine Learning, 3(1), 2010. 
+
+L. Breiman. Random forests. Machine Learning, 45(1):5–32, 2001. 
+
+J. Casillas, O. Cordon, F. Herrera, and L. Magdalena (Eds.). Trade-off between accuracy 
+and interpretability in fuzzy rule-based modelling. Physica-Verlag, 2002. 
+
+R. Chandrasekaran, Y. U. Ryu, V. S. Jacob, and S. Hong. Isotonic separation. INFORMS 
+Journal on Computing, 17(4):462–474, 2005. 
+
+A. Cotter, M. R. Gupta, and J. Pfeifer. A Light Touch for Heavily Constrained SGD. arXiv 
+preprint, 2015. URL http://arxiv.org/abs/1512.04960. 
+
+N. Dalvi, M. Olteanu, M. Raghavan, and P. Bohannon. Deduplicating a place database. 
+Proc. ACM WWW Conf., 2014. 
+
+H. Daniels and M. Velikova. Monotone and partially monotone neural networks. IEEE 
+Trans. Neural Networks, 21(6):906–917, 2010. 
+
+O. Dekel, R. Gilad-Bachrach, O. Shamir, and L. Xiao. Optimal distribute online prediction 
+use mini-batches. Journal Machine Learning Research, 13(1):165–202, January 2012. 
+
+J. Duchi, E. Hazan, and Y. Singer. Adaptive subgradient method for online learn and 
+stochastic optimization. Journal Machine Learning Research, 12:2121–2159, 2011. 
+
+C. Dugas, Y. Bengio, F. Bélisle, C. Nadeau, and R. Garcia. Incorporating second-order func- 
+tional knowledge for good option pricing. In Advances in Neural Information Processing 
+Systems (NIPS), 2000. 
+
+C. Dugas, Y. Bengio, F. Bélisle, C. Nadeau, and R. Garcia. Incorporating functional 
+knowledge in neural networks. Journal Machine Learning Research, 2009. 
+
+43 
+
+
+
+Gupta, Cotter, Pfeifer, Voevodski, Canini, Mangylov, Moczydlowski, et al. 
+
+W. Duivesteijn and A. Feelders. Nearest neighbour classification with monotonicity con- 
+straints. Proc. European Conf. Machine Learning, page 301–316, 2008. 
+
+A. Feelders. Monotone relabeling in ordinal classification. Proc. IEEE Conf. Data Mining, 
+page 803–808, 2010. 
+
+M. Fernandez-Delgado, E. Cernadas, S. Barro, and D. Amorim. Do we need hundred of 
+classifier to solve real world classification problems? Journal Machine Learning Research, 
+2014. 
+
+E. K. Garcia and M. R. Gupta. Lattice regression. In Advances in Neural Information 
+Processing Systems (NIPS), 2009. 
+
+E. K. Garcia, S. Feldman, M. R. Gupta, and S. Srivastava. Completely lazy learning. IEEE 
+Trans. Knowledge and Data Engineering, 22(9):1274–1285, Sept. 2010. 
+
+E. K. Garcia, R. Arora, and M. R. Gupta. Optimized regression for efficient function 
+evaluation. IEEE Trans. Image Processing, 21(9):4128–4140, Sept. 2012. 
+
+S. Garcia, A. Fernandez, J. Luengo, and F. Herrera. A study of statistical technique and 
+performance measure for genetics-based machine learning: accuracy and interpretability. 
+Soft Computing, 13:959–977, 2009. 
+
+I. J. Good. The Estimation of Probabilities: An Essay on Modern Bayesian Methods. MIT 
+Press, 1965. 
+
+H. Gruber, M. Holzer, and O. Ruepp. Sorting the slow way: an analysis of perversely awful 
+randomize sort algorithms. In Fun with Algorithms, page 183–197. Springer, 2007. 
+
+M. Gupta, S. Bengio, and J. Weston. Training highly multiclass classifiers. Journal Machine 
+Learning Research, 2014. 
+
+M. R. Gupta, R. M. Gray, and R. A. Olshen. Nonparametric supervise learn by lin- 
+ear interpolation with maximum entropy. IEEE Trans. Pattern Analysis and Machine 
+Intelligence, 28(5):766–781, 2006. 
+
+T. Hastie and R. Tibshirani. Generalized Additive Models. Chapman Hall, New York, 1990. 
+
+T. Hastie, R. Tibshirani, and J. Friedman. The Elements of Statistical Learning. Springer- 
+Verlag, New York, 2001. 
+
+C. C. Holmes and N. A. Heard. Generalized monotonic regression use random change 
+points. Statistics in Medicine, 22:623–638, 2003. 
+
+A. Howard and T. Jebara. Learning monotonic transformation for classification. In Ad- 
+vances in Neural Information Processing Systems, 2007. 
+
+H. Ishibuchi and Y. Nojima. Analysis of interpretability-accuracy tradeoff of fuzzy sys- 
+tems by multiobjective fuzzy genetics-based machine learning. International Journal of 
+Approximate Reasoning, 44:4–31, 2007. 
+
+44 
+
+
+
+Monotonic Look-Up Tables 
+
+T. Joachims, L. Granka, B. Pan, H. Hembrooke, and G. Gay. Accurately interpret 
+clickthrough data a implicit feedback. Proc. SIGIR, 2005. 
+
+H. R. Kang. Comparison of three-dimensional interpolation technique by simulations. SPIE 
+Vol. 2414, 1995. 
+
+H. R. Kang. Color Technology for Electronic Imaging Devices. SPIE Press, USA, 1997. 
+
+J. Kasson, W. Plouffe, and S. Nin. A tetrahedral interpolation technique for color space 
+conversion. SPIE Vol. 1909, 1993. 
+
+H. Kay and L. H. Ungar. Estimating monotonic function and their bounds. AIChE Journal, 
+46(12):2426–2434, 2000. 
+
+R. E. Knop. A note on hypercube partitions. Journal of Combinatorial Theory, Ser. A, 15 
+(3):338–342, 1973. 
+
+W. Kotlowski and R. Slowinski. Rule learn with monotonicity constraints. In Proceedings 
+International Conference on Machine Learning, 2009. 
+
+F. Lauer and G. Bloch. Incorporating prior knowledge in support vector regression. Machine 
+Learning, 70(1):89–118, 2008. 
+
+X. Liao, H. Li, and L. Carin. Quadratically gate mixture of expert for incomplete data 
+classification. Proc. ICML, 2007. 
+
+T.-Y. Liu. Learning to Rank for Information Retrieval. Springer, 2011. 
+
+Malik Magdon-Ismail and J. Sill. A linear fit get the correct monotonicity directions. 
+Machine Learning, page 21–43, 2008. 
+
+G. Mann, R. McDonald, M. Mohri, N. Silberman, and D. D. Walker. Efficient large- 
+scale distribute training of conditional maximum entropy models. Advances in Neural 
+Information Processing Systems (NIPS), 2009. 
+
+D. G. Mead. Dissection of the hypercube into simplexes. Proc. Amer. Math. Soc., 76: 
+302–304, 1979. 
+
+A. Minin, M. Velikova, B. Lang, and H. Daniels. Comparison of universal approximators 
+incorporate partial monotonicity by structure. Neural Networks, 23(4):471–475, 2010. 
+
+H. Mukarjee and S. Stern. Feasible nonparametric estimation of multiargument monotone 
+functions. Journal of the American Statistical Association, 89(425):77–80, 1994. 
+
+B. Neelon and D. B. Dunson. Bayesian isotonic regression and trend analysis. Biometrics, 
+60:398–406, 2004. 
+
+A. Nemirovski, A. Juditsky, G. Lan, and A. Shapiro. Robust stochastic approximation 
+approach to stochastic programming. SIAM Journal on Optimization, 19(4):1574–1609, 
+January 2009. 
+
+45 
+
+
+
+Gupta, Cotter, Pfeifer, Voevodski, Canini, Mangylov, Moczydlowski, et al. 
+
+K. Neumann, M. Rolf, and J. J. Steil. Reliable integration of continuous constraint into ex- 
+treme learn machines. International Journal of Uncertainty, Fuzziness and Knowledge- 
+Based Systems, 21(supp02):35–50, 2013. 
+
+R. Nock. Inducing interpretable voting classifier without trading accuracy for simplic- 
+ity: Theoretical results, approximation algorithms, and experiments. Journal Artificial 
+Intelligence Research, 17:137–170, 2002. 
+
+K.-M. Osei-Bryson. Post-pruning in decision tree induction use multiple performance 
+measures. Computers and Operations Research, 34:3331–3345, 2007. 
+
+R. Potharst and A. J. Feelders. Classification tree for problem with monotonicity con- 
+straints. ACM SIGKDD Explorations, page 1–10, 2002a. 
+
+R. Potharst and A. J. Feelders. Pruning for monotone classification trees. Springer Lecture 
+Notes on Computer Science, 2810:1–12, 2002b. 
+
+Y.-J. Qu and B.-G. Hu. Generalized constraint neural network regression model subject to 
+linear priors. IEEE Trans. on Neural Networks, 22(11):2447–2459, 2011. 
+
+J. O. Ramsay. Estimating smooth monotone functions. Journal of the Royal Statistical 
+Society, Series B, 60:365–375, 1998. 
+
+G. Rätsch, S. Sonnenburg, and C. Schäfer. Learning interpretable SVMs for biological 
+sequence classification. BMC Bioinformatics, 7, 2006. 
+
+J. Riihimäki and A. Vehtari. Gaussian process with monotonicity information. In Inter- 
+national Conference on Artificial Intelligence and Statistics, page 645–652, 2010. 
+
+R. Rovatti, M. Borgatti, and R. Guerrieri. A geometric approach to maximum-speed n- 
+dimensional continuous linear interpolation in rectangular grids. IEEE Trans. on Com- 
+puters, 47(8):894–899, 1998. 
+
+F. Schimdt and R. Simon. Some geometric probability problem involve the Eulerian 
+numbers. Electronic Journal of Combinatorics, 4(2), 2007. 
+
+G. Sharma and R. Bala. Digital Color Imaging Handbook. CRC Press, New York, 2002. 
+
+T. S. Shively, T. W. Sager, and S. G. Walker. A Bayesian approach to non-parametric 
+monotone function estimation. Journal of the Royal Statistical Society, Series B, 71(1): 
+159–175, 2009. 
+
+P. K. Shukla and S. P. Tripathi. A review on the interpretability-accuracy trade-off in 
+evolutionary multi-objective fuzzy system (EMOFS). Information, 2012. 
+
+J. Sill. Monotonic networks. Advances in Neural Information Processing Systems (NIPS), 
+1998. 
+
+J. Sill and Y. S. Abu-Mostafa. Monotonicity hints. Advances in Neural Information Pro- 
+cessing Systems (NIPS), page 634–640, 1997. 
+
+46 
+
+
+
+Monotonic Look-Up Tables 
+
+D. J. Spiegelhalter and R. P. Knill-Jones. Statistical and knowledge-based approach to 
+clinical decision support systems, with an application in gastroenterology. Journal of the 
+Royal Statistical Society A, 147:35–77, 1984. 
+
+J. Spouge, H. Wan, and W. J. Wilbur. Least square isotonic regression in two dimensions. 
+Journal of Optimization Theory and Applications, 117(3):585–605, 2003. 
+
+C. Strannegaard. Transparent neural networks. Proc. Artificial General Intelligence, 2012. 
+
+B. Sun and S. Zhou. Study on the 3D interpolation model use in color conversion. IACSIT 
+Intl. Journal Engineering and Technology, 4(1), 2012. 
+
+A. van Esbroeck, S. Singh, I. Rubinfeld, and Z. Syed. Evaluating trauma patients: Ad- 
+dress miss covariates with joint optimization. Proc. AAAI, 2014. 
+
+M. Villalobos and G. Wahba. Inequality-constrained multivariate smooth spline with 
+application to the estimation of posterior probabilities. Journal of the American Statistical 
+Association, 82(397):239–248, 1987. 
+
+S. Wang. A neural network method of density estimation for univariate unimodal data. 
+Neural Computing & Applications, 2(3):160–167, 1994. 
+
+L. Yu and J. Xiao. Trade-off between accuracy and interpretability: experience-oriented 
+fuzzy model via reduced-set vectors. Computers and Mathematics with Applications, 
+57:885–895, 2012. 
+
+47 
+
+

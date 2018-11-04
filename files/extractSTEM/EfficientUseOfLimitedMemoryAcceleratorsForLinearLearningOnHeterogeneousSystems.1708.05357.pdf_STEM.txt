@@ -1,0 +1,2183 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+effici use of limited-memori acceler 
+for linear learn on heterogen system 
+
+celestin dünner 
+ibm research - zurich 
+
+switzerland 
+cdu@zurich.ibm.com 
+
+thoma parnel 
+ibm research - zurich 
+
+switzerland 
+tpa@zurich.ibm.com 
+
+martin jaggi 
+epfl 
+
+switzerland 
+martin.jaggi@epfl.ch 
+
+abstract 
+
+We propos a gener algorithm build block to acceler train of machin 
+learn model on heterogen comput systems. our scheme allow to effi- 
+cientli employ comput acceler such a gpu and fpga for the train 
+of large-scal machin learn models, when the train data exce their me- 
+mori capacity. also, it provid adapt to ani system’ memori hierarchi in 
+term of size and process speed. our techniqu be built upon novel theoret 
+insight regard primal-du coordin methods, and us dualiti gap informa- 
+tion to dynam decid which part of the data should be make avail for 
+fast processing. To illustr the power of our approach we demonstr it perfor- 
+manc for train of gener linear model on a large-scal dataset exceed 
+the memori size of a modern gpu, show an order-of-magnitud speedup over 
+exist approaches. 
+
+1 introduct 
+
+As modern comput system rapidli increas in size, complex and comput power, they 
+becom less homogeneous. today’ system exhibit strong heterogen at mani levels: in term 
+of comput parallelism, memori size and access bandwidth, a well a commun bandwidth 
+between comput node (e.g., computers, mobil phones, server racks, gpus, fpgas, storag node 
+etc.). thi increas heterogen of comput environ be pose new challeng for the 
+develop of effici distribut algorithms. that be to optim exploit individu comput 
+resourc with veri divers characterist without suffer from the i/o cost of exchang data 
+between them. 
+
+figur 1: comput unitsa, B with 
+differ memori size, bandwidth 
+and comput power. 
+
+In thi paper, we focu on the task of train large-scal 
+machin learn model in such heterogen comput en- 
+viron and propos a new gener algorithm build 
+block to effici distribut the workload between heteroge- 
+neou comput units. assum two comput units, denot A 
+and B, which differ in comput power a well a memori ca- 
+paciti a illustr in figur 1. the comput power of 
+unit A be small and it memori capac be larg rel to 
+it peer unit B (i.e., we assum that the train data fit into 
+the memori of A, but not into b’s). hence, on the compu- 
+tation more power unit B, onli part of the data can be 
+process at ani give time. the two units, A and B, be abl 
+to commun with each other over some interface, howev 
+there be cost associ with do so. 
+
+31st confer on neural inform process system (nip 2017), long beach, ca, usa. 
+
+ar 
+X 
+
+iv 
+:1 
+
+70 
+8. 
+
+05 
+35 
+
+7v 
+2 
+
+[ 
+c 
+
+.L 
+G 
+
+] 
+7 
+
+N 
+ov 
+
+2 
+01 
+
+7 
+
+
+
+thi gener setup cover mani essenti element of modern machin learn systems. A typic 
+exampl be that of acceler units, such a a gpu or fpgas, augment tradit comput 
+or servers. while such devic can offer a signific increas in comput power due to their 
+massiv parallel architectures, their memori capac be typic veri limited. anoth exampl 
+can be found in hierarch memori system where data in the high level memori can be access 
+and henc process faster than data in the – typic larg – low level memory. such memori 
+system be span from, e.g., fast on-chip cach on one extrem to slow hard drive on the 
+other extreme. 
+
+the core question we address in thi paper be the following: how can we effici distribut the 
+workload between heterogen unit A and B in order to acceler larg scale learning? 
+the gener algorithm build block we propos systemat split the overal problem into two 
+workloads, a more data-intens but less compute-intens part for unit A and a more compute- 
+intens but less data-intens part for B. these workload be then execut in parallel, enabl 
+full util of both resourc while keep the amount of necessari commun between 
+the two unit minimal. such a gener algorithm build block be use much more wide than 
+just for train on two heterogen comput unit – it can serv a a compon of larg train 
+algorithm or pipelin thereof. In a distribut train setting, our scheme allow each individu 
+node to local benefit from it own accelerator, therefor speed up the overal task on a cluster, 
+e.g., a part of [14] or anoth distribut algorithm. orthogon to such a horizont application, our 
+scheme can also be use a a build block vertic integr in a system, serv the effici 
+of sever level of the memori hierarchi of a give comput node. 
+
+relat work. the most popular exist approach to deal with memori limit be to process 
+data in batches. for example, for the special case of svms, [16] split data sampl into block 
+which be then load and process sequenti (on b), in the set of limit ram and the 
+full data resid on disk. thi approach enabl contigu chunk of data to be load which be 
+benefici in term of i/o overhead; it howev treat sampl uniformly. later, in [2, 7] it be propos 
+to select load and keep inform sampl in memori in order to reduc disk access, but thi 
+approach be specif to support vector and be unabl to theoret quantifi the possibl speedup. 
+
+In thi work, we propos a novel, theoretically-justifi scheme to effici deal with memori 
+limit in the heterogen two-unit set illustr in figur 1. our scheme can be appli 
+to a broad class of machin learn problems, includ gener linear models, empir risk 
+minim problem with a strongli convex regularizer, such a svm, a well a spars models, 
+such a lasso. In contrast to the relat line of research [16, 2, 7], our scheme be design to take full 
+advantag of both comput resourc A and B for train by systemat split the workload 
+amonga and B in order to adapt to their specif properti and to the avail bandwidth between 
+them. At the heart of our approach lie a smart data select scheme use coordinate-wis dualiti 
+gap a select criteria. our theori will show that our select scheme provabl improv the 
+converg rate of train overall, by explicitli quantifi the benefit over uniform sampling. In 
+contrast, exist work [2, 7] onli show that the linear converg rate on svm be preserv 
+asymptotically, but not necessarili improved. 
+
+A differ line of relat research be steepest coordin selection. It be know that steepest coor- 
+dinat descent can converg much faster than uniform [8] for singl coordin updat on smooth 
+objectives, howev it typic do not perform well for gener convex problems, such a those 
+with L1 regularization. In our work, we overcom thi issu by use the gener primal-du 
+gap [4] which do extend to L1 problems. relat to thi notion, [3, 9, 11] have explor the use 
+of similar inform a an adapt measur of importance, in order to adapt the sampl proba- 
+biliti of coordin descent. both, thi line of research, a well a steepest coordin descent [8] 
+be still limit to singl coordin updates, and cannot be readili extend to arbitrari accuraci 
+updat on a larg subset of coordin (perform per commun round) a requir in our 
+heterogen setting. 
+
+contributions. the main contribut of thi work be summar a follows: 
+• We analyz the per-iteration-improv of primal-du block coordin descent and how it 
+
+depend on the select of the activ coordin block at that iteration. We extend the conver- 
+genc theori to arbitrari approxim updat on the coordin subsets, and propos a novel 
+dynam select scheme for block of coordinates, which reli on coordinate-wis dualiti 
+gaps, and we precis quantifi the speedup of the converg rate over uniform sampling. 
+
+2 
+
+
+
+• our theoret find result in a scheme for learn in heterogen comput environ 
+which be easi to use, theoret justifi and versatil in that it can be adapt to give re- 
+sourc constraints, such a memory, comput and communication. furthermore, our scheme 
+enabl parallel execut between, and also within, two heterogen comput units. 
+
+• for the exampl of joint train in a cpu plu gpu environ – which be veri challeng 
+for data-intens work load – we demonstr a more than 10× speed-up over exist method 
+for limited-memori training. 
+
+2 learn problem 
+for the scope of thi work we focu on the train of convex gener linear model of the form 
+
+min 
+α∈rn 
+
+o(α) := f(aα) + g(α) (1) 
+
+where f be a smooth function and g(α) = 
+∑ 
+i gi(αi) be separable, α ∈ Rn describ the paramet 
+
+vector and A = [a1,a2, . . . ,an] ∈ rd×n the data matrix with column vector ai ∈ rd. thi set 
+cover mani promin machin learn problems, includ gener linear model a use for 
+regression, classif and featur selection. To avoid confusion, it be import to distinguish the 
+two main applic classes: On one hand, we cover empir risk minim (erm) problem 
+with a strongli convex regular such a l2-regular svm – where α then be the dual variabl 
+vector and f be the smooth regular conjugate, a in sdca [13]. On the other hand, we also cover 
+the class of spars model such a lasso or erm with a spars regular – where f be the data-fit 
+term and g take the role of the non-smooth regularizer, so α be the origin primal parameters. 
+
+dualiti gap. through the perspect of fenchel-rockafellar duality, one can, for ani primal- 
+dual solut pair (α,w), defin the non-neg dualiti gap for (1) a 
+
+gap(α;w) := f(aα) + g(α) + f∗(w) + g∗(−a>w) (2) 
+where the function f∗, g∗ in (2) be defin a the convex conjugate1 of their correspond coun- 
+terpart f, g [1]. let u consid paramet w that be optim rel to a give α, i.e., 
+
+w := w(α) = ∇f(aα), (3) 
+which impli f(aα) + f∗(w) = 〈aα,w〉. In thi special case, the dualiti gap (2) simplifi and 
+becom separ over the column ai of A and the correspond paramet weight αi give w. 
+We will late exploit thi properti to quantifi the suboptim of individu coordinates. 
+
+gap(α) = 
+∑ 
+i∈[n] 
+
+gapi(αi), where gapi(αi) := w 
+>aiαi + gi(αi) + g 
+
+∗ 
+i (−a>i w). (4) 
+
+notation. for the remaind of the paper we use v[p] to denot a vector v with non-zero entri 
+onli for the coordin i ∈ P ⊆ [n] = {1, . . . , n}. similarli we write a[p] to denot the matrix A 
+compos onli of column index by i ∈ P . 
+
+3 approxim block coordin descent 
+the theori we present in thi section serf to deriv a theoret framework for our heterogen 
+learn scheme that will be present in section 4. therefore, let u consid the gener block 
+minim scheme describ in algorithm 1 to train gener linear model of the form (1). 
+
+3.1 algorithm descript 
+
+In everi round t, of algorithm 1, a block P of m coordin of α be select accord to an 
+arbitrari select rule. then, an updat be comput on thi block of coordin by optim 
+
+arg min 
+∆α[p]∈rn 
+
+o(α + ∆α[p]) (5) 
+
+where an arbitrari solver can be use to find thi update. thi updat be not necessarili perfectli 
+optim but of a rel accuraci θ, in the follow sens of approxim quality: 
+
+1for h : Rd → R the convex conjug be defin a h∗(v) := supu∈rd v>u− h(u). 
+
+3 
+
+
+
+algorithm 1 approxim block CD 
+
+1: initi α(0) := 0 
+2: for t = 0, 1, 2, ... do 
+3: select a subset P with |p| = m 
+4: ∆α[p] ← θ-approx. solut to (5) 
+5: α(t+1) := α(t) + ∆α[p] 
+6: end for 
+
+algorithm 2 duhl 
+
+1: initi α(0) := 0, z := 0 
+2: for t = 0, 1, 2, ... 
+3: determin P accord to (13) 
+4: refresh memori B to contain a[p]. 
+5: on B do: 
+6: ∆α[p] ← θ-approx. solut to (12) 
+7: in parallel on A do: 
+8: while B not finish 
+9: sampl j ∈ [n] 
+
+10: updat zj := gapj(α 
+(t) 
+j ) 
+
+11: α(t+1) := α(t) + ∆α[p] 
+
+definit 1 (θ-approxim update). the block updat ∆α[p] be θ-approxim iff 
+
+∃θ ∈ [0, 1] : o(α + ∆α[p]) ≤ θo(α + ∆α?[p]) + (1− θ)o(α) (6) 
+where ∆α?[p] ∈ arg min∆α[p]∈rn o(α + ∆α[p]). 
+
+3.2 converg analysi 
+
+In order to deriv a precis converg rate for algorithm 1 we build on the converg analysi 
+of [4, 13]. We extend their analysi of stochast coordin descent in two ways: 1) to a block 
+coordin scheme with approxim coordin updates, and 2) to explicitli cover the import 
+of each select coordinate, a oppos to uniform sampling. 
+
+We defin 
+
+ρt,p := 
+1 
+m 
+
+∑ 
+j∈p gapj(α 
+
+(t) 
+j ) 
+
+1 
+n 
+
+∑ 
+j∈[n] gapj(α 
+
+(t) 
+j ) 
+
+(7) 
+
+which quantifi how much the coordin i ∈ P of α(t) contribut to the global dualiti gap 
+(2). thus, give a measur of suboptim for these coordinates. In algorithm 1 an arbitrari 
+select scheme (determinist or randomized) can be appli and our theori will explain how 
+the converg of algorithm 1 depend on the select through the distribut of ρt,p . that 
+is, for strongli convex function gi, we found that the per-step improv in suboptim be 
+proport to ρt,p of the specif coordin block P be select at that iter t: 
+
+�(t+1) ≤ (1− ρt,pθc) �(t) (8) 
+
+where �(t) := o(α(t)) −o(α?) measur the suboptim of α(t) and c > 0 be a constant which 
+will be specifi in the follow theorem. A similar depend on ρt,p can also be show for 
+non-strongli convex function gi, lead to our two main converg result for algorithm 1: 
+
+theorem 1. for algorithm 1 run on (1) where f be l-smooth and gi be µ-strongli convex with 
+µ > 0 for all i ∈ [n], it hold that 
+
+EP [�(t) |α(0)] ≤ 
+( 
+
+1− ηP 
+m 
+
+n 
+
+µ 
+
+σl+ µ 
+
+)t 
+�(0) (9) 
+
+where σ := ‖a[p]‖2op and ηP := mint θ EP [ρt,p |α(t)]. expect be over the choic of P . 
+
+that is, for strongli convex gi, algorithm 1 have a linear converg rate. thi be show befor 
+in [13, 4] for the special case of exact coordin updates. In strong contrast to earli coordin 
+descent analysi which build on random uniform sampling, our theori explicitli quantifi the im- 
+pact of the sampl scheme on the converg through ρt,p . thi allow one to benefit from smart 
+select and provabl improv the converg rate by take advantag of the inhomogen of 
+the dualiti gaps. the same hold for non-strongli convex function gi: 
+
+4 
+
+
+
+theorem 2. for algorithm 1 run on (1) where f be l-smooth and gi have b-bound support 
+for all i ∈ [n], it hold that 
+
+EP [�(t) |α(0)] ≤ 
+1 
+
+ηpm 
+
+2γn2 
+
+2n+ t− t0 
+(10) 
+
+with γ := 2lb2σ where σ := ‖a[p]‖2op and t ≥ t0 = max 
+{ 
+
+0, nm log 
+( 
+
+2ηm�(0) 
+
+nγ 
+
+)} 
+where ηP := 
+
+mint θ EP [ρt,p |α(t)]. expect be over the choic of P . 
+
+remark 1. note that for uniform selection, our proven converg rate for algorithm 1 recov 
+classic primal-du coordin descent [4, 13] a a special case, where in everi iter a singl 
+coordin be select and each updat be solv exactly, i.e., θ = 1. In thi case ρt,p measur the 
+contribut of a singl coordin to the dualiti gap. for uniform sampling, EP [ρt,p |α(t)] = 1 
+and henc ηP = 1 which recov [4, theorem 8 and 9]. 
+
+3.3 gap-select scheme 
+the converg result of theorem 1 and 2 suggest that the optim rule for select the block 
+of coordin P in step 3 of algorithm 1, lead to the larg improv in that step, be the 
+following: 
+
+P := arg max 
+p⊂[n]:|p|=m 
+
+∑ 
+j∈p 
+
+gapj 
+( 
+α 
+
+(t) 
+j 
+
+) 
+. (11) 
+
+thi scheme maxim ρt,p at everi iter α(t). furthermore, the select scheme (11) guar- 
+ante ρt,p ≥ 1 which quantifi the rel gain over random uniform sampling. In contrast to 
+exist import sampl scheme [17, 12, 5] which assign static probabl to individu co- 
+ordinates, our select scheme (11) be dynam and adapt to the current state α(t) of the algorithm, 
+similar to that use in [9, 11] in the standard non-heterogen setting. 
+
+4 heterogen train 
+In thi section we build on the theoret insight of the previou section to tackl the main object 
+of thi work: how can we effici distribut the workload between two heterogen comput 
+unitsa and B to train a large-scal machin learn model wherea and B fulfil the follow two 
+assumptions: 
+assumpt 1 (differ in memori capacity). comput unit A can fit the whole dataset in it 
+memori and comput unit B can onli fit a subset of the data. hence, B onli have access to a[p], a 
+subset P of m column of A, where m be determin by the memori size of B. 
+assumpt 2 (differ in comput power). comput unit B can access and process data 
+faster than comput unit A. 
+
+4.1 duhl: A dualiti gap-bas heterogen learn scheme 
+
+We propos a dualiti gap-bas heterogen learn scheme, henceforth refer to a duhl, 
+for short. duhl be design for effici train on heterogen comput resourc a describ 
+above. the core idea of duhl be to identifi a block P of coordin which be most relev to 
+improv the model at the current stage of the algorithm, and have the correspond data columns, 
+a[p], resid local in the memori of B. comput unit B can then exploit it superior comput 
+power by use an appropri solver to local find a block coordin updat ∆α[p]. At the same 
+time, comput unit A be assign the task of updat the block P of import coordin a the 
+algorithm proce and the iter change. through thi split of workload duhl enabl full 
+util of both comput unitsa and B. our scheme, summar in algorithm 2, fit the theore- 
+tical framework establish in the previou section and can be view a an instanc of algorithm 1, 
+implement a time-delay version of the dualiti gap-bas select scheme (11). 
+
+local subproblem. In the heterogen set comput unit B onli have access to it local data 
+a[p] and some current state v := Aα ∈ Rd in order to comput a block updat ∆α[p] in step 4 
+of algorithm 1. while for quadrat function f thi inform be suffici to optim (5), for 
+non-quadrat function f we consid the follow modifi local optim problem instead: 
+
+arg min 
+∆α[p]∈rn 
+
+f(v) + 〈∇f(v), a∆α[p]〉+ 
+L 
+
+2 
+‖a∆α[p]‖22 + 
+
+∑ 
+i∈p 
+
+gi((α + ∆α[p])i). (12) 
+
+5 
+
+
+
+figur 2: illustr of one round of duhl a describ in algorithm 2. 
+
+It can be show that the converg guarante of theorem 1 and 2 similarli hold if the block 
+coordin updat in step 4 of algorithm 1 be comput on (12) instead of (5) (see appendix C for 
+more details). 
+
+A time-delay gap measure. motiv by our theoret find from section 3, we use 
+the dualiti gap a a measur of import for select which coordin unit B be work on. 
+however, a scheme a suggest in (11) be not suitabl for our purpos sinc it requir knowledg 
+of the dualiti gap (4) for everi coordin i at a give iter α(t). for our scheme thi would 
+impli a comput expens select step at the begin of everi round which have to be 
+perform in sequenc to the updat step. To overcom thi and enabl parallel execut of the two 
+workload on A and B, we propos to introduc a gap memory. thi be an n-dimension vector 
+z where zi measur the import of coordin αi. We have zi := gap(α 
+
+(t′) 
+i ) where t 
+
+′ ∈ [0, t] 
+and the differ element of z be allow to be base on different, possibl stale iter α(t 
+
+′). 
+thus, the entri of z can be continu updat dure the cours of the algorithm. then, at the 
+begin of everi round the new block P be select base on the current state of z a follows: 
+
+P := arg max 
+p⊂[n]:|p|=m 
+
+∑ 
+j∈p 
+
+zj . (13) 
+
+In duhl, keep z up to date be the job of comput unit A. hence, while B be comput a block 
+coordin updat ∆α[p], A updat z by randomli sampl from the entir train data. then, 
+a soon a B be done, the current state of z be use to determin P for the next round and data 
+column on B be replac if necessary. the parallel execut of the two workload dure a singl 
+round of duhl be illustr in figur 2. note, that the fresh of the gap-memori z depend 
+on the rel comput power of A versu B, a well a θ which control the amount of time spent 
+comput on unit B in everi round. 
+In section 5.2 we will experiment investig the effect of stale of the valu zi on the 
+converg behavior of our scheme. 
+
+5 experiment result 
+for our experi we have implement duhl for the particular use-cas where A correspond 
+to a cpu with attach ram and B correspond to a gpu – A and B commun over the pcie 
+bus. We use an 8-core intel xeon E5 x86 cpu with 64gb of ram which be connect over pcie 
+gen3 to an nvidia quadro m4000 gpu which have 8gb of ram. gpu have recent experi 
+a widespread adopt in machin learn system and thu thi hardwar scenario be time and 
+highli relevant. In such a set we wish to appli duhl to effici popul the gpu memori 
+and therebi make thi part of the data avail for fast processing. 
+
+gpu solver. In order to benefit from the enorm parallel offer by gpu and fulfil as- 
+sumption 2, we need a local solver capabl of exploit the power of the gpu. therefore, we 
+have chosen to implement the twice parallel, asynchron version of stochast coordin descent 
+
+6 
+
+
+
+(a) (b) 
+
+figur 3: valid of faster convergence: (a) 
+theoret quantiti ρt,p (orange), versu the 
+practic observ speedup (green) – both re- 
+lativ to the random scheme baseline, (b) con- 
+vergenc of gap select compar to random 
+selection. 
+
+(a) (b) 
+
+figur 4: effect of stale entri in the gap me- 
+mori of duhl: (a) number of round need 
+to reach suboptim 10−4 for differ updat 
+frequenc compar to o-duhl, (b) the num- 
+ber of data column that be replac per round 
+for updat frequenc of 5%. 
+
+(tpa-scd) that have be propos in [10] for learn the ridg regress model. In thi work we 
+have gener the implement further so that it can be appli in a similar manner to solv 
+the lasso, a well a the svm problem. for more detail about the algorithm and how to gener 
+it we refer the reader to appendix D. 
+
+5.1 algorithm behavior 
+
+firstly, we will use the publicli avail epsilon dataset from the libsvm websit (a fulli dens 
+dataset with 400’000 sampl and 2’000 features) to studi the converg behavior of our scheme. 
+for the experi in thi section we assum that the gpu fit 25% of the train data, i.e.,m = n4 
+and show result for train the spars lasso a well a the ridg regress model. for the lasso 
+case we have chosen the regular to obtain a support size of ∼ 12% and we appli the coordinate- 
+wise lipschitz trick [4] to the l1-regular in order to allow the comput of the dualiti 
+gaps. for comput detail we refer the reader to appendix E. 
+
+valid of faster convergence. from our theori in section 3.2 we expect that dure ani 
+give round t of algorithm 1, the rel gain in converg rate of one sampl scheme over 
+the other should be quantifi by the ratio of the correspond valu of ηt,p := θρt,p (for the 
+respect block of coordin process in that round). To verifi this, we train a ridg regress 
+model on the epsilon dataset implement a) the gap-bas select scheme, (11), and b) random 
+selection, fix θ for both schemes. then, in everi round t of our experiment, we record the valu 
+of ρt,p a defin in (7) and measur the rel gain in converg rate of the gap-bas scheme 
+over the random scheme. In figur 3(a) we plot the effect speedup of our scheme, and observ 
+that thi speedup almost perfectli match the improv predict by our theori a measur 
+by ρt,p - we observ an averag deviat of 0.42. both speedup number be calcul rel to 
+plain random selection. In figur 3(b) we see that the gap-bas select can achiev a remark 
+10× improv in converg over the random refer scheme. when run on spars 
+problem instead of ridg regression, we have observ ρt,p of the oracl scheme converg to nm 
+within onli a few iter if the support of the problem be small than m and fit on the gpu. 
+
+effect of gap-approximation. In thi section we studi the effect of use stale, inconsist gap- 
+memori entri for select on the converg of duhl. while the fresh of the memori 
+entri is, in reality, determin by the rel comput power of unit B over unita and the rel 
+accuraci θ, in thi experi we artifici vari the number of gap updat perform dure each 
+round while keep θ fixed. We train the lasso model and show, in figur 4(a), the number of 
+round need to reach a suboptim of 10−4, a a function of the number of gap entri updat 
+per round. As a refer we show o-duhl which have access to an oracl provid the true dualiti 
+gaps. We observ that our scheme be quit robust to stale gap valu and can achiev perform 
+within a factor of two over the oracl scheme up to an averag delay of 20 iterations. As the updat 
+frequenc decreas we observ that the converg slow down in the initi round becaus the 
+algorithm need more round until the activ set of the spars problem be correctli detected. 
+
+7 
+
+
+
+(d) lasso (e) svm (f) ridg regress 
+
+figur 5: perform result of duhl on the 30gb imagenet dataset. i/o cost (top) and conver- 
+genc behavior (bottom) for lasso, svm and ridg regression. 
+
+reduc i/o operations. the effici of our scheme regard i/o oper be demonstr 
+in figur 4(b), where we plot the number of data column that be replac on B in everi round 
+of algorithm 2. here the lasso model be train assum a gap updat frequenc of 5%. We 
+observ that the number of requir i/o oper of our scheme be decreas over the cours of 
+the algorithm. when increas the fresh of the gap memori entri we could see the number 
+of swap go to zero faster. 
+
+5.2 refer scheme 
+
+In the follow we compar the perform of our scheme against four refer schemes. We 
+compar against the most widely-us scheme for use a gpu to acceler train when the data 
+do not fit into the memori of the gpu, that be the sequenti block select scheme present 
+in [16]. here the data column be split into block of size m which be sequenti put on the gpu 
+and oper on (the data be effici copi to the gpu a a contigu memori block). 
+
+We also compar against import sampl a present in [17], which we refer to a is. sinc 
+probabl assign to individu data column be static we cannot use them a import mea- 
+sure in a determinist select scheme. therefore, in order to appli import sampl in the 
+heterogen setting, we non-uniformli sampl m data-column to resid insid the gpu memori 
+in everi round of algorithm 2 and have the cpu determin the new set in parallel. As we will see, 
+data column norm often come with onli small variance, in particular for dens datasets. therefore, 
+import sampl often fail to give a signific gain over uniformli random selection. 
+
+additionally, we compar against a single-thread cpu implement of a stochast coordin 
+descent solver to demonstr that with our scheme, the use of a gpu in such a set inde yield a 
+signific speedup over a basic cpu implement despit the high i/o cost of repeatedli copi 
+data on and off the gpu memory. To the best of our knowledge, we be the first to demonstr this. 
+
+for all compet schemes, we use tpa-scd a the solver to effici comput the block updat 
+∆α[p] on the gpu. the accuraci θ of the block updat comput in everi round be control by 
+the number of random pass of tpa-scd through the coordin of the select block P . for 
+a fair comparison we optim thi paramet for the individu schemes. 
+
+5.3 perform analysi of duhl 
+
+for our large-scal experi we use an extend version of the kaggl dog vs. cat imagenet 
+dataset a present in [6], where we addit doubl the number of samples, while use singl 
+precis float point numbers. the result dataset be fulli dens and consist of 40’000 sampl 
+and 200’704 features, result in over 8 billion non-zero element and a data size of 30gb. sinc 
+the memori capac of our gpu be 8gb, we can put ∼ 25% of the data on the gpu. We will show 
+
+8 
+
+
+
+result for train a spars lasso model, ridg regress a well a linear l2-regular svm. for 
+lasso we chose the regular to achiev a support size of 12%, wherea for svm the regular 
+be chosen through cross-validation. for all three tasks, we compar the perform of duhl to 
+sequenti block selection, random selection, select through import sampl (is) all on 
+gpu, a well a a single-thread cpu implementation. In figur 5(d) and 5(e) we demonstr 
+that for lasso a well a svm, duhl converg 10× faster than ani refer scheme. thi gain 
+be achiev by improv converg – quantifi through ρt,p – a well a through reduc i/o 
+cost, a illustr in the top plot of figur 5, which show the number of data column replac 
+per round. the result in figur 5(f) show that the applic of duhl be not limit to spars 
+problem and svms. even for ridg regress duhl significantli outperform all the refer 
+scheme consid in thi study. 
+
+6 conclus 
+
+We have present a novel theoret analysi of block coordin descent, highlight how the 
+perform depend on the coordin selection. these result prove that the contribut of in- 
+dividu coordin to the overal dualiti gap be indic of their relev to the overal model 
+optimization. use thi measur we develop a gener scheme for effici train in the presenc 
+of high perform resourc of limit memori capacity. We propos duhl, an effici gap 
+memory-bas strategi to select which part of the data to make avail for fast processing. On a 
+larg dataset which exce the capac of a modern gpu, we demonstr that our scheme out- 
+perform exist sequenti approach by over 10× for lasso and svm models. our result show 
+that the practic gain match the improv converg predict by our theori for gap-bas 
+sampl under the give memori and commun constraints, highlight the versatil of the 
+approach. 
+
+refer 
+[1] heinz H bauschk and patrick L combettes. convex analysi and monoton oper theori in hilbert 
+
+spaces. cm book in mathematics. springer new york, new york, ny, 2011. 
+
+[2] kai-wei chang and dan roth. select block minim for faster converg of limit memori 
+large-scal linear models. In proceed of the 17th acm sigkdd intern confer on knowl- 
+edg discoveri and data mining, page 699–707, new york, usa, august 2011. acm. 
+
+[3] dominik csiba, zheng qu, and peter richtárik. stochast dual coordin ascent with adapt proba- 
+bilities. In icml 2015 - proceed of the 32th intern confer on machin learning, februari 
+2015. 
+
+[4] celestin dünner, simon forte, martin takác, and martin jaggi. primal-du rate and certificates. 
+In proceed of the 33th intern confer on machin learn (icml) - volum 48, page 
+783–792, 2016. 
+
+[5] olivi fercoq and peter richtárik. optim in high dimens via accelerated, parallel, and 
+proxim coordin descent. siam review, 58(4):739–771, januari 2016. 
+
+[6] christina heinze, brian mcwilliams, and nicolai meinshausen. dual-loco: distribut statist 
+estim use random projections. In aistat - proceed of the th intern confer on 
+artifici intellig and statistics, page 875–883, 2016. 
+
+[7] shin matsushima, svn vishwanathan, and alex J smola. linear support vector machin via dual cach 
+loops. In proceed of the 18th acm sigkdd intern confer on knowledg discoveri and 
+data mining, page 177–185, new york, usa, 2012. acm press. 
+
+[8] juli nutini, mark schmidt, issam laradji, michael friedlander, and hoyt koepke. coordin descent 
+converg faster with the gauss-southwel rule than random selection. In icml 2015 - proceed 
+of the 32th intern confer on machin learning, page 1632–1641, 2015. 
+
+[9] anton osokin, jean-baptist alayrac, isabella lukasewitz, puneet K. dokania, and simon lacoste- 
+julien. mind the gap for block frank-wolf optim of structur svms. In proceed of 
+the 33rd intern confer on machin learn (icml) - volum 48, page 593–602. jmlr.org, 
+2016. 
+
+[10] thoma parnell, celestin dünner, kubilay atasu, manoli sifalakis, and hari pozidis. large-scal 
+stochast learn use gpus. In proceed of the 6th intern workshop on parallel and 
+distribut comput for larg scale machin learn and big data analyt (ipdpsw), ieee, 
+2017. 
+
+9 
+
+
+
+[11] dmytro perekrestenko, volkan cevher, and martin jaggi. faster coordin descent via adapt impor- 
+tanc sampling. In aistat - artifici intellig and statistics, page 869–877. april 2017. 
+
+[12] zheng Qu and peter richtárik. coordin descent with arbitrari sampl I: algorithm and complexity. 
+optim method and software, 31(5):829–857, april 2016. 
+
+[13] shai shalev-shwartz and tong zhang. stochast dual coordin ascent method for regular loss. J. 
+mach. learn. res., 14(1):567–599, februari 2013. 
+
+[14] virginia smith, simon forte, chenxin ma, martin takáč, michael I jordan, and martin jaggi. cocoa: 
+A gener framework for communication-effici distribut optimization. arxiv, novemb 2016. 
+
+[15] robert L. wolpert. condit expectation. univers lecture, 2010. 
+
+[16] hsiang-fu yu, cho-jui hsieh, kai-wei chang, and chih-jen lin. larg linear classif when data 
+cannot fit in memory. acm transact on knowledg discoveri from data, 5(4):1–23, februari 
+2012. 
+
+[17] peilin zhao and tong zhang. stochast optim with import sampl for regular loss 
+minimization. In icml 2015 - proceed of the 32th intern confer on machin learning, 
+page 1–9, 2015. 
+
+10 
+
+
+
+appendix 
+organ of the appendix: We state detail proof of theorem 1 and theorem 2 in appendix A. 
+then, we give some background inform on coordin descent and the local subproblem in 
+appendix B and C respectively. In appendix D we then present detail on the gener of the 
+tpa-scd algorithm to svm a well a lasso. We provid exact express for the local updates, 
+which togeth with the express for the dualiti gap in appendix E should guid the reader on how 
+to easili practic implement our scheme for the differ set consid in the experiments. 
+
+A proof 
+
+In thi section we state the detail proof of theorem 1 and theorem 2. 
+
+a.1 key lemma 
+
+lemma 3. consid problem formul (1). let f be l-smooth. further, let gi be µ-strongli 
+convex with convex paramet µ ≥ 0 ∀i ∈ [n]. for the case µ = 0 we need the addit 
+assumpt of gi have bound support. then, in ani iter t of algorithm 1 on (1), we denot 
+the updat coordin block by P with |p| = m and defin 
+
+ρt,p := 
+1 
+m 
+
+∑ 
+j∈p gapj(α 
+
+(t) 
+j ) 
+
+1 
+n 
+
+∑n 
+i=1 gapi(α 
+
+(t) 
+i ) 
+
+(14) 
+
+then, for ani s ∈ [0, 1], it hold that 
+
+EP 
+[ 
+o(α(t))−o(α(t+1))|α(t) 
+
+] 
+≥ θ 
+
+[ 
+s 
+m 
+
+n 
+EP 
+[ 
+ρt,p |α(t) 
+
+] 
+gap(α(t)) + 
+
+s2 
+
+2 
+γ 
+
+(t) 
+P 
+
+] 
+(15) 
+
+where 
+
+γ 
+(t) 
+P := EP 
+
+[ 
+µ(1− s) 
+
+s 
+‖u(t) −α(t)‖2 − l‖a(u(t) −α(t))‖2 
+
+∣∣α(t)] . (16) 
+and u(t)i ∈ ∂g∗i (−a>i w(α(t))). 
+
+proof. first note that in everi round of algorithm 1, α(t) → α(t+1), onli coordin i ∈ P be 
+chang and a θ-approxim solut be comput on these coordinates. hence, the improv 
+∆to := o(α(t))−o(α(t+1)) in the object (1) can be write a 
+
+∆to = o(α(t))−o(α(t) + ∆α[p]) 
+
+≥ o(α(t))− 
+[ 
+(1− θ)o(α(t)) + θo(α(t) + ∆α?[p]) 
+
+] 
+= θ 
+
+[ 
+o(α(t))− min 
+
+∆α[p] 
+o(α(t) + ∆α[p]) 
+
+] 
+. (17) 
+
+In order to low bound (17) we look at a specif updat direction: ∆α[p] = s(u(t) − α(t)) with 
+u 
+
+(t) 
+i ∈ ∂g∗i (−a>i w(α(t))) for i ∈ P (u 
+
+(t) 
+i = α 
+
+(t) 
+i otherwise) and some s ∈ [0, 1]. note that for 
+
+the subgradi to be well defin even for non-strongli convex function gi we need the bound 
+support assumpt on gi. 
+thi yield 
+
+∆to ≥ θ 
+[ 
+o(α(t))−o(α(t) + s(u(t) −α(t))) 
+
+] 
+= θ 
+
+[ 
+f(aα(t))− f(a(α(t) + s(u(t) −α(t))))︸ ︷︷ ︸ 
+
+∆f 
+
+] 
++θ 
+∑ 
+i∈p 
+
+[ 
+gi(α 
+
+(t) 
+i )− gi(α 
+
+(t) 
+i + s(u 
+
+(t) 
+i − α 
+
+(t) 
+i ))︸ ︷︷ ︸ 
+
+∆gi 
+
+] 
+. 
+
+11 
+
+
+
+first, to bound ∆f we use the fact that the function f : Rd → R have lipschitz continu gradient 
+with constant L which yield 
+
+∆f ≥ − 
+〈 
+∇f(aα(t)), as(u(t) −α(t)) 
+
+〉 
+− L 
+
+2 
+‖as(u(t) −α(t))‖2 
+
+= − 
+∑ 
+i∈p 
+
+a>i w 
+(t)s(u 
+
+(t) 
+i − α 
+
+(t) 
+i )− 
+
+ls2 
+
+2 
+‖a(u(t) −α(t))‖2. (18) 
+
+then, to bound ∆gi we use µ-strong convex of gi togeth with the fenchel-young inequ 
+gi(ui) ≥ −uia>i w − g∗i (−a>i w) which hold with equal at ui ∈ ∂g∗i (−a>i w) and find 
+
+∆gi ≥ −sgi(u 
+(t) 
+i ) + sgi(α 
+
+(t) 
+i ) + 
+
+µ 
+2 s(1− s)(u 
+
+(t) 
+i − α 
+
+(t) 
+i ) 
+
+2 
+
+= suia 
+> 
+i w 
+
+(t) + sg∗i (−a>i w(t)) + sgi(α 
+(t) 
+i ) + 
+
+µ 
+2 s(1− s)(u 
+
+(t) 
+i − α 
+
+(t) 
+i ) 
+
+2. (19) 
+
+finally, recal the definit of the dualiti gap (4) and combin (18) and (19) yield 
+
+∆to ≥ θ ∆f + θ 
+∑ 
+i∈p 
+
+∆gi 
+
+≥ θ 
+∑ 
+i∈p 
+
+s gapi(α 
+(t) 
+i ) + 
+
+θs2 
+
+2 
+
+[ 
+µ(1− s) 
+
+s 
+‖u(t) −α(t)‖2 − l‖a(u(t) −α(t))‖2 
+
+] 
+. 
+
+To conclud the proof we recal the definit of ρt,p in (7) and take the expect over the choic 
+of the coordin block P which yield 
+
+EP 
+[ 
+o(α(t))−o(α(t+1))|α(t) 
+
+] 
+≥ θsm 
+
+n 
+EP 
+[ 
+ρt,p |α(t) 
+
+] 
+gap(α(t)) + 
+
+θs2 
+
+2 
+γ 
+
+(t) 
+P (20) 
+
+with 
+
+γ 
+(t) 
+P := EP 
+
+[ 
+µ(1− s) 
+
+s 
+‖u(t) −α(t)‖2 − l‖a(u(t) −α(t))‖2 
+
+∣∣∣α(t)] . (21) 
+
+a.2 proof theorem 1 
+
+proof. for strongli convex function gi we have µ > 0 in lemma 3. thi allow u to choos s such 
+that γ(t)p in (15) vanishes. that be s = 
+
+µ 
+σ 
+β+µ 
+
+, where 
+
+σ := ‖a[p]‖2 = max 
+v∈rn 
+
+‖a[p]v‖2 
+
+‖v‖2 
+. (22) 
+
+thi yield 
+
+EP 
+[ 
+o(α(t))−o(α(t+1))|α(t) 
+
+] 
+≥ θsm 
+
+n 
+EP 
+[ 
+ρt,p |α(t) 
+
+] 
+gap(α(t)). 
+
+now rearrang term and exploit that the dualiti gap alway upper bound the suboptim 
+we get the follow recurs on the suboptim �(t) := o(α(t))−o(α?): 
+
+EP 
+[ 
+�(t+1)|α(t) 
+
+] 
+≤ 
+
+( 
+1− θsm 
+
+n 
+EP 
+[ 
+ρt,p |α(t) 
+
+] ) 
+�(t). 
+
+defin ηP := mint θep 
+[ 
+ρt,p |α(t) 
+
+] 
+and recurs appli the tower properti of condit 
+
+expect [15] which state 
+
+EP 
+[ 
+EP 
+[ 
+�(t+1)|α(t) 
+
+] 
+|α(t−1) 
+
+] 
+= EP 
+
+[ 
+�(t+1)|α(t−1) 
+
+] 
+we find 
+
+EP 
+[ 
+�(t+1)|α(0) 
+
+] 
+≤ 
+
+( 
+1− sm 
+
+n 
+ηP 
+
+)t 
+�(0) 
+
+which conclud the proof. 
+
+12 
+
+
+
+a.3 proof theorem 2 
+
+proof. for the case where µ = 0 lemma 3 states: 
+
+EP 
+[ 
+o(α(t))−o(α(t+1)) |α(t) 
+
+] 
+≥ sθm 
+
+n 
+EP 
+[ 
+ρt,p |α(t) 
+
+] 
+gap(α(t)) 
+
+−θ 
+2 
+
+2 
+lep 
+
+[ 
+‖a(u(t) −α(t))‖2 |α(t) 
+
+] 
+. 
+
+now rearrang terms, use σ a defin in (22) and �(t) ≤ gap(α(t)), we find 
+
+EP 
+[ 
+�(t+1) |α(t) 
+
+] 
+≤ 
+
+( 
+1− sθm 
+
+n 
+EP 
+[ 
+ρt,p |α(t) 
+
+]) 
+�(t) + 
+
+θs2 
+
+2 
+Lσ EP 
+
+[ 
+‖u(t) −α(t)‖2 |α(t) 
+
+] 
+. 
+
+In order to bound the last term in the abov express we use 1) the fact that 
+∑ 
+i∈p gi have B- 
+
+bound support which impli ‖α‖ ≤ B and 2) the dualiti between bound support and lips- 
+chitz which impli ‖u‖ ≤ B sinc u ∈ ∂ 
+
+∑ 
+i∈p g 
+
+∗ 
+i (−a>i w). then, by triangl inequ we 
+
+find ‖u − α‖2 ≤ 2b2 which yield the follow recurs on the suboptim for non strongly- 
+convex gi: 
+
+EP 
+[ 
+�(t+1) |α(t) 
+
+] 
+≤ 
+
+( 
+1− sθep 
+
+[ 
+ρt,p |α(t) 
+
+]m 
+n 
+
+) 
+�(t) + 
+
+s2 
+
+2 
+θγ, (23) 
+
+where γ := 2lb2σ. now defin ηP := mint θ EP 
+[ 
+ρt,p |α(t) 
+
+] 
+and assum ηP ≥ 1 ,∀t we can 
+
+upperbound the suboptim at iter t a 
+
+EP 
+[ 
+�(t) |α(0) 
+
+] 
+≤ 1 
+ηpm 
+
+2γn2 
+
+2n+ t− t0 
+(24) 
+
+with t ≥ t0 = max 
+{ 
+
+0, nm log 
+( 
+
+2ηpm� 
+(0) 
+
+γn 
+
+)} 
+. 
+
+similar to [4] we prove thi by induction: 
+
+t = t0: choos s := 1ηp where ηP = mint θep 
+[ 
+ρt,p |α(t) 
+
+] 
+. then at t = t0, we have 
+
+EP 
+[ 
+�(t) |α(0) 
+
+] 
+≤ 
+
+( 
+1− m 
+
+n 
+
+) 
+EP 
+[ 
+�(t−1) |α(0) 
+
+] 
++ 
+s2 
+
+2 
+θγ 
+
+≤ 
+( 
+
+1− m 
+n 
+
+)t 
+�(0) + 
+
+t−1∑ 
+i=0 
+
+( 
+1− m 
+
+n 
+
+)i θγ 
+2η2 
+
+≤ 
+( 
+
+1− m 
+n 
+
+)t 
+�(0) + 
+
+1 
+
+1− (1−m/n) 
+θγ 
+
+2η2 
+
+≤ e−tm/n�(0) + θnγ 
+2mηp2 
+
+θ<η 
+
+≤ nγ 
+mηp 
+
+. 
+
+t > t0: for t > t0 we use an induct argument. suppos the claim hold for t, give 
+
+EP 
+[ 
+�(t) |α(t−1) 
+
+] 
+≤ 
+
+( 
+1− θep 
+
+[ 
+ρt−1,p |α(t−1) 
+
+]s m 
+n 
+
+) 
+�(t−1) − s 
+
+2 
+
+2 
+
+m 
+
+n 
+θγ, 
+
+≤ 
+( 
+
+1− ηP 
+s m 
+
+n 
+
+) 1 
+ηP 
+
+2γn 
+
+2n+ (t− 1)− t0 
+− s 
+
+2 
+
+2 
+
+m 
+
+n 
+θγ, 
+
+13 
+
+
+
+then, choos s = 2n2n+(t−1)−t0 ∈ [0, 1] and appli the tower properti of condit expect 
+we find 
+
+EP 
+[ 
+�(t) |α(0) 
+
+] 
+≤ 
+
+( 
+1− 2mηp 
+
+2n+ (t− 1)− t0 
+
+) 
+1 
+
+ηP 
+
+2γn 
+
+2n+ (t− 1)− t0 
+
++ 
+
+( 
+2n 
+
+2n+ (t− 1)− t0 
+
+)2 
+m 
+
+n 
+
+θγ 
+
+2 
+
+θ<1 
+≤ 
+
+( 
+1− mηp 
+
+2n+ (t− 1)− t0 
+
+) 
+1 
+
+ηP 
+
+2γn 
+
+2n+ (t− 1)− t0 
+
+= 
+1 
+
+ηP 
+
+2γn 
+
+(2n+ (t− 1)− t0) 
+2n+ (t− 1)− t0 −mηp 
+
+2n+ (t− 1)− t0 
+
+≤ 1 
+ηP 
+
+2γn 
+
+(2n+ t− t0) 
+. 
+
+B coordin descent 
+the classic coordin descent scheme a describ in algorithm 3 solv for a singl coordin 
+exactli in everi round. thi algorithm can be recov a a special case of approxim block 
+coordin descent present in algorithm 1 where m = 1 and θ = 1. In thi case, similar to ρt,p 
+we defin 
+
+ρt,i := 
+gapi(α 
+
+(t) 
+i ) 
+
+1 
+n 
+
+∑ 
+j∈[n] gapj(α 
+
+(t) 
+j ) 
+
+(25) 
+
+which quantifi how much a singl coordin i of iter α(t) contribut to the dualiti gap (4). 
+
+strongly-convex gi. use theorem 1 we find that for algorithm 3 run on (1) where f be 
+l-smooth and gi be µ-strongli convex with µ > 0 for all i ∈ [n], it hold that 
+
+Ej [�(t) |α(0)] ≤ 
+( 
+
+1− ρmin 
+[ 
+
+µ 
+
+µ+ lr2 
+
+] 
+1 
+
+n 
+
+)t 
+�(0), (26) 
+
+where R upper bound the column norm of A a ‖ai‖ ≤ R ∀i ∈ [n], ρmin := mint Ej [ρt,j |α(t)] 
+and expect be take over the sampl distribution. 
+
+gener convex gi. use theorem 2 we find that for algorithm 3 run on (1) where f be 
+l-smooth and gi have b-bound support for all i ∈ [n] it hold that 
+
+Ej [�(t) |α(0)] ≤ 
+1 
+
+ρmin 
+
+2γn2 
+
+2n+ t− t0 
+(27) 
+
+with t ≥ t0 = max 
+{ 
+
+0, n log 
+( 
+
+2ρmin� 
+(0) 
+
+γn 
+
+)} 
+and γ = 2lb2r2. 
+
+note that these two result also cover wide use uniform sampl a a special case, where the 
+coordin j in step 3 of algorithm 3 be sampl uniformli at random and henc Ej 
+
+[ 
+ρt,j |α(t) 
+
+] 
+= 1 
+
+which yield ρmin = 1. In thi case we exactli recov the converg result of [4, 13]. 
+
+algorithm 3 coordin descent 
+
+1: initi α(0) = 0 
+2: for t = 0, 1, 2, ..... do 
+3: select coordin i 
+4: ∆αi = arg min∆αo(α + ei∆α) 
+5: α(t+1) = α(t) + ei∆αi 
+6: end for 
+
+14 
+
+
+
+C local subproblem 
+
+In section 4.1, we have suggest to replac the local optim problem in step 4 of algorithm 
+1 with a simpler quadrat local problem. more precisely, to replac 
+
+arg min 
+∆α[p]∈rn 
+
+f(a(α + ∆α[p])) + 
+∑ 
+i∈p 
+
+gi((α + ∆α)i) (5) 
+
+by instead 
+
+arg min 
+∆α[p]∈rn 
+
+f(aα) +∇f(aα)>a∆α[p] + 
+L 
+
+2 
+‖a∆α[p]‖22 + 
+
+∑ 
+i∈p 
+
+gi((α + ∆α)i). (12) 
+
+note that the modifi object (12) do not depend on ai for i /∈ P other than through v. thus, 
+(12) can be solv local on process unit B with onli access to a[p] (column ai of A with 
+i ∈ P) and the current share state v := aα. note that for quadrat function f the two problem 
+(5) and (12) be equivalent. thi appli to ridg regression, lasso a well a l2-regular svm. 
+
+for function f where the hessian ∇2f cannot be express a a scale identity, (12) form a 
+second-ord upper-bound on the object (5) by l-smooth of f . 
+
+proposit 4. the converg result of theorem 1 and 2 similarli hold if the updat in step 4 of 
+algorithm 1 be perform on (12) instead of (5), i.e., a θ-approxim solut be comput on the 
+modifi object (12). 
+
+proof. let u defin 
+
+õ(α(t),v,∆α[p]) := f(aα) +∇f(aα)>a∆α[p] + 
+L 
+
+2 
+‖a∆α[p]‖22 + 
+
+∑ 
+i∈p 
+
+gi((α + ∆α)i) 
+
+assum the updat step ∆α[p] perform in step 4 of algorithm 1 be a θ-approxim solut to 
+(12), then we can bound the per-step improv in ani iter t as: 
+
+o(α(t))−o(α(t+1)) ≥ o(α(t))− õ(α(t),v,∆α[p]) 
+
+≥ o(α(t))− 
+[ 
+θmin 
+
+s[p] 
+õ(α(t),v, s[p]) + (1− θ)õ(α(t),v,0) 
+
+] 
+= θ 
+
+[ 
+o(α(t))−min 
+
+s[p] 
+õ(α(t),v, s[p]) 
+
+] 
+. 
+
+where we use õ(α(t),v,0) = o(α(t)) ando(α(t)+∆α[p]) ≤ õ(α(t),v,∆α[p]) which follow 
+by smooth of f . hence, the follow inequ hold for an arbitrari block updat s̃[p]: 
+
+o(α(t))−o(α(t+1)) ≥ θ 
+[ 
+o(α(t))− õ(α(t),v, s̃[p]) 
+
+] 
+(28) 
+
+now, if we plug in the definit ofo(α(t)) and õ(α(t),v, s̃p), then split the express into term 
+involv f and term involv gi a in section a.1 and consid the same specif updat direction, 
+(i.e. s̃ = s(u−α) where ui ∈ g∗i (−a>i w), s ∈ [0, 1]), we recov the bound (19) and (18) for the 
+respect terms. If we then proceed along the line of section A we get exactli the same bound on 
+the per step improv a in (15). the converg guarante from theorem 1 and theorem 2 
+follow immediately. 
+
+15 
+
+
+
+c.1 exampl 
+
+for completeness, we state the local subproblem formul explicitli for the object consid 
+in the experiments. 
+
+a) ridg regression. the ridg regress object be give by 
+
+min 
+α∈rn 
+
+1 
+
+2d 
+‖aα− b‖22 + 
+
+λ 
+
+2 
+‖α‖22, (29) 
+
+where b ∈ Rd denot the vector of labels. for (29) the local subproblem (12) can be state a 
+
+arg min 
+∆α[p]∈rn 
+
+1 
+
+2d 
+
+∥∥∥∑ 
+i∈p 
+
+ai∆α[p]i 
+
+∥∥∥2 
+2 
+
++ 
+1 
+
+d 
+
+∑ 
+i∈p 
+
+(v − b)>ai∆α[p]i + 
+λ 
+
+2 
+
+∑ 
+i∈p 
+
+(α + ∆α[p]) 
+2 
+i . 
+
+b) lasso. for the lasso object 
+
+min 
+α∈rn 
+
+1 
+
+2d 
+‖aα− b‖22 + λ‖α‖1, (30) 
+
+where b ∈ Rd denot the vector of labels, the local problem (12) can similarli be state a 
+
+arg min 
+∆α[p]∈rn 
+
+1 
+
+2d 
+
+∥∥∥∑ 
+i∈p 
+
+ai∆α[p]i 
+
+∥∥∥2 
+2 
+
++ 
+1 
+
+d 
+
+∑ 
+i∈p 
+
+(v − b)>ai∆α[p]i + λ 
+∑ 
+i∈p 
+|(α + ∆α[p])i|. 
+
+c) l2-regular svm. In case of the l2-regular svm problem we consid the dual prob- 
+lem formul 
+
+min 
+α∈rn 
+
+1 
+
+n 
+
+∑ 
+i 
+
+(−yiαi) + 
+1 
+
+2λn2 
+‖aα‖22, (31) 
+
+with yiαi ∈ [0, 1], ∀i, where column ai of A correspond to sampl i with correspond label yi. 
+the local subproblem (12) for (31) can then be state a 
+
+arg min 
+∆α[p]∈rn 
+
+1 
+
+n 
+
+∑ 
+i∈p 
+
+(−yi(α + ∆α[p])i) + 
+1 
+
+2λn2 
+
+∥∥∥∑ 
+i∈p 
+
+ai∆α[p]i 
+
+∥∥∥2 
+2 
+
++ 
+1 
+
+λn2 
+
+∑ 
+i∈p 
+
+v>ai∆α[p]i 
+
+subject to yi(α + ∆α[p])i ∈ [0, 1] for i ∈ P . 
+
+D gener of tpa-scd 
+
+tpa-scd be present in [10] a an effici gpu solver for the ridg regress problem. tpa-scd 
+implement an asynchron version of stochast coordin descent especi suit for the gpu 
+architecture. everi coordin be updat by a dedic thread block and these thread block be 
+schedul for execut in parallel on the avail stream multiprocessor of the gpu. individu 
+coordin updat be comput by solv for thi coordin exactli while keep all the other 
+fixed. To synchron the work between threads, the vector ṽ := aα−b be write to the gpu main 
+memori and share among all threads. To keep α and ṽ consist ṽ be updat asynchron by 
+the thread block after everi singl coordin updat to α exploit the atom add oper of 
+modern gpus. 
+
+16 
+
+
+
+d.1 elast net 
+
+the gener of the tpa-scd algorithm from L2 regular to elast net regular prob- 
+lem includ lasso be straightforward. let u consid the follow objective: 
+
+min 
+α∈rn 
+
+1 
+
+2d 
+‖aα− b‖22 + λ 
+
+(η 
+2 
+‖α‖22 + (1− η)‖α‖1 
+
+) 
+(32) 
+
+with trade-off paramet η ∈ [0, 1]. 
+
+In thi case the onli differ to the ridg regress solver present in [10] be the compu- 
+tation of the individu coordin updat in [10, algorithm 2]. that is, solv for a singl 
+coordin j exactli in (32) yield the follow updat rule: 
+
+αt+1j = sign(γ) [|γ| − τ ]+ (33) 
+with soft-threshold paramet 
+
+τ = 
+λd(1− η) 
+‖aj‖22 + ληd 
+
+(34) 
+
+and 
+
+γ = 
+αtj ‖aj‖22 − a>j ṽt 
+
+‖aj‖22 + ληd 
+. (35) 
+
+here ṽt denot the current state of the share vector ṽt := aαt − b which be updat after everi 
+coordin updat a 
+
+ṽt+1 = ṽt + aj(α 
+t+1 
+j − α 
+
+t 
+j). 
+
+similar to ridg regress we parallel the comput of a>j ṽ 
+t and a>j aj in (34) and (35) in 
+
+everi iter over all thread of the thread block in order to fulli exploit the parallel of the 
+gpu. 
+
+d.2 l2-regular svm 
+
+tpa-scd can also be gener to optim the dual svm object (31). In the dual formul 
+(31) a block of coordin P of α correspond to a subset of sampl (a oppos to features). 
+hence, individu thread block in tpa-scd optim for a singl sampl at a time where the share 
+inform correspond to v̂ := Aα (instead of aα− b a in the ridg regress implement 
+which onli impact initi of the share vector). the correspond singl coordin updat 
+can then be comput a 
+
+∆αj = 
+yj − 1λna 
+
+> 
+j v̂ 
+
+t 
+
+1 
+λn‖aj‖ 
+
+2 
+2 
+
+(36) 
+
+and incorpor the constraint (yiαi ∈ [0, 1], ∀i) we find: 
+
+αt+1j = yj max(0,min(1, yj(α 
+t 
+j + ∆αj))) 
+
+and updat v̂ accordingly: 
+v̂t+1 = v̂t + aj(α 
+
+t+1 
+j − α 
+
+t 
+j). 
+
+again, multipl thread in a thread block can be use to comput individu updat by parallel 
+the comput of a>j v and a 
+
+> 
+j aj for everi update. 
+
+E dualiti gap 
+
+the comput of the dualiti gap be essenti for the implement of the select scheme in 
+algorithm 2. We therefor devot thi section to explicitli state the dualiti gap for the object 
+function consid in our experiments. 
+
+17 
+
+
+
+ridg regression. sinc the l2-norm be self-dual the comput of the dualiti gap for the ridg 
+regress object (29) be straightforward: 
+
+gap(α) = 
+1 
+
+d 
+
+∑ 
+i∈[n] 
+
+αi a 
+> 
+i w + 
+
+1 
+
+2λd 
+(a>i w) 
+
+2 + λd 
+1 
+
+2 
+α2i 
+
+ 
+where w := aα− b. 
+
+lasso. In order to comput a valid dualiti gap for the lasso problem (30) we need to employ the 
+lipschitz trick a suggest in [4]. thi enabl to comput a global defin dualiti gap even 
+for non-bound conjug function g∗i such a when the gi form the L1 norm. the lipschitz 
+trick be appli coordinate-wis to everi gi := | · |. It artifici bound the support of gi, where 
+we choos the bound B such that ‖α(t)‖1 ≤ B ∀t > 0, and henc |αti| ≤ B, ∀i, t. thu everi 
+iter α(t) be guarante to lie within the support. thi choic further guarante that the bound 
+support modif do not affect the optim and the origin object be untouch insid 
+the region of interest. for the lasso object (30) we can satisfi thi with the follow choice: 
+B = f(0)λd = 
+
+‖b‖22 
+2λd . given B, the dualiti gap for the lasso problem can be comput a 
+
+gap(α) = 
+1 
+
+d 
+
+∑ 
+i∈[n] 
+
+αi a 
+> 
+i w +B 
+
+[ 
+|a>i w| − λd 
+
+] 
++ 
+
++ λd|αi| 
+
+ 
+where we recal the primal-du mapping: 
+
+w := aα− b. 
+
+l2-regular svm. the l2-regular svm object be give a 
+
+p(w) = 1 
+n 
+
+∑ 
+i∈[n] 
+
+hi(a 
+> 
+i w) + 
+
+λ 
+
+2 
+‖w‖22 (37) 
+
+where for everi i ∈ [n], hi(u) = max{0, 1 − yiu} denot the hing loss and ai sampl i with 
+label yi. the correspond dual problem formul be give in (31). the dualiti gap (2) for the 
+l2-regular svm object can be comput a follows: 
+
+gap(α) = 
+1 
+
+n 
+
+∑ 
+i∈[n] 
+
+αia 
+> 
+i w + hi(a 
+
+> 
+i w)− yiαi 
+
+ 
+where the primal-du map be give a 
+
+w := 
+1 
+
+nλ 
+aα. 
+
+18 
+
+
+1 introduct 
+2 learn problem 
+3 approxim block coordin descent 
+3.1 algorithm descript 
+3.2 converg analysi 
+3.3 gap-select scheme 
+
+4 heterogen train 
+4.1 duhl: A dualiti gap-bas heterogen learn scheme 
+
+5 experiment result 
+5.1 algorithm behavior 
+5.2 refer scheme 
+5.3 perform analysi of duhl 
+
+6 conclus 
+A proof 
+a.1 key lemma 
+a.2 proof theorem ?? 
+a.3 proof theorem ?? 
+
+B coordin descent 
+C local subproblem 
+c.1 exampl 
+
+D gener of tpa-scd 
+d.1 elast net 
+d.2 l2-regular svm 
+
+E dualiti gap 
+

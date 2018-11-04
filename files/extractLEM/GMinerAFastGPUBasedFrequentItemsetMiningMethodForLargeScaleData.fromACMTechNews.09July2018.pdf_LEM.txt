@@ -1,0 +1,2927 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+GMiner: A fast GPU-based frequent itemset mining method for large-scale data 
+
+
+Information Sciences 439–440 (2018) 19–38 
+
+Contents list available at ScienceDirect 
+
+Information Sciences 
+
+journal homepage: www.elsevier.com/locate/ins 
+
+GMiner: A fast GPU-based frequent itemset mining method 
+
+for large-scale data � 
+
+Kang-Wook Chon, Sang-Hyun Hwang, Min-Soo Kim ∗ 
+
+DGIST (Daegu Gyeongbuk Institute of Science and Technology), Daegu, Republic of Korea 
+
+a r t i c l e i n f o 
+
+Article history: 
+
+Received 19 March 2017 
+
+Revised 16 January 2018 
+
+Accepted 25 January 2018 
+
+Available online 31 January 2018 
+
+Keywords: 
+
+Frequent itemset mining 
+
+Graphics processing unit 
+
+Parallel algorithm 
+
+Workload skewness 
+
+a b s t r a c t 
+
+Frequent itemset mining be widely use a a fundamental data mining technique. However, 
+
+a the data size increases, the relatively slow performance of the exist method hinder 
+
+it applicability. Although many sequential frequent itemset mining method have be 
+
+proposed, there be a clear limit to the performance that can be achieve use a single 
+
+thread. To overcome this limitation, various parallel method use multi-core CPU, multi- 
+
+ple machine, or many-core graphic processing unit (GPU) approach have be proposed. 
+
+However, these method still have drawbacks, include relatively slow performance, data 
+
+size limitations, and poor scalability due to workload skewness. In this paper, we pro- 
+
+pose a fast GPU-based frequent itemset mining method call GMiner for large-scale data. 
+GMiner achieves very fast performance by fully exploit the computational power of 
+GPUs and be suitable for large-scale data. The method performs mining task in a coun- 
+
+terintuitive way: it mine the pattern from the first level of the enumeration tree rather 
+
+than store and utilize the pattern at the intermediate level of the tree. This approach 
+
+be quite effective in term of both performance and memory use in the GPU architecture. 
+
+In addition, GMiner solves the workload skewness problem from which the exist par- 
+allel method suffer; a a result, it performance increase almost linearly a the number 
+
+of GPUs increases. Through extensive experiments, we demonstrate that GMiner signifi- 
+cantly outperforms other representative sequential and parallel method in most cases, by 
+
+order of magnitude on the test benchmarks. 
+
+© 2018 The Authors. Published by Elsevier Inc. 
+
+This be an open access article under the CC BY-NC-ND license. 
+
+( http://creativecommons.org/licenses/by-nc-nd/4.0/ ) 
+
+
+
+
+
+
+
+
+
+
+
+1. Introduction 
+
+As a fundamental data mining technique, frequent itemset mining be widely use in a wide range of discipline such a 
+
+market basket analysis, web usage mining, social network analysis, intrusion detection, bioinformatics, and recommendation 
+
+systems. However, the deluge of data generate by automate system for diagnostic or analysis purpose make it difficult 
+
+or even impossible to apply mining technique in many real-world applications. The exist method often fail to find 
+
+frequent itemsets in such big data within a reasonable amount of time. Thus, in term of computational time, itemset 
+
+mining be still a challenge problem that have not yet be completely solved. 
+� Fully document template be available in the elsarticle package on CTAN. 
+∗ Corresponding author. 
+
+E-mail addresses: kw.chon@dgist.ac.kr (K.-W. Chon), sanghyun@dgist.ac.kr (S.-H. Hwang), mskim@dgist.ac.kr (M.-S. Kim). 
+
+https://doi.org/10.1016/j.ins.2018.01.046 
+
+0020-0255/© 2018 The Authors. Published by Elsevier Inc. This be an open access article under the CC BY-NC-ND license. 
+
+( http://creativecommons.org/licenses/by-nc-nd/4.0/ ) 
+
+https://doi.org/10.1016/j.ins.2018.01.046 
+http://www.ScienceDirect.com 
+http://www.elsevier.com/locate/ins 
+http://crossmark.crossref.org/dialog/?doi=10.1016/j.ins.2018.01.046&domain=pdf 
+http://creativecommons.org/licenses/by-nc-nd/4.0/ 
+mailto:kw.chon@dgist.ac.kr 
+mailto:sanghyun@dgist.ac.kr 
+mailto:mskim@dgist.ac.kr 
+https://doi.org/10.1016/j.ins.2018.01.046 
+http://creativecommons.org/licenses/by-nc-nd/4.0/ 
+
+
+20 K.-W. Chon et al. / Information Sciences 439–440 (2018) 19–38 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Many sequential frequent itemset mining method such a Apriori [2] , Eclat [35] , FP-Growth [14] , and LCM [30] use a sin- 
+
+gle CPU thread. However, these single-threaded application all have a fundamental mining performance limit because CPU 
+
+clock speed be generally no longer increasing. To overcome the single-thread performance limit, multiple parallel frequent 
+
+itemset mining method have be proposed. These method can be categorize into three main groups: (1) (CPU-based) 
+
+multi-threaded methods, (2) distribute methods, and (3) graphic processing unit (GPU)-based methods. We omit the term 
+
+”multi-thread” from the GPU-based method because they be obviously multi-threaded. The first group focus on accel- 
+
+erating the performance of the single-threaded method by exploit multi-core CPUs [20,24,26,27,29] , while the second 
+
+group try to accelerate the performance by exploit multiple machine [12,17,19] . Details about these method be avail- 
+
+able in recent survey study [9,31] . 
+
+The third group, namely, the GPU-based methods, focus on accelerate the performance by exploit many-core GPUs 
+
+[7,15,18,28,37–39] . Due to the high theoretical compute performance of GPUs for certain type of task compare with 
+
+CPUs, it have become increasingly important to exploit the capability of GPUs in a wide range of problems, include fre- 
+
+quent pattern mining. However, exist GPU-based method all suffer from data size limitation due to limited GPU mem- 
+
+ory. GPU memory tends to be much small than main memory. Most of the method can only find frequent pattern in 
+
+data load into GPU memory, which include the input transaction data and intermediate data generate at the interme- 
+
+diate level of the pattern space. To the best of our knowledge, Frontier Expansion [38] be the only method in this group 
+
+that can handle large input transaction data than GPU memory while simultaneously exploit multiple GPUs. However, it 
+
+still cannot address the same data size a CPU-based methods, because it cannot store sufficiently large amount of data at 
+
+intermediate level of the pattern space in GPU memory. 
+
+Most exist parallel method of the above three group also suffer from the problem of workload skewness. Workload 
+
+skewness be extremely common and significantly affect parallel compute performance. The exist parallel method usu- 
+
+ally divide the search space of the pattern to be explore into multiple chunk (e.g., equivalence classes) and assign each 
+
+chunk to a processor (or machine). Each subtree of the enumeration tree tends to have a different workload size. As a result, 
+
+these method be not particularly scalable in term of the number of CPUs, machines, or GPUs. That is, their performance 
+
+do not increase proportionally a the number of processor increases. 
+
+In this paper, we propose a fast GPU-based frequent itemset mining method call GMiner for large-scale data. Our 
+GMiner method achieves high speed by fully exploit the computational power of GPUs. It can also address the same 
+data size a CPU-based methods-that is, it solves the main drawback of the exist GPU-based methods. GMiner achieves 
+this by mining the pattern from the first level of the enumeration tree rather than store and utilize the pattern at 
+
+intermediate level of the tree. This strategy might look simple, but it be quite effective in term of performance and mem- 
+
+ory usage for GPU-based methods. We call this strategy the Traversal from the First Level (TFL) strategy. The TFL strategy 
+
+do not store any project database or frequent itemsets from the intermediate level of the enumeration tree in GPU 
+
+memory; instead, it find all the frequent itemsets use only the frequent itemsets from the first level, denote a F 1 . This 
+
+strategy reduces the amount of GPU memory use and simultaneously and paradoxically improves the performance. This 
+
+result seem somewhat counterintuitive but make sense in a GPU architecture, where the gap between processor speed 
+
+and memory speed be quite large. In most cases, mining the frequent n -itemsets by perform a large amount of compu- 
+
+tation base on a small F 1 set be faster than mining the same result by perform a small amount of computation base 
+
+on a large set of frequent (n-1)-itemsets under the GPU architecture. Using the TFL strategy, GMiner improves the perfor- 
+mances of the representative parallel methods, include multi-threaded, distributed, and GPU-based methods, by order of 
+
+magnitude. In addition to the TFL strategy, we also propose a strategy call Hopping from the Intermediate Level (HIL), to 
+
+further improve the performance on datasets that contain long patterns. Intuitively, the HIL strategy reduces the require 
+
+computation by utilize more GPU memory, thereby improve the performance for long patterns. In addition to fast min- 
+
+ing with efficient memory usage, GMiner solves the workload skewness problem of the exist parallel methods. As a 
+result, GMiner ’s performance increase almost linearly a the number of GPUs increases. To solve the workload skewness 
+problem, we propose the concept of a transaction block and a relative memory address. The former be a fixed-size chunk 
+
+of bitwise representation for transactions, while the latter be an array representation for candidate itemsets. For parallel 
+
+processing, GMiner do not divide the search space of the enumeration tree into sub-trees; instead, it divide an array of 
+relative memory address into multiple subarrays, all of which have the same size. Then, GMiner store a subarray in each 
+GPU and performs mining by stream transaction block to all the GPUs so that each GPU be assign almost the same 
+
+workload. The main contribution of this paper be a follows: 
+
+• We propose a new, fast GPU-based frequent itemset mining method name GMiner that fully exploit the GPU archi- 
+tecture by perform a large amount of computation on a small amount of data (i.e., frequent 1-itemsets). 
+
+• We propose a strategy call HIL that can further improve the performance on datasets that contain long pattern by 
+perform a moderate amount of computation base on a moderate amount of data. 
+
+• We propose a method to solve the workload skewness problem by splitting an array of relative memory address for 
+candidate itemsets among GPUs and stream transaction block to all GPUs. 
+
+• Through experiments, we demonstrate that GMiner significantly outperforms most of the state-of-the-art method that 
+have be address in recent study [4,9,25,31,33] on two kind of benchmarks. 
+
+The source code for GMiner be available at https://infolab.dgist.ac.kr/GMiner . The remainder of this paper be organize 
+a follows. Section 2 discus the related work. We propose the TFL strategy in Section 3 , and in Section 4 , we propose 
+
+https://infolab.dgist.ac.kr/GMiner 
+
+
+K.-W. Chon et al. / Information Sciences 439–440 (2018) 19–38 21 
+
+Table 1 
+
+Categorization of the exist frequent itemset mining methods. 
+
+Sequential (CPU) Parallel 
+
+CPU GPU 
+
+Multi-threaded Distributed 
+
+Relative computational power Low Medium High High 
+
+Difficulty of workload balance N/A Medium High High 
+
+Network communication overhead X X O X 
+
+Processor memory limit X X X O 
+
+Representative method (used in 
+
+experimental study) 
+
+Apriori (Borgelt) [6] , 
+
+Eclat (Borgelt) [6] , Eclat 
+
+(Goethals) [10] , LCM 
+
+[30] , FP-Growth ∗ [11] 
+
+FP-Aray [20] , ShaFEM 
+
+[32] , MC-Eclat [26] 
+
+MLlib [3] TBI [7] , GPApriori [37] , 
+
+Frontier Expansion [38] 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+the HIL strategy. In Section 5 we present a method that exploit multiple GPUs and the cost model of GMiner . Section 6 
+present the result of experimental evaluations, and Section 7 summarizes and concludes this paper. 
+
+2. Related work 
+
+The frequent itemset mining problem be usually define a the problem of determine all itemsets F that occur a a 
+subset of at least a pre-defined fraction minsup of the transaction in a give transaction database D = { t 1 , t 2 , . . . , t n } , where 
+each transaction t i be a subset of item from I [1,13] . In this paper, we mainly use the number of occurrences, instead of a 
+fraction, a the support of an itemset. Many sequential and parallel frequent itemset mining method have be proposed. 
+
+We categorize the parallel method into three groups: (1) (CPU-based) multi-threaded methods, (2) distribute methods, 
+
+and (3) GPU-based methods. Their characteristic and representative method be summarize in Table 1 and be explain 
+
+in detail in Sections 2.1 –2.4 . 
+
+2.1. Sequential method 
+
+Many sequential method have be propose for frequent pattern mining. The representative method include Apriori 
+
+[2] , Eclat [35] , LCM [30] , and FP-Growth [14] . Apriori be base on the anti-monotone property: if a k -itemset be not frequent, 
+
+then it supersets can never become frequent. Apriori repeatedly generates candidate ( k +1)-itemsets C k +1 from the frequent 
+k -itemsets F k (where k ≥ 1) and computes the support of C k +1 over the database D for testing. Borgelt [6] be a well-known 
+implementation of Apriori that exploit a prefix tree to represent the transaction database and find frequent itemsets di- 
+
+rectly with the prefix tree to calculate support efficiently. Eclat [35] us the equivalence class concept to partition the 
+
+search space into multiple independent subspace (i.e., subproblems). Its vertical data format make it possible to perform 
+
+support counting efficiently by set intersection. Goethals et al. [10] and Borgelt [6] be well-known implementation of Eclat 
+
+that optimize it use the diffset [34] representation for candidate itemsets and transactions. The superiority of both meth- 
+
+od to other vertical method have be demonstrate on the Frequent Itemset Mining Implementations (FIMI) competition 
+
+(i.e., FIMI03 and FIMI04) [8] . LCM be a variation of Eclat that combine various technique such a a bitmapped database, 
+
+prefix tree, and the occurrence deliver technique. As a result, LCM achieve the overall best performance among sequen- 
+
+tial method in the FIMI04 competition. FP-Growth [14] build an FP-Tree from the database and recursively find frequent 
+
+itemsets by traverse the FP-Tree without explicit candidate generation. It outperforms the Apriori-based method in many 
+
+cases. FP-Growth ∗ be a well-known implementation of FP-Growth that reduces the number of tree traversal by exploit 
+additional array data structures. FP-Growth ∗’s superiority be demonstrate in the FIMI03 competition. 
+
+2.2. Multi-threaded method 
+
+Many effort have be make to parallelize sequential method use multiple thread to improve the performance 
+
+[20,26,32] . FP-Array [20] , base on FP-Growth, utilizes a cache-conscious FP-Array built from a compact FP-Tree and a lock- 
+
+free tree construction algorithm. In an experimental study, FP-Array improve the performance by up to six time on eight 
+
+CPU cores. MC-Eclat [26] be a parallel method base on Eclat. MC-Eclat utilizes three parallel mining approaches, namely, in- 
+
+dependent, shared, and hybrid mining, and it greatly improves the performance on relatively small datasets. ShaFEM [32] be 
+
+a parallel method that dynamically chooses mining strategy base on dataset density. In detail, it switch between FP- 
+
+Growth and Eclat base on dataset characteristics. In many cases, multi-threaded method greatly improve the performance 
+
+compare to sequential methods. However, they fail in pattern mining due to out-of-memory failure on some datasets that 
+
+sequential method handle successfully and tend to require more memory than the sequential method due to the large 
+
+amount of memory use by the independent threads. 
+
+
+
+22 K.-W. Chon et al. / Information Sciences 439–440 (2018) 19–38 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+2.3. Distributed method 
+
+In theory, distribute method that exploit many machine can address large-scale data. Several distribute method 
+
+[3,19,22] have be proposed, all of which be base on a shared-nothing framework such a Hadoop or Spark. Lin et al. 
+
+[19] propose parallel method base on Hadoop for the Apriori approach. Moens et al. [22] propose Dist-Eclat and Big- 
+
+FIM. Dist-Eclat be base on the Eclat approach and BigFIM be a hybrid approach between Apriori and Eclat. MLlib of Spark 
+
+[3] include a parallel version of FP-growth call PFP. PFP be an in-memory distribute method that run on a cluster of 
+
+machines. It build independent FP-Trees and then performs frequent itemset mining independently on each FP-Tree in each 
+
+machine. Although the distribute method should be able to handle large data, or greatly improve the performance by 
+
+add more machines, they do not show such result in many case due to workload skewness. According to the experi- 
+
+mental result (which will be present in Section 6 ), distribute method can result in even bad performance than do 
+
+multi-threaded method that use a single machine due to the large amount of network communication overhead. 
+
+2.4. GPU-Based method 
+
+Modern GPUs have many compute core that allow multiple simultaneous execution of a kernel, which be a user- 
+
+define function. In addition, use GPUs in a single machine do not involve network communication overhead. GPUs 
+
+have radically different characteristic than CPUs, include the Single Instruction, Multiple Threads (SIMT) model and the 
+
+importance of coalesce memory access. These difference make it difficult to apply most parallel method use complex 
+
+data structure (e.g., FP-Array) to GPUs directly and efficiently. Thus, most GPU-based method have be propose base 
+
+on Apriori [7,15,18,28,31,37] . 
+
+Fang et al. [7] present two GPU-based methods: Pure Bitmap Implementation (PBI) and Trie-Based Implementation 
+
+(TBI). These method represent a transaction database a an n × m binary matrix, where n be the number of itemsets and 
+m be the number of transactions, thereby make it suitable for the GPU architecture. These method perform intersection 
+
+operation on row of the binary matrix use a GPU to count support. PBI and TBI outperform the exist sequential 
+
+Apriori methods, such a the Apriori implementation write by Borgelt [6] , by factor of 2–10. However, accord to Fang 
+
+et al. [7] , these method be outperform by the exist parallel FP-Growth method by factor of 4–16 on the PARSEC 
+
+benchmark [5] . TBI be superior to PBI in term of the number of candidate itemsets that can be handle simultaneously; 
+
+therefore, we compare TBI with our method in Section 6 . 
+
+Zhang et al. [37] present GPApriori, which generates a so-called static bitmap that represent all the distinct 1-itemsets 
+
+and their tidsets. Similar to other GPU-based Apriori methods, GPApriori us a GPU only to parallelize the support counting 
+
+step. The candidate generation step be perform use CPUs. GPApriori adopts multiple optimizations, such a pre-loading 
+
+candidate itemsets into the share GPU memory and use hand-tuned GPU block sizes. Consequently, it show a speed- 
+
+up of up to 80 time on a small dataset that can fit into GPU memory compare with some sequential Apriori method 
+
+(e.g., that of Borgelt [6] ). However, accord to Zhang et al. [37] , GPApriori could not outperform state-of-the-art sequential 
+
+method such a FP-Growth ∗ [11] , Eclat [6] , and LCM [30] . 
+In [28] , the author propose a parallel version of the Dynamic Counting Itemset algorithm (DCI) [23] , a variation of 
+
+Apriori in which two major DCI operations, namely, intersection and computation, be parallelize use a GPU. They pro- 
+
+pose two strategies: a transaction-wise approach (called tw ) and a candidate-wise approach (called cw ). The tw strategy 
+
+us all GPU core for the same candidate simultaneously, and each thread oversees a part of the data, while the cw strategy 
+
+handle many candidate itemsets simultaneously. We omit these method in Table 1 and in our experiments, because the 
+
+tw strategy be almost the same a TBI, and the cw strategy work for only very-small datasets [28] . 
+
+The above three Apriori-based methods, which use GPUs, have a common serious drawback: they cannot handle datasets 
+
+large than GPU memory. Therefore, use them for real large-scale datasets be difficult because GPU memory be quite limited 
+
+(e.g., to a few GB). In addition, the above method do not outperform the representative sequential method (e.g., LCM) a 
+
+well a the representative multi-threaded method (e.g., FP-Array) [7,28,37] . 
+
+According to the recent survey paper on frequent itemset mining [9,31] , Frontier Expansion [38] be the only GPU-based 
+
+method that can handle datasets large than GPU memory. Frontier Expansion be base on Eclat rather than Apriori, and 
+
+it utilizes multiple GPUs. The author show that it outperforms the sequential Eclat and FP-Growth method [38] , which 
+
+be previously know to be the fast method in their categories. However, it fails to outperform some state-of-the- 
+
+art multi-threaded method such a FP-Array (as show by our experimental result in Section 6 ). We found that Frontier 
+
+Expansion’s failure be due to three major drawbacks: (1) it store a large amount of intermediate-level data in GPU memory 
+
+(wasting GPU clock cycles); (2) it have a large data transfer overhead between main memory and GPU memory; and (3) it be 
+
+not scalable in term of the number of GPUs. We will explain how the propose GMiner method solves these drawback 
+in Sections 3 –5 . 
+
+3. TFL strategy 
+
+For fast frequent itemset mining, even for large-scale data, GMiner us the Traversal from the First Level (TFL) strategy 
+of mining the pattern from the first level, i.e., F , of the enumeration tree. The TFL strategy do not store any project 
+1 
+
+
+
+K.-W. Chon et al. / Information Sciences 439–440 (2018) 19–38 23 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+database or frequent itemsets from the intermediate level of the enumeration tree in GPU memory; instead, it find the en- 
+
+tire frequent itemsets use only F 1 . This approach significantly reduces GPU memory usage; thus, it can address large-scale 
+
+data without encounter out-of-memory problems. In addition, to eliminate the data transfer overhead between main 
+
+memory and GPU memory, GMiner performs pattern mining while stream transaction database from main memory to 
+GPU memory. Here, GMiner split the transaction database into block and stream them to GPUs. This block-based stream- 
+ing approach allows u to solve the workload skewness problem, a explain in Section 5 . Sections 3.1 and 3.2 explain the 
+
+transaction block and the block-based stream approach, respectively. Section 3.3 present the algorithm that implement 
+
+the TFL strategy. 
+
+3.1. Transaction block 
+
+It be important that the data structure be simple and use a regular memory access pattern to fully exploit the com- 
+
+putational power of GPUs in term of workload balance among thousand of GPU core and coalesce memory access. In 
+
+general, compare with CPUs, the arithmetic and logic unit (ALUs) and memory scheme of GPUs be not efficient for han- 
+
+dling complex or variable-sized data structures, include sets, lists, maps, and their combinations. Furthermore, GPUs have 
+
+only limited memory, which be a major obstacle for frequent itemset mining on large-scale and/or dense datasets use 
+
+GPUs. 
+
+For computational efficiency, GMiner adopts a vertical bitmap layout for data representation. The horizontal layout and 
+vertical tidset layout be too complex and irregular to maximize GPU computational efficiency. Frequent itemset mining 
+
+use the vertical bitmap layout relies heavily on bitwise AND operation among large-scale bitmaps, where GPUs have an 
+overwhelm advantage over CPUs. 
+
+Moreover, the vertical bitmap layout allows u to easily partition the input database vertically into subdatabases, each of 
+
+which can fit in main memory or GPU memory. Hereafter, we denote an input database D in the vertical bitmap layout a a 
+
+transaction bitmap . We define the vertical partition of a transaction bitmap in Definition 1 . 
+
+Definition 1 (Transaction bitmap partition) . We vertically divide the transaction bitmap TB into R non-overlapping partition 
+
+of the same width and denote them by TB 1: R , where TB k denotes the k -th transaction bitmap partition (1 ≤ k ≤ R ). 
+As in other frequent itemset mining methods, GMiner begin by mining the frequent 1-itemsets | F 1 |; therefore, the size 
+
+of TB be | F 1 | x | D | in bits, where | D | be the total number of transactions. When we denote the width of a single partition of 
+
+the transaction bitmap a W , the size of TB k becomes | F 1 | x W . If the number of transaction of the last partition TB R be less 
+
+than W , GMiner pad the partition with 0 value to guarantee the width of W . 
+The parameter W should be set to a sufficiently small value to fit each TB k into GPU memory. For instance, we typically 
+
+set W to 262,144 transaction in our experimental evaluation, which equal to 262,144/8 = 32 KB for each 1-itemset. We 
+consider each TB k of size | F 1 | x W a a transaction block. The transaction block be allocate consecutively in main memory 
+
+(or store a chunk in secondary storage similar to a disk page). 
+
+A frequent 1-itemset x ( x ∈ F 1 ) have a bit vector of length | D | in TB , which be subdivide into R bit vector of length W . We 
+denote a bit vector of x within TB k a TB k ( x ). As mention above, TB contains only the bit vector for frequent 1-itemsets. 
+
+Thus, if x be a frequent n -itemset, x have n bit vector in TB k , i.e., { TB k ( i )| i ∈ x }. We define a set of physical pointer to the bit 
+vector for a frequent itemset x in the transaction bitmap in Definition 2 . 
+
+Definition 2 (Relative memory address) . We define a relative memory address of an item i , denote a RA ( i ), a the distance 
+
+in byte from the start memory address of TB k to that of TB k ( i ), for a transaction block TB k . Then, we define a set of 
+
+relative memory address of a frequent itemset x , denote a RA ( x ), a { RA ( i )| i ∈ x }. 
+This concept facilitates the fast access to a memory location of an itemset (or memory location of itemsets) within a 
+
+single transaction block in main memory or GPU memory. RA ( x ) be use a an identifier for an itemset x in GMiner . We 
+denote the number of item in x a | x | and the number of distinct memory address of RA ( x ) a | RA ( x )|. Then, | x | = | RA (x ) | , 
+because each item i ∈ x have it own unique memory address in TB k . We note that RA ( x ) for a frequent itemset x do not 
+change across all TB k (1 ≤ k ≤ R ); that is, it always have the same relative memory address because the size of TB k be fixed. 
+
+3.2. Nested-Loop stream 
+
+GMiner find frequent itemsets use the candidate generation and test approach with breadth-first search (BFS), a 
+in Apriori, which repeat two major steps, namely, candidate generation and test (support counting), at each level of 
+
+an itemset lattice. Generally, the test step be more computationally intensive than the candidate generation step. Thus, 
+
+GMiner focus on accelerate the test step by exploit GPUs. The candidate generation step be perform use CPUs. 
+GMiner us BFS traversal rather than DFS traversal (e.g., equivalence classes) to fully exploit the massive parallelism 
+
+of GPUs and achieve good workload balance. When use BFS traversal, the number of frequent itemsets at a certain level 
+
+could become too large to be store in the limited GPU memory and use for support counting of the candidate itemsets of 
+
+the next level. The increase in the number of transaction make the problem more difficult. Therefore, exist GPU-based 
+
+method for mining large-scale datasets (such a Frontier Expansion [38] ) use a DFS approach that test only the frequent 
+
+and candidate itemsets of an equivalence class within GPU memory. However, the use of this DFS approach on GPUs could 
+
+
+
+24 K.-W. Chon et al. / Information Sciences 439–440 (2018) 19–38 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+degrade the performance of itemset mining due to lack of parallelism and workload skewness, which will be show in 
+
+Section 6 . 
+
+Our propose TFL strategy solves the issue of mining frequent itemsets in large-scale datasets without degrade the per- 
+
+formance within limited GPU memory. We call an entire set of frequent 1-itemsets the first level in the itemset lattice and 
+
+call other level in the itemset lattice intermediate level . Most of the exist frequent itemset mining method materialize 
+
+frequent itemsets in intermediate level to reduce computational overhead, but this approach greatly increase the space 
+
+overhead. For example, AprioriTid materializes n -itemsets when find n + 1-itemsets, and Eclat materializes the itemsets 
+that have the same prefix. However, this approach can suffer from a lack of main memory due to the large amount of in- 
+
+termediate data. Moreover, this tendency be more marked when exploit GPUs, because GPU memory be limited compare 
+
+to main memory. The propose TFL strategy test all the candidate itemsets of intermediate level use only the first level, 
+
+i.e., F 1 . This feature be base on the observation that GPUs have high computational power, especially for massive bitwise 
+
+operations, but relatively small device memory. Our observation indicates that, in the GPU architecture, test the candidate 
+
+n + 1-itemsets use frequent 1-itemsets tends to be much faster than test the candidate n + 1-itemsets use frequent 
+n -itemsets (i.e., F n ). This speed difference occurs because copying F n to GPU memory incurs a much large data transfer 
+
+overhead than do copying only F 1 , and simultaneously, access F n in GPU memory incurs more non-coalesced memory 
+
+access than do access F 1 . 
+
+For mining large-scale databases, we also propose a new itemset mining technique on GPUs call nested-loop stream . 
+
+Here, a single series of candidate generation and test step constitutes an iteration . GMiner performs nested-loop stream- 
+ing at each iteration. This technique copy the candidate itemsets to GPUs a the outer operand. Specifically, it copy only 
+
+the relative memory address of the itemsets to the GPUs rather than the itemsets themselves. We denote the candidate 
+
+itemsets at level L a C L . The propose technique copy RA ( C L ) = { RA ( x )| x ∈ C L } to the GPUs (hereafter, when there be no 
+ambiguity, we simply denote RA ( C L ) a RA ). The technique also copy transaction block of the first level (i.e., TB 1: R ) to 
+
+GPUs a the inner operand. We note that the outer operand, RA , or the inner operand, TB 1: R , or both, might not fit in GPU 
+
+memory. Thus, the propose technique partition the outer operand RA into RA 1: Q and copy each RA j to the GPUs indi- 
+
+vidually (1 ≤ j ≤ Q ). Then, for each RA j , it stream each piece of the inner operand, i.e., transaction block, TB k to the GPUs 
+(1 ≤ k ≤ R ). In most intermediate levels, the outer operand, RA , be much small than the inner operand, TB . In particular, 
+when the entire RA can be kept in GPU memory (i.e., Q = 1), stream TB k to the GPUs becomes a major operation of this 
+technique. 
+
+For each pair 〈 RA j , TB k 〉 , GMiner calculates the partial support of x ∈ RA j within TB k . We denote the partial support for 
+〈 RA j , TB k 〉 a PS j, k . We formally define the partial support of itemset x in Definition 3 . 
+Definition 3 (Partial support) . We define σ x ( TB k ) a the partial support of an itemset x within a give transaction block TB k . 
+The full support of x on the entire transaction bitmap TB 1: R becomes σ ( x ) = 
+
+∑ R 
+k =1 σx (T B k ) . 
+
+To calculate the partial support σ x ( TB k ) for an itemset x = { i 1 , . . . , i n } , GMiner simply performs bitwise AND operation 
+n − 1 time among bit vector of { TB k ( i )| i ∈ x } and count the number of 1 in the resultant bit vector. GMiner can efficiently 
+access to the location of the bit vector TB k ( x ) because RA ( x ) contains the relative memory address of x in TB k in GPU 
+
+memory. We denote the function to apply a series of n − 1 bitwise AND operation for the itemset x a ⋂ { T B k (x ) } . We also 
+denote the function that count the number of 1 in a give bit vector by count ( · ). Then, σx (T B k ) = count( 
+
+⋂ { T B k (x ) } ) . 
+Fig. 1 show the basic data flow of GMiner with the nested-loop stream technique. In Fig. 1 , the outer operand 
+
+RA 1: Q and inner operand TB 1: R be store in main memory ( Q = 1 ). The buffer for RA j , call RABuf , and the buffer for TB k , 
+call TBBuf , be store in GPU memory. Here, we allocate RABuf and TBBuf to GPU global memory. GMiner copy each 
+TB k to TBBuf in a stream fashion via the PCI-E bus, after copying RA j to RABuf . To store the partial support value for all 
+
+candidate itemsets in RA in each transaction block TB k , GMiner maintains a two-dimensional array of size | RA | x R in main 
+memory, denote a PSArray , where | RA | be the number of candidate itemsets. GMiner also allocates the buffer for partial 
+support in GPU global memory, denote a PSBuf . The partial support value calculate on the GPU core be first store in 
+
+PSBuf in GPU global memory, and then copy back to the PSArray in main memory. 
+
+3.3. TFL Algorithm 
+
+In this section, we present the algorithm that implement the TFL strategy. We first explain the overall procedure of 
+
+the algorithm use the example show in Fig. 1 . The TFL strategy performs a total of seven steps. We denote the set of 
+
+candidate itemsets at the current level in the itemset lattice a C L . In Step 1, the TFL strategy convert C L to RA by mapping 
+
+each itemset x in C L to it relative memory address RA ( x ) use dict . Here, dict be a dictionary that map a frequent 1- 
+
+itemset x ∈ F 1 to RA ( x ) within a transaction block TB k . If the size of RA be large than that of RABuf in GPU memory, then RA 
+be logically divide into Q partitions, i.e., RA 1: Q , such that each partition can fit in RABuf . In Step 2, it copy a partition RA j 
+to RABuf in GPU memory. In Step 3, it copy each transaction block TB k to TBBuf in GPU memory in a stream fashion. 
+
+In Steps 4-5, the GPU kernel function for the bitwise AND operations, denote a K TFL , calculates the partial support of 
+candidate itemsets in RABuf and store the value in PSBuf . In Step 6, the TFL strategy copy the partial support in PSBuf 
+
+back to PSArray in main memory. Here, it copy the value of TB k to the k -th column of PSArray . In Step 7, it aggregate 
+
+the partial support of each itemset x in PSArray to obtain σ ( x ). After Step 7, GMiner find the frequent L -itemsets F for 
+L 
+
+
+
+K.-W. Chon et al. / Information Sciences 439–440 (2018) 19–38 25 
+
+Fig. 1. Example of the TFL strategy. 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+which the support value be great than or equal to a give threshold minsup , a in the exist frequent itemset mining 
+
+methods. 
+
+Algorithm 1 show the pseudo code for the algorithm. During initialization, the algorithm load a transaction database 
+
+D into main memory (MM) and allocates PSArray to MM. Then, it allocates three buffers, namely, TBBuf, RABuf , and PSBuf , 
+
+to GPU global memory (DM) (Lines 1–3). Next, it convert D to a set of transaction block TB 1: R use F 1 such that each 
+
+transaction block can fit in TBBuf (Lines 4–5). After the dictionary dic t use to map x to RA ( x ) have be construct (Line 6), 
+
+it remains fix during itemset mining because the TFL strategy us only TB 1: R for F 1 a input data. The main loop consists 
+
+of a generate step (Lines 10–11) and a test step (Lines 12–20), a in the Apriori algorithm; however, compare to the 
+
+Apriori algorithm, our algorithm significantly improves the test step performance by stream the transaction block 
+
+of F 1 to overcome the limitation impose by GPU memory, while simultaneously exploit GPU compute for fast and 
+
+massively parallel calculation of partial support (Lines 12–18). 
+
+We note that the kernel function K TFL be usually call multiple time instead of a single time (Line 16). This be due to a 
+
+limit on the number of GPU blocks, which we can specify when call K TFL . The K TFL function can calculate a partial support 
+
+of a single itemset use a single GPU block. If we set the maximum number of GPU blocks, denote a maxBlk , to 16 K, a 
+
+single call to K TFL can simultaneously calculate partial support for 16 K itemsets. Thus, if | RA j | = 100 M, we must call the K TFL 
+function � 100 M 16 K ≈ 6 , 250 times. That is, for the same transaction block TB k in TBBuf , GMiner executes the kernel function 
+repeatedly while change the affected portion of RA j . When copying data, RA be the outer operand, and TB be the inner 
+
+operand. However, when call the kernel function, TB k be the inner operand, and RA j be the outer operand. 
+
+Next, we present the pseudo code for the GPU kernel function of GMiner in Algorithm 2 . This function be use not only 
+in the TFL strategy but also in the HIL strategy in Section 4 . It take a pair of RA j and TB k , along with doneIdx and maxThr , 
+
+a inputs. Here, doneIdx be the index of the last candidate that be process in RA j . This value be require to identify the 
+
+portion of RA j that the current call of K TFL should process. For example, if | RA j | = 10,0 0 0 and maxBlk = 10 0 0, doneIdx in the 
+second call of K TFL becomes 10 0 0. The input maxThr be the maximum number of thread in a single GPU block, which we can 
+
+specify when call K TFL , a with maxBlk. BID and TID be the IDs of the current GPU block and GPU thread, respectively, 
+
+which be automatically determine system variables. Because many GPU block execute concurrently, some might have 
+
+no correspond candidate itemsets to test. For instance, when | RA j | = 100 and maxBlk = 20 0, 10 0 GPU block should not 
+execute the kernel function because some block would have no itemsets. Thus, when the current GPU block have no itemset, 
+
+the kernel function return immediately (Lines 1–2). The kernel function prepares two frequently-accessed variables, namely, 
+
+can and sup , in the share memory in GPUs to improve performance. The variable can contains the itemset for which the 
+
+current GPU block BID will calculate the partial support, and the vector sup be initialize to zero. 
+
+The main loop of K TFL performs bitwise AND operation simultaneously and repeatedly (Lines 5–8). Under current GPU 
+architectures, a single GPU thread can efficiently perform bitwise AND operation for single-precision width (i.e., 32 bits). 
+That is, a single GPU block can perform bitwise AND operation up to maxThr × 32 bit simultaneously. However, the width 
+of a transaction block W might be considerably large than maxThr × 32 bits. 
+
+Fig. 2 show an example of K TFL , when maxT hr = 2 , and can = 0 , 1 , 3 . Here, we assume that a GPU thread can perform 
+bitwise AND for 4 bit for simplicity. Because the length of candidate itemset be 3, thread 1 and 2 perform bitwise AND 
+operation twice over { TB (0), TB (1), TB (3)} and store the resultant bit in bitV . The kernel repeat this process W 
+
+maxT hr∗32 
+
+
+
+26 K.-W. Chon et al. / Information Sciences 439–440 (2018) 19–38 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+times. The number of 1 in bitV can easily be count use the popCount function and store in the sup vector. In CUDA, 
+
+the popCount function be denote a popc (). The partial support value be accumulate in the sup vector W 
+maxT hr∗32 times, a 
+
+show in Fig. 2 . Finally, the kernel function aggregate the value in sup into a single partial support value in TB k for the 
+
+candidate itemset can use a parallelReduction function (Line 9). 
+
+3.4. Exploiting GPUs 
+
+In this section, we present the detail of the GMiner implementation that exploit GPUs. First, we discus how to allocate 
+and utilize the GPU memory. In particular, we consider a method to avoid the out-of-memory issue when handle large- 
+
+scale data use GPUs. Second, we explain how to set GPU thread and improve the GPU kernel function performance. Third, 
+
+we explain the detail of the nested-loop streaming, process, include both synchronization and host-device transfer. 
+
+First, we allocate three type of buffer to GPU memory only once; subsequently we use them repeatedly for the entire 
+
+mining task. The out-of-memory issue of current GPU-based method indicates that the overall mining task fail due to 
+
+increase data size that do not fit into GPU global memory. To avoid this out-of-memory issue, we allocate the buffer 
+
+(i.e., TBBuf, RABuf , and PSBuf ) to GPU global memory once while consider the GPU memory capacity, and then use them 
+
+repeatedly. When the data (i.e., relative address and transaction bitmap) be large than the size of the correspond 
+
+buffers, our method divide the data (i.e., relative address and transaction bitmap) into multiple partitions, each of which 
+
+then fit into the correspond buffer, and then copy each partition to the buffer individually. Consequently, our method 
+
+avoids the out-of-memory issue and simultaneously reduces the buffer allocation overhead in GPU memory. In contrast, 
+
+other GPU-based method repeatedly allocate the buffer to GPU memory during the mining task. 
+
+Second, we exploit the share memory of GPUs. Each GPU follow the single instruction multiple thread (SIMT) model 
+
+and handle thread in a warp, which be a group of 32 threads. Multiple warp form a GPU block, and thread in the same 
+
+GPU block can quickly communicate with one another use share memory and built-in primitives. Frequently access 
+
+GPU global memory to update variable be generally prohibitively expensive. To avoid this cost, our method us share 
+
+memory to store the number of 1 in the bit vector correspond to the candidate itemset x . After compute the partial 
+
+support for the correspond transaction block, our method store the partial support of x in the correspond location of 
+
+PSBuf . As a result, our method improves performance by access the GPU global memory only once. We also consider the 
+
+number of GPU thread for the GPU kernel function. As discuss in Section 3.3 , our GPU kernel function include the par- 
+Algorithm 1: The TFL strategy. 
+
+Input : D ; /* transaction database */ 
+
+Input : minsup; /* minimum support */ 
+
+Output : F; /* frequent itemsets */ 
+
+1 Load D into M M ; 
+
+2 Allocate P SArray on M M ; 
+
+3 Allocate { T BBu f , RABu f , P SBu f } on DM; 
+4 F 1 ← find all frequent 1-itemsets; 
+5 Build T B 1: R use D and F 1 on M M ; 
+
+6 dict ← dictionary mapping x to RA (x ) ( x ∈ F 1 ); 
+7 L ← 1 ; 
+8 while | F L | > 0 do 
+9 L ← L + 1 ; 
+
+/* Generating candidate use CPUs */ 
+
+10 C L ← generate candidate itemsets use F L −1 ; 
+11 Convert C L to RA 1: Q use dict; 
+
+/* Testing use GPUs */ 
+
+12 for j ← 1 to Q do 
+13 Copy RA j into RABu f of DM; 
+
+14 for k ← 1 to R do 
+15 Copy T B k into T BBu f of DM; 
+
+16 Call K T F L ( RA j , T B k ); /* � | RA j | maxBlk time */ 
+17 Copy P SBu f into P SArray of M M ; 
+
+18 Thread synchronization of GP Us ; 
+
+19 σ (c) ← ∑ R k =1 P SArray [ c][ k ] , for ∀ c ∈ C L ; 
+20 F L ← { c| c ∈ C L ∧ σ (c) ≥ minsup} ; 
+21 F ← ⋃ F L ; 
+22 Return F; 
+
+
+
+K.-W. Chon et al. / Information Sciences 439–440 (2018) 19–38 27 
+
+Algorithm 2: K TFL : Kernel function for partial supports. 
+
+Input : RA j ; /* j-th partition of RA */ 
+
+Input : T B k ; /* k -th transaction block */ 
+
+Input : d oneId x ; /*index of last candidate do in RA j */ 
+
+Input : maxT hr; /*max number of thread in GPU block*/ 
+
+Variable : can ; /* share variable for a candidate */ 
+
+Variable : sup; /* share variable for a partial support */ 
+
+1 if d oneId x + BID ≥ | RA j | then 
+2 return; 
+
+3 can ← RA j [ d oneId x + BID ] ; 
+4 sup[0 : maxT hr] ← 0 ; 
+5 for i ← 0 ; i < W 
+
+maxT hr∗32 ; i ← i + 1 do 
+6 bitV ← ⋂ i ∈ can T B k [ i ][ w ∗ maxT hr + T ID ] ; 
+7 sup[ T ID ] ← sup[ T ID ] + popCount (bit V ) ; 
+8 syncthreads () ; 
+
+9 P SBu f [ d oneId x + BID ] ← paral l el Reduction (sup[]) ; 
+
+Fig. 2. The GPU kernel function K TFL (a GPU block take an itemset{A,B,D}). 
+
+Fig. 3. Multiple asynchronous GPU stream of GMiner . 
+
+
+
+
+
+
+
+
+
+
+
+
+
+allelReduction function. However, this function us multiple brand-and-bound operations, which degrade the performance 
+
+when use GPUs. This performance degradation becomes more marked a the number of GPU thread increases. Therefore, 
+
+by default, we set the number of GPU thread to 32, because they might be schedule together in the GPU architecture. 
+
+Third, we exploit multiple asynchronous GPU streams. This approach reduces the data transmission overhead between 
+
+main memory and GPU memory. Fig. 3 show the timeline of the copy operation of the transaction blocks. A CPU thread 
+
+first transfer RA j to RABuf . Then, it start multiple GPU streams, each of which performs the follow series of operation 
+
+repeatedly, while incrementing k : (1) copying TB to TBBuf , (2) execute the GPU kernel function, denote a K , to calculate 
+k 
+
+
+
+28 K.-W. Chon et al. / Information Sciences 439–440 (2018) 19–38 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+PS j, k , and (3) copying PS j, k back to main memory. We denote the number of GPU stream a m . Then, this scheme require 
+
+the size of TBBuf to equal m transaction block and the size of PSBuf to be m x | RA j |, where | RA j | denotes the number of 
+
+candidate itemsets in RA j . In general, the above three kind of operations, namely, copying to GPU memory, kernel execution, 
+
+and copying to main memory, can overlap with one another in the current GPU architecture [16] ; thus, a large portion of the 
+
+copying time between GPU memory and main memory becomes hidden. After processing m streams, all the GPU thread 
+
+be synchronize by call the cudaStreamSynchronize function to compute the exact partial support for the correspond 
+
+m transaction blocks. Here, the number of GPU stream m be specify by the user; we use m = 4 a the default. 
+
+4. HIL Strategy 
+
+The TFL strategy in GMiner can find all the frequent itemsets for a large-scale database use GPUs that have only a 
+limited amount of GPU memory. Although it show outstanding performance in most cases, it performance might degrade if 
+
+the length of the frequent itemsets be to become very long. To solve this issue, we propose the hop from intermediate 
+
+level (HIL) strategy, which increase the scalability of the test step in term of the length of itemsets by utilize more 
+
+memory. We first present the data structure for store some frequent itemsets at low intermediate levels, which be call 
+
+fragment block , in Section 4.1 , and then present the HIL algorithm in Section 4.2 . 
+
+4.1. Fragment block 
+
+The HIL strategy horizontally partition each transaction block TB k into disjoint fragment block . We define the fragment 
+
+size a the number of frequent 1-itemsets that belong to a single fragment block. The fragment size be fixed, and we denote 
+
+it a H . Thus, there be a total of S = � | F 1 | H fragment block in each transaction block. 
+The HIL strategy materializes all frequent itemsets within each fragment block. Here, materialization of itemset x mean 
+
+create a bit vector for x in the correspond fragment block. Because the fragment size be H , up to a maximum of 2 | H| − 1 
+frequent itemsets can be materialize in each fragment block. Thus, we set the height of a fragment block to 2 | H| − 1 , 
+instead of H . 
+
+The HIL strategy vertically and horizontally partition the transaction bitmap TB into fragment blocks, each of which have 
+
+the width W and height 2 | H| − 1 . A fragment block have it own ID within a transaction block, denote a FID . Each fragment 
+block be allocate consecutively in main memory (or store a a chunk in secondary storage, similar to a disk page). We 
+
+denote the l -th fragment block of TB k a TB k, l . A fragment block TB k, l consists of 2 
+| H| − 1 bit vectors, and we denote the set 
+
+of itemsets correspond to those bit vector a itemsets ( TB k, l ). Fig. 4 show an example of the HIL strategy in which there 
+
+be a total of R × 3 fragment block and H = 2 . The transaction block TB 1 be partition into three fragment block { TB 1, 1 , 
+TB 1, 2 , TB 1, 3 }, and each fragment block contains 2 
+
+2 − 1 = 3 bit vectors. In Fig. 4 , itemsets ( TB 1, 2 ) becomes {{ C }, { D }, { C, D }}. 
+The bit vector of the n -itemsets ( n > 1) in each fragment block be initialize with 0 before materialization. 
+
+In term of space complexity, the HIL strategy require the space of O ( 
+| F 1 | 
+H × (2 H − 1) × | D | ) bit for the transaction 
+
+bitmap. Compared with the full materialization of frequent itemsets at intermediate levels, the fragment block require 
+
+a much small amount of memory. For example, suppose that | D | = 10 M, and | F 1 | = 500 . Then, full materialization up to 
+third level might require up to ( 
+
+( 
+500 
+
+1 
+
+) 
++ 
+
+( 
+500 
+
+2 
+
+) 
++ 
+
+( 
+500 
+
+3 
+
+) 
+) × 10,0 0 0,0 0 0 ≈ 23 TB. In contrast, the fragment block with H = 5 
+
+require only 500 5 × (2 5 − 1) × 10,0 0 0,0 0 0 ≈ 3.6 GB. 
+For materialization, the HIL strategy performs frequent itemset mining from level 2 to H for each of R × S fragment 
+
+blocks. In general, the number of fragment block increase a the size of database increase and can become very large. 
+
+For fast materialization of many blocks, we utilize the same nested-loop stream technique a be propose in Section 3 . 
+
+Because the fragment block be not correlated, they can be materialize independently. 
+
+Algorithm 3 present the algorithm to materialize the fragment blocks. The algorithm take all the fragment block a 
+
+input. It first calculates the maximum number of fragment block that can be materialize simultaneously use RABuf on 
+
+DM (Line 1); we denote this number a Q . Then, it executes the main loop Q times. The algorithm stream the fragment 
+
+block of FIDs between the start and end of all transaction blocks, i.e., FB [1: R, begin : end ] . That is, a total of R × S Q fragment 
+block be transfer to GPU memory in a stream fashion. To map the itemsets in those block to their relative mem- 
+
+ory addresses, we build the dict (Lines 5-6). Then, the algorithm map only the itemsets for F H − F 1 because we do not 
+need to materialize F 1 (Line 7). The algorithm executes the kernel function K HIL simultaneously a it stream the fragment 
+
+block (Lines 9-12). Here, K HIL be basically the same with K TFL , but it store bitV vector in the correspond position in 
+
+the fragment block in TBBuf , instead of calculate partial supports; thus we omit the pseudo code for K HIL . After the call 
+
+to K HIL completes, the update fragment block TB k , [ start : end ] be copy back to main memory. This materialization scheme, 
+
+which us GPU computing, be very fast; it elapse time be almost negligible, a show in Section 6 . 
+
+4.2. HIL Algorithm 
+
+The HIL strategy try to reduce the number of bitwise AND operation by utilize fragment blocks, which be a type 
+of precomputed results. Different from the TFL strategy, the HIL strategy determines the set of fragment at each level 
+
+dynamically to reduce the amount of transaction bitmap transfer to GPUs. Algorithm 4 present the pseudo code of the 
+
+
+
+K.-W. Chon et al. / Information Sciences 439–440 (2018) 19–38 29 
+
+Fig. 4. Example of the HIL strategy. 
+
+Algorithm 3: Materialize fragment blocks. 
+
+Input : T B 1: R, 1: S ; /* fragment block */ 
+
+1 Q ← integer value satisfy S Q × (2 | H| − 1) < | RABu f | ; 
+2 for j ← 1 to Q do 
+3 start ← ( j − 1) × S Q + 1 ; 
+4 end ← j × S Q ; 
+5 F H ← 
+
+⋃ l= end 
+l= begin itemsets (T B j,l ) ; 
+
+6 dict ← dictionary mapping x to RA (x ) ( x ∈ F H ); 
+7 Convert F H − F 1 to RA j use dict; 
+8 Copy RA j into RABu f of DM; 
+
+9 for k ← 1 to R do 
+10 Copy T B k, [ start: end] into T BBu f of DM; 
+
+11 Call K HIL ( RA j , T B k, [ start: end] ); 
+
+12 Copy T B k, [ start: end] on DM back to M M ; 
+
+13 Thread synchronization of GP Us ; 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+HIL strategy. It first materializes the fragment block use Algorithm 3 (Lines 1-2). After generate the candidate itemsets 
+
+C L , the algorithm find the minimal set of fragments, denote a B , that contain all the itemsets in C L (Line 7). When the 
+
+level, L , be low, most of fragment would be chosen a the set B . However, a level L increases, the number of fragment 
+
+that contain C L decreases; thus, we can reduce the overhead involve in transfer fragment blocks. Because the set of 
+
+fragment change at each level, the relative memory address of candidate itemsets in C L also change. Thus, the algorithm 
+
+build dict use only the itemsets in B at each level and convert C L to RA 1: Q (Lines 8-9). When stream the transaction 
+
+bitmap to the GPUs, the algorithm copy only the relevant fragment block TB k, l ∈ B instead of the entire transaction block 
+TB k . 
+
+In the HIL strategy example show in Fig. 4 , we assume that C L = {{ A, B, E} , { B, E, F }} . Then, we can easily identify the 
+fragment B = { 1 , 3 } that contain all the itemsets in C . The dictionary dict be built use the first and third fragments; thus, 
+L 
+
+
+
+30 K.-W. Chon et al. / Information Sciences 439–440 (2018) 19–38 
+
+Algorithm 4: HIL Algorithm. 
+
+Input : D ; /* transaction database */ 
+
+Input : minsup; /* minimum support */ 
+
+Input : H; /* fragment size */ 
+
+Output : F; /* frequent itemsets */ 
+
+/* Lines 1-4 in Algorithm 1 */ 
+
+1 Build T B 1: R, 1: S use D , F 1 , and H on M M ; 
+
+2 Materialize the fragment block of T B 1: R, 1: S ; 
+
+3 L ← 1 ; 
+4 while | F L | > 0 do 
+5 L ← L + 1 ; 
+
+/* Generating candidate use CPUs */ 
+
+6 C L ← generate candidate itemsets use F L −1 ; 
+7 B ← set of fragment block contain C L ; 
+8 dict ← dictionary mapping x ∈ itemsets (B ) to RA (x ) ; 
+9 Convert C L to RA 1: Q use dict; 
+
+/* Testing use GPUs */ 
+
+10 for j ← 1 to Q do 
+11 Copy RA j into RABu f of DM; 
+
+12 for k ← 1 to R do 
+13 Copy T B k,l∈ B into T BBu f of DM; 
+14 Call K T F L ( RA j , T B k,l∈ B ); 
+15 Copy P SBu f into P SArray of M M ; 
+
+/* Lines 18-20 in Algorithm 1 */ 
+
+16 F ← ⋃ F L ; 
+17 Return F; 
+
+Fig. 5. Data flow of GMiner use multiple GPUs. 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+RA ({ E }) becomes 3 instead of 6. When convert an itemset x ∈ C L to RA ( x ), RA ( x ) in the HIL strategy be shorter than in the 
+TFL strategy. That is, few bitwise AND operation be require to obtain the partial supports. For instance, the length of 
+RA ({ A, B, E }) be two (i.e., {2, 3}), whereas it be three in the TFL strategy. As the fragment size H increases, the length of RA ( x ) 
+
+tends to decrease. Each RA j be copy to RABuf in GPU memory; then, the first set of fragment block { TB 1, 1 , TB 1, 3 } in B be 
+
+stream to TBBuf in GPU memory. Next, the second set of fragment block { TB 2, 1 , TB 2, 3 } be streamed. 
+
+5. Multiple GPUs and cost model 
+
+5.1. Exploiting multiple GPUs 
+
+GMiner can be easily extend to exploit multiple GPUs and further improve the performance. When exploit multiple 
+GPUs, GMiner copy the different portion of the outer operand to the different GPUs and copy the same transaction (or 
+fragment) block to all the GPUs. We call this scheme a the transaction bitmap share scheme. This scheme can be apply 
+
+to both TFL and HIL strategies. 
+
+Fig. 5 show the data flow of our scheme. When there be two GPUs, the scheme copy RA 1 to GPU 1 and RA 2 to GPU 2 . 
+
+Then, it copy the same TB to both GPU and GPU . The kernel function on GPU calculates the partial support in RA , 
+1 1 2 1 1 
+
+
+
+K.-W. Chon et al. / Information Sciences 439–440 (2018) 19–38 31 
+
+Table 2 
+
+Statistics of transaction datasets use in the experiments. 
+
+Name Webdocs Quest-Def Quest-Scale1 Quest-Scale2 
+
+T avg 177.2 200 200 200 
+
+M avg N/A 25 25 25 
+
+|D| (M) 1.692 10 [1,5,10,15] 10 
+
+|I| (K) 5268 10 10 [5,10,15,20] 
+
+size (GB) 1.4 9 [0.9,4.6,9.1,14] [8.9,9.1,9.8,11] 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+while that on GPU 2 calculates the partial support in RA 2 . Note that because RA 1 and RA 2 have no common itemsets, the 
+
+result of both kernel function can be copy back to PSArray in main memory without conflicts. 
+
+This scheme be highly scalable in term of the number of GPUs use because RA j and RA k be independent task ( j 
+= k ). In 
+addition, it do not have the problem of workload imbalances, which be a typical issue in distribute and parallel compute 
+
+methods. The computation be not skewed when RA j and RA k be the same size, because the computation heavily relies on 
+
+the number of bitwise AND operation and do not use complex or irregular data structures. Therefore, regardless of the 
+characteristic of the process datasets, the propose scheme achieves a stable speed-up ratio when use multiple GPUs. 
+
+5.2. Cost model 
+
+In this section, we present the cost model of GMiner to understand it performance tendencies. In particular, we present 
+the model for the TFL strategy and skip that of the HIL strategy due to their similarity. Here, we consider the factor that 
+
+significantly affect the performance. The cost model of the TFL strategy be give by 
+
+# iteration ∑ 
+L =1 
+
+( | RA 1: Q | 
+c1 × N + 
+
+Q 
+
+N 
+× 
+
+{ | T B 1: R | 
+c2 
+
++ t call 
+( 
+
+R × � | RA j | 
+maxBlk 
+
+
+) 
+
++ t kernel (T B R ) + 
+| P S j,R | 
+
+c2 
+
+}) 
+. (1) 
+
+where, c 1 and c 2 respectively represent the communication rate between main memory and GPU memory in chunk copy 
+
+mode (approximately 12GB/sec in PCI-E 3.0 x16 interface, in practice) and that in stream copy mode (approximately 
+
+8GB/sec in PCI-E 3.0 x16 interface, in practice), and N represent the number of GPUs. The term 
+| RA 1: Q | 
+c1 ×N represent the total 
+
+amount of time require to copy the outer operands, i.e., RA 1: Q to GPU memory. It be divide by N because the data be trans- 
+
+ferred concurrently to N GPUs. The term in bracket represent the cost of stream the inner operand and compute 
+
+partial supports. In detail, the term 
+T B 1: R 
+
+c2 represent the cost of stream the transaction blocks. It cannot be reduce by 
+
+use multiple GPUs due to the characteristic of the transaction bitmap share scheme. Here, t call ( n ) be the time overhead 
+
+for call a kernel function n times. The TFL strategy call the kernel function R × � | RA j | 
+maxBlk 
+
+time for each RA j . The term 
+t kernel ( TB R ) indicates the kernel execution time for the last single transaction block, which cannot be hidden by data stream- 
+
+ing. Likewise, the term 
+| PS j,R | 
+
+c2 indicates the cost for copying the last partial support for RA j back to main memory, which 
+
+also cannot be hidden by streaming. 
+
+6. Performance evaluation 
+
+In this section, we present the experimental evaluation of GMiner compare with other representative method sum- 
+marized in Table 1 . We present experimental result in three categories. First, we evaluate the performance of GMiner 
+compare with the representative sequential (i.e., single-threaded) methods, Apriori by Borgelt [6] , Eclat by Borgelt [6] , 
+
+Eclat by Goethals [10] , FP-Growth ∗ [11] , and LCM [30] . Second, we evaluate the performance of GMiner compare with the 
+representative parallel (i.e., multi-threaded, distributed, and GPU-based) methods. The consider multi-threaded method 
+
+be MC-Eclat [26] , ShaFEM [32] , and FP-Array [20] ; the distribute method be the implementation of FP-Growth with MLlib 
+
+[3] of Apache Spark; and the GPU-based method be TBI [7] , GPApriori [37] , and Frontier Expansion [38] . Third, we exam- 
+
+ine the performance characteristic of GMiner while vary a wide range of setting and compare them with those of the 
+TFL and HIL strategies. 
+
+6.1. Experimental setup 
+
+For experiments, we use both a real dataset and synthetic datasets, a present in Table 2 . As the real dataset, we use 
+
+the large dataset from FIMI Repository [8] , call Webdocs [21] , which have be widely use for the performance evalu- 
+
+ation of frequent itemset mining. As synthetic datasets, we use datasets generate by use IBM Quest Dataset Generator 
+
+[2] , which accepts four major parameters: T avg , the average number of item per transaction; M avg , the average length of the 
+
+maximal pattern; | D |, the number of transactions; and | I |, the number of distinct items. In Table 2 , the value of | D | be in 
+
+million (M) and the value of | I | be in thousand (K). We generate the default synthetic dataset, which be call Quest-Def, 
+
+and multiple variation by change parameters. We note that Webdocs be relatively sparse, whereas Quest-Def be relatively 
+
+dense. 
+
+
+
+32 K.-W. Chon et al. / Information Sciences 439–440 (2018) 19–38 
+
+Fig. 6. Performance comparison with sequential frequent itemset mining methods. 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+To evaluate LCM, FP-Growth ∗, Eclat (Borgelt), Eclat (Goethals), Apriori (Borgelt), GPApriori, TBI, and Frontier Expansion, 
+we download and compile their late source code. To evaluate MC-Eclat, ShaFEM, and FP-Array, we use the implementation 
+
+present in [36] and [5] . To evaluate Apache Spark MLlib’s FP-Growth, we download and use the source code from [3] . All 
+
+the method in experiment be compile with the same optimization option, namely -O3, with gcc 4.9. We perform all 
+
+experiment on Ubuntu 14.04.3 LTS with the same GPU Toolkit, namely, CUDA 7.5. For the distribute methods, we use 
+
+Scala 2.11.7, Spark 1.5.0, and Hadoop 1.2.1. When measure the elapse time of GPU-based method such a TBI, GPApriori, 
+
+Frontier Expansion, and GMiner , to perform a fair comparison, we include all the time spent transfer data between GPU 
+memory and main memory. We set the number of GPU stream for GMiner to four a the default. 
+
+We conduct all the experiment on a machine with two Intel 8-core CPUs run at 2.90 GHz (a total of 16 cores), 
+
+128 GB of main memory, and four NVIDIA GTX 1080 GPUs with 2560 core run at 1.7 GHz, 8 GB of device memory, 
+
+and 96 KB of share memory. The NVIDIA GTX 1080 GPU follow the Pascal GPU architecture and support CUDA 8.0, which 
+
+include many new features, such a improve compiler performance. The CPUs and GPUs be connect via PCI-E 3.0 x16 
+
+interface. We conduct all the experiment that involve distribute method on a cluster of eleven machines, one master and 
+
+ten slaves, each of which be equip with an Intel quad-core CPU run at 3.40 GHz, 32 GB of main memory, and 4 TB 
+
+HDDs. That is, the cluster slave have a total of 40 CPU core and 320 GB main memory. 
+
+We present the detail setting use for the GPU-based methods, namely, TBI [7] , GPApriori [37] , Frontier Expansion [38] , 
+
+and GMiner . For both TBI and GPApriori, the experimental settings, such a the number of GPU thread and the number of 
+GPU blocks, be not give in their papers. Therefore, for both methods, we set the number of GPU thread and the number 
+
+of GPU block to 32 and 16,384, respectively, which be the best parameter found through trial-and-error-based tuning. 
+
+For Frontier Expansion, 256 GPU thread and 2048 GPU block be use in the original study [38] . However, we found 
+
+that these parameter do not yield the best performance in our experimental environments. Therefore, we set the number 
+
+of GPU thread and the number of GPU block to 32 and 4,096, respectively, which be the best parameter we found. For 
+
+GMiner , we set the number of GPU threads, the number of GPU blocks, and the number of GPU stream to 32, 16,384, and 
+4, respectively. For GMiner , we set the width of transaction block to 8192 in four bytes. 
+
+6.2. Comparison with sequential method 
+
+Fig. 6 (a) and (b) present the speed-up ratio of GMiner over the representative sequential methods, namely, FP-Growth ∗, 
+LCM, Eclat (Borgelt), Eclat (Goethals), and Apriori (Borgelt), on both the Webdocs and Quest-Def datasets while vary 
+
+minsup . The speed-up ratio on the Y-axis be show in log-scale, and O.O.M. mean an out-of-memory error. We use the 
+
+same X -axis range a in [26] . In the figures, although the elapse time of all the method decrease a minsup increases, the 
+
+gap in elapse time between GMiner and all the other method increase slightly; thus, the speed-up ratio also increase 
+slightly. 
+
+
+
+K.-W. Chon et al. / Information Sciences 439–440 (2018) 19–38 33 
+
+Fig. 7. Performance comparison with CPU-based parallel frequent itemset mining methods. 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+For both the Webdocs and Quest-Def datasets, GMiner consistently and significantly outperforms all other methods. In 
+Fig. 6 (a), GMiner outperforms LCM, FP-Growth ∗, Eclat (Borgelt), and Apriori (Borgelt) by factor of 7 − 100 , 23 − 494 , 13 − 
+90 , and 124 − 3094 , respectively. Among the exist methods, LCM show the overall best performance on both datasets. 
+The large performance gap between GMiner and the exist method be mainly due to the TFL strategy, which fully exploit 
+fast and massive bitwise computation use thousand of core and simultaneously reduces the memory access overhead 
+
+by use relative memory address on the transaction block of F 1 and nested-loop streaming, a explain in Section 3 . 
+
+In Fig. 6 (b), LCM and Eclat (Borgelt) encounter O.O.M. error because they tend to consume more memory when improve 
+
+the performance than do the other exist methods. 
+
+6.3. Comparison with CPU-based parallel method 
+
+Figs. 7 (a) and (b) present the speed-up ratio of GMiner over the representative CPU-based parallel methods, namely, 
+MC-Eclat, ShaFEM, FP-Array, and MLlib, on both the Webdocs and Quest-Def datasets. MC-Eclat, ShaFEM, and FP-Array be 
+
+CPU-based parallel method that run on a single machine, and MLlib be a distribute method that run on Spark. On both 
+
+the Webdocs and Quest-Def datasets, GMiner still consistently and significantly outperforms all other methods, except for 
+FP-Array at minsup = . 06 on the Webdocs dataset. In Fig. 7 (a), GMiner outperforms MC-Eclat and FP-Array by factor of 
+3 . 3 − 94 and 0 . 45 − 2 . 8 , respectively. 
+
+Among the exist three multi-threaded methods, FP-Array achieves the best overall performance on the Webdocs 
+
+dataset, while MC-Eclat achieves the best overall performance on the Quest-Def dataset. FP-Array usually result in O.O.M. 
+
+error on the Quest-Def dataset, because it require more memory than do MC-Eclat and ShaFEM. As state earlier, FP-Array 
+
+be a multi-threaded version of FP-Growth ∗; therefore, it require considerably more memory than do FP-Growth ∗. However, 
+FP-Array be much faster than FP-Growth ∗ on a give dataset and with the same minsup value. Between the Webdocs and 
+Quest-Def datasets, Quest-Def usually require more memory because it be denser. ShaFEM result in the bad performance 
+
+among multi-threaded methods. We note that a distribute method, namely, MLlib, achieves the bad performance among 
+
+the exist parallel method or fails to find frequent itemsets, although it utilizes a total of 40 CPU core and 320 GB of 
+
+main memory. MLlib be base on FP-Growth, where each conditional database be process by the FP-Growth method in each 
+
+machine. In some cases, the degree of workload skewness (i.e., imbalance) be extremely high; in such cases, a single con- 
+
+ditional database have almost the same size a the original database. In addition, MLlib’s FP-Growth be implement on top 
+
+
+
+34 K.-W. Chon et al. / Information Sciences 439–440 (2018) 19–38 
+
+Fig. 8. Performance comparison with GPU-based parallel frequent itemset mining methods. 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+of Apache Spark; thus, it tends to use more memory than do the original FP-Growth and incur additional overhead. These 
+
+result suggest that improve the performance of frequent itemset mining use the sequential method be non-trivial, and 
+
+a parallel method must be devise carefully to achieve that goal. 
+
+6.4. Comparison with GPU-based parallel method 
+
+Figs. 8 (a) and (b) present the speed-up ratio of GMiner over the representative GPU-based parallel methods, includ- 
+ing Frontier Expansion, TBI, and GPApriori, on both the Webdocs and Quest-Def datasets. Note that the exist GPU-based 
+
+method outperform the CPU-based methods, but only when the size of data to be copy to GPU memory be quite small. 
+
+In contrast, the performance of the GPU-based method degrade compare with CPU-based method a the data size in- 
+
+creases. This be because the data transmission overhead between main memory and GPU memory can significantly affect 
+
+the performance. GMiner do not have the drawback of the exist GPU-based methods. For instance, GMiner reduces 
+the overhead of data transmission between the host and GPU device by exploit multiple GPU streams, a explain in 
+
+Section 3 , while other method do not hide the overhead. As a result, GMiner outperforms the state-of-the-art CPU-based 
+methods, a show in Figs. 6 and 7 . 
+
+Frontier Expansion achieves a performance similar to MC-Eclat for Webdocs, but be outperform by MC-Eclat on Quest- 
+
+Def. In many cases, Frontier Expansion fails to find frequent itemsets due to O.O.M. error on Quest-Def. This result occurs 
+
+because Frontier Expansion try to maintain frequent itemsets at the intermediate level in GPU memory and Quest-Def be 
+
+denser than Webdocs; therefore, it must store considerably more intermediate data in GPU memory. TBI outperforms Fron- 
+
+tier Expansion at the minsup value of 0.1-0.18 on Webdocs, because TBI process more candidate itemsets simultaneously. 
+
+However, TBI show O.O.M. error at the minsup value of 0.06-0.08, while Frontier Expansion successfully completes the 
+
+pattern mining at the same minsup values. This be because TBI try to maintain a large number of frequent intermediate- 
+
+level itemsets in GPU memory than do Frontier Expansion. GPApriori result in O.O.M. error in all case on both Webdocs 
+
+and Quest-Def; that is, the size of it static bitmap be large than the capacity of main memory (i.e., 128 GB). This result 
+
+occurs because GPApriori generates a static bitmap for the whole input database without prune the infrequent 1-itemsets 
+
+during initialization. 
+
+
+
+K.-W. Chon et al. / Information Sciences 439–440 (2018) 19–38 35 
+
+Fig. 9. Scalability test vary the number of transaction and distinct items. 
+
+Fig. 10. Speed-up ratio when use multiple GPUs for GPU-based methods. 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+6.5. Scalability test 
+
+Figs. 9 (a) and (b) present the speed-up ratio of GMiner over the representative sequential and parallel methods, namely, 
+FP-Growth ∗, LCM, Eclat (Borgelt), Eclat (Goethals), Apriori (Borgelt), MC-Eclat, FP-Array, and Frontier Expansion, on the 
+Quest-Def dataset. In these experiments, we omit GPApriori, TBI, ShaFEM, and MLlib because they result in relatively 
+
+poor performance in the experiment in Sections 6.2, 6.3 , and 6.4 . Fig. 9 (a) show the result obtain while vary the 
+
+number of transaction (i.e., Quest-Scale1 in Table 2 ). As the number of transaction increases, the speed-up ratio also 
+
+increase, i.e., GMiner improves the performance more compare to the exist methods. Fig. 9 (b) show the result ob- 
+tained while vary the number of distinct itemsets (i.e., Quest-Scale2 in Table 2 ). As the number of distinct itemsets (i.e., 
+
+| I |) increases, the speed-up ratio remain approximately constant. GMiner consistently outperforms the exist methods, 
+regardless of the value of | I |. 
+
+Figs. 10 (a) and (b) present the speed-up ratio obtain when use two GPUs for the GPU-based methods, namely, 
+
+Frontier Expansion and GMiner. Here, the theoretical maximum speed-up ratio be two. On both the Webdocs and Quest-Def 
+
+datasets, GMiner achieves ratio close to this maximum value in most cases. In contrast, Frontier Expansion show much 
+low speed-up ratio below one in most cases, which mean that use two GPUs degrades it performance compare to 
+
+
+
+36 K.-W. Chon et al. / Information Sciences 439–440 (2018) 19–38 
+
+Fig. 11. Speed-up ratio of GMiner when use multiple GPUs and vary the characteristic of datasets. 
+
+Fig. 12. Finding optimal W and the number of GPU blocks. 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+use a single GPU. When the range of minsup be within [0.1, 0.14] on Webdocs, the speed-up ratio of GMiner degrade 
+slightly because the total elapse time be too short ( ≤ 1 sec .) and the time spent in support counting use GPUs be relatively 
+small. However, except when the workload be small, GMiner achieves almost the maximum speed-up ratio because it share 
+the transaction bitmap among all the GPUs and assigns equal-sized independent RA j to each GPU, a explain in Section 5.1 . 
+
+In contrast, Frontier Expansion assigns a subtree of the enumeration tree (i.e., equivalence class) to each GPU. Because it be 
+
+likely that those subtrees have different amount of workload (that is, a workload skewness problem occurs), it scalability 
+
+can degrade greatly. In addition, Frontier Expansion require a large overhead when exploit multiple GPUs than do 
+
+GMiner because it divide the search space of pattern into equivalence classes. 
+Figs. 11 (a)-(b) present the speed-up ratio of GMiner when use multiple GPUs. We define the speed-up ratio a T 1 T M , 
+
+where T 1 and T M be the run time use a single GPU and M GPUs, respectively. Fig. 11 (a) show the ratio obtain 
+
+while vary the number of transaction (i.e., | D |) among 1 M, 5 M, 10 M, and 15 M. Fig. 11 (b) show the ratio obtain 
+
+while vary the number of distinct item (i.e., | I |) among 5 K, 10 K, 15 K, and 20 K. The result show that regardless of the 
+
+dataset characteristics, the speed-up ratio of GMiner increase almost linearly. We note that there be a small gap between 
+the number of GPUs and the ideal speed-up ratio; this gap occurs mainly because of synchronization overhead among the 
+
+GPUs. 
+
+6.6. Characteristics of GMiner 
+
+Fig. 12 present the elapse time obtain while vary the width of TB (i.e., W ) and the number of GPU blocks, on 
+
+both datasets. As show in the figure, 8 K × 32 = 262,144 bit for the width of TB and 16 K GPU block yield the best 
+overall performance; thus, we apply these value a the default setting for GMiner . Because GMiner set the number of 
+thread per GPU block to 64, the total number of thread use in GMiner be 64 × 16 K = 1 million. 
+
+Fig. 13 present the various characteristic use in the HIL strategy of GMiner . Fig. 13 (a) show the memory usage a a 
+function of the fragment size ( H ), which increase almost exponentially a H increases. Fig. 13 (b) show the elapse time 
+
+for fragment materialization (described in Algorithm 3 ) which increase in proportion to the amount of memory usage in 
+
+Fig. 13 (a). We note that the materialization time be very short compare with the total run time in Fig. 13 (d) and be 
+
+almost negligible. Fig. 13 (c) show the ratio of the number of fragment block copy to GPU memory for support counting 
+
+to the total number of fragment block in each iteration. When H = 1, i.e., use the TFL strategy, the transaction block 
+for F 1 be copy to GPU memory at every iteration, so the usage ratio be 100%. However, when H > 1, i.e., use the HIL 
+
+strategy, only a necessary subset of fragment block be copy to GPU memory, a described in Algorithm 4 result in a 
+
+
+
+K.-W. Chon et al. / Information Sciences 439–440 (2018) 19–38 37 
+
+Fig. 13. Characteristics of the HIL strategy. 
+
+Fig. 14. Evaluation of the HIL strategy for database contain long patterns. 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+usage ratio of approximately 55%, regardless of fragment size. Fig. 13 (d) show the total run time, which be minimize 
+
+when H = 5. 
+We note that the support counting step still take most of the run time even though GMiner exploit GPUs for 
+
+support counting. Based on these results, we set H = 5 a the default for the HIL strategy. 
+Fig. 14 present the comparison result between the TFL and HIL strategies. For this experiment, we add a long pattern 
+
+of length n to the Quest-Def dataset; a a result, the dataset contains many long pattern of length n - 1, n - 2, and so on. 
+
+Fig. 14 (a) show the total mining time (as a multiple of 10 0 0 sec.) a a function of the length of n . The HIL strategy outper- 
+
+form the TFL strategy from n = 22; subsequently, the performance gap between two strategy increase a n increases, a 
+explain in Section 4 . The HIL strategy reduces the number of bitwise AND operations, while use more memory. Fig. 14 (b) 
+show the trade-off between run time and memory usage a a function of H in the HIL strategy. In this figure, H = 7 
+yield slightly improve performance, but greatly increase the memory usage. Thus, we suggest that H = 5 be a good set 
+for database that contain long patterns. 
+
+7. Summary 
+
+In this paper, we propose a fast GPU-based frequent itemset mining method for large-scale datasets call GMiner . In 
+detail, we propose the TFL strategy, which fully exploit the computational power of GPUs by perform a large amount of 
+
+computation on a small amount of data, and the HIL strategy, which can further improve the performance on datasets that 
+
+contain long pattern by perform a moderate amount of computation on a moderate amount of data. GMiner solves the 
+workload skewness problem the exist parallel method suffer from by splitting an array of relative memory address 
+
+for candidate itemsets among the GPUs and stream transaction block to all the GPUs. Through extensive experiments, 
+
+
+
+38 K.-W. Chon et al. / Information Sciences 439–440 (2018) 19–38 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+we demonstrate that GMiner significantly outperforms most of the state-of-the-art method that have be address in 
+recent study [4,9,25,31,33] on two kind of benchmarks, and it performance be scalable in term of the number of GPUs. 
+
+Acknowledgments 
+
+This research be support by Basic Science Research Program through the National Research Foundation of Korea(NRF) 
+
+fund by the Ministry of Science, ICT and Future Planning ( 2017R1E1A1A01077630 ) and Samsung Research Funding Center 
+
+of Samsung Electronics under Project Number SRFC-IT1502-10. 
+
+References 
+
+[1] C.C. Aggarwal , J. Han , Frequent Pattern Mining, Springer, 2014 . 
+
+[2] R. Agrawal, R. Srikant, Fast algorithm for mining association rule in large databases, in: Proceedings of VLDB, 1994, pp. 4 87–4 99 . URL http://www. 
+
+vldb.org/conf/1994/P487.PDF . 
+[3] Apache Spark MLlib, http://spark.apache.org/mllib/ , 2017. 
+
+[4] E. Baralis , T. Cerquitelli , S. Chiusano , A. Grand , Scalable out-of-core itemset mining, Inf. Sci. (Ny) 293 (2015) 146–162 . 
+[5] C. Bienia , S. Kumar , J.P. Singh , K. Li , The parsec benchmark suite: characterization and architectural implications, in: Proceedings of PACT, ACM, 2008, 
+
+pp. 72–81 . 
+[6] C. Borgelt , Efficient implementation of apriori and eclat, in: Proceedings of FIMI, 2003 . 
+
+[7] W. Fang , M. Lu , X. Xiao , B. He , Q. Luo , Frequent itemset mining on graphic processors, in: Proceedings of DaMon, ACM, 2009, pp. 34–42 . 
+
+[8] FIMI Repository, http://fimi.ua.ac.be , 2005. 
+[9] P. Fournier-Viger , J.C.-W. Lin , B. Vo , T.T. Chi , J. Zhang , H.B. Le , A survey of itemset mining, Interdisciplinary Reviews: Data Mining and Knowledge 
+
+Discovery, Wiley, 2017 . 
+[10] B. Goethals , Survey on Frequent Pattern Mining, University of Helsinki, 2003 . 
+
+[11] G. Grahne , J. Zhu , Efficiently use prefix-trees in mining frequent itemsets., in: Proceedings of FIMI, 90, 2003 . 
+[12] F. Gui, Y. Ma, F. Zhang, M. Liu, F. Li, W. Shen, H. Bai, A distribute frequent itemset mining algorithm base on spark, in: Proceedings of CSCWD, 2015, 
+
+pp. 271–275 . URL https://doi.org/10.1109/CSCWD.2015.7230970 . 
+
+[13] J. Han , J. Pei , M. Kamber , Data Mining: Concepts and Techniques, Elsevier, 2011 . 
+[14] J. Han , J. Pei , Y. Yin , Mining frequent pattern without candidate generation, in: ACM SIGMOD Record, 29, ACM, 20 0 0, pp. 1–12 . 
+
+[15] Y.-S. Huang , K.-M. Yu , L.-W. Zhou , C.-H. Hsu , S.-H. Liu , Accelerating parallel frequent itemset mining on graphic processor with sorting, in: Network 
+and Parallel Computing, Springer, 2013, pp. 245–256 . 
+
+[16] M.-S. Kim , K. An , H. Park , H. Seo , J. Kim , GTS: a fast and scalable graph processing method base on stream topology to gpus, in: Proceedings of 
+SIGMOD, ACM, 2016, pp. 447–461 . 
+
+[17] H. Li , Y. Wang , D. Zhang , M. Zhang , E.Y. Chang , Pfp: parallel FP-growth for query recommendation, in: Proceedings of RecSys, ACM, 2008, pp. 107–114 . 
+
+[18] C. Lin, K. Yu, W. Ouyang, J. Zhou, An opencl candidate slice frequent pattern mining algorithm on graphic processing units, in: Proceedings of SMC, 
+2011, pp. 2344–2349 . URL https://doi.org/10.1109/ICSMC.2011.6084028 . 
+
+[19] M.-Y. Lin , P.-Y. Lee , S.-C. Hsueh , Apriori-based frequent itemset mining algorithm on mapreduce, in: Proceedings of ICUIMC, ACM, 2012, p. 76 . 
+[20] L. Liu , E. Li , Y. Zhang , Z. Tang , Optimization of frequent itemset mining on multiple-core processor, in: Proceedings of PVLDB, VLDB Endowment, 2007, 
+
+pp. 1275–1285 . 
+[21] C. Lucchese , S. Orlando , R. Perego , F. Silvestri , Webdocs: a real-life huge transactional dataset., in: Proceedings of FIMI, 126, 2004 . 
+
+[22] S. Moens , E. Aksehirli , B. Goethals , Frequent itemset mining for big data, in: Big Data, IEEE, 2013, pp. 111–118 . 
+[23] S. Orlando , KDCI: a multi-strategy algorithm for mining frequent sets, in: Proceedings of IEEE ICDM’03 Workshop FIMI’03, 2003 . 
+
+[24] S. Parthasarathy , M.J. Zaki , M. Ogihara , W. Li , Parallel data mining for association rule on shared-memory systems, Knowl. Inf. Syst. 3 (1) (2001) 1–29 . 
+
+[25] B. Schlegel , Frequent itemset mining on multiprocessor systems, Technischen Universität Dresden, 2013 . Dissertation 
+[26] B. Schlegel , T. Karnagel , T. Kiefer , W. Lehner , Scalable frequent itemset mining on many-core processors, in: Proceedings of DaMon, ACM, 2013, p. 3 . 
+
+[27] B. Schlegel , T. Kiefer , T. Kissinger , W. Lehner , Pcapriori: scalable apriori for multiprocessor systems, in: Proceedings of SSDBM, ACM, 2013, p. 20 . 
+[28] C. Silvestri, S. Orlando, GPUDCI: exploit gpus in frequent itemset mining, in: Proceedings of PDP, 2012, pp. 416–425 . URL https://doi.org/10.1109/ 
+
+PDP.2012.94 . 
+[29] G. Teodoro, N. Mariano, W. M. Jr., R. Ferreira, Tree projection-based frequent itemset mining on multicore cpu and gpus, in: Proceedings of SBAC-PAD, 
+
+2010, pp. 47–54 . URL https://doi.org/10.1109/SBAC-PAD.2010.15 . 
+
+[30] T. Uno , M. Kiyomi , H. Arimura , Lcm ver. 2: efficient mining algorithm for frequent/closed/maximal itemsets, in: Proceedings of FIMI, 126, 2004 . 
+[31] R.L. Uy , M.T.C. Suarez , Survey on the current status of serial and parallel algorithm of frequent itemset mining, Manila J. Sci. 9 (2016) 115–135 . 
+
+[32] L. Vu , G. Alaghband , Novel parallel method for mining frequent pattern on multi-core share memory systems, in: Proceedings of DISCS, ACM, 2013, 
+pp. 49–54 . 
+
+[33] K. Wang, Y. Qi, J.J. Fox, M.R. Stan, K. Skadron, Association rule mining with the micron automaton processor, in: Proceedings of IPDPS, 2015, pp. 689–699 . 
+URL https://doi.org/10.1109/IPDPS.2015.101 . 
+
+[34] M.J. Zaki , K. Gouda , Fast vertical mining use diffsets, in: Proceedings of SIGKDD, ACM, 2003, pp. 326–335 . 
+
+[35] M.J. Zaki , S. Parthasarathy , M. Ogihara , W. Li , et al. , New algorithm for fast discovery of association rules., in: Proceedings of KDD, 97, 1997, 
+pp. 283–286 . 
+
+[36] S. Zalewski , Mining frequent intra-and inter-Transaction itemsets on multi-Core processors, NTNU, 2015 . (MS thesis) 
+[37] F. Zhang, Y. Zhang, J.D. Bakos, Gpapriori: Gpu-accelerated frequent itemset mining, in: Proceedings of CLUSTER, 2011, pp. 590–594 . URL https://doi. 
+
+org/10.1109/CLUSTER.2011.61 . 
+[38] F. Zhang, Y. Zhang, J.D. Bakos, Accelerating frequent itemset mining on graphic processing units, J. Supercomput. 66 (1) (2013) 94–117 . URL https: 
+
+//doi.org/10.1007/s11227- 013- 0887- x . 
+
+[39] J. Zhou, K. Yu, B. Wu, Parallel frequent pattern mining algorithm on GPU, in: Proceedings of SMC, 2010, pp. 435–440 . URL https://doi.org/10.1109/ 
+ICSMC.2010.5641778 . 
+
+https://doi.org/10.13039/501100003621 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0001 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0001 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0001 
+http://www.vldb.org/conf/1994/P487.PDF 
+http://spark.apache.org/mllib/ 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0003 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0003 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0003 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0003 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0003 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0004 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0004 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0004 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0004 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0004 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0005 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0005 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0006 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0006 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0006 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0006 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0006 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0006 
+http://fimi.ua.ac.be 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0007 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0007 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0007 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0007 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0007 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0007 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0007 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0008 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0008 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0009 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0009 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0009 
+https://doi.org/10.1109/CSCWD.2015.7230970 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0011 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0011 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0011 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0011 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0012 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0012 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0012 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0012 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0013 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0013 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0013 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0013 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0013 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0013 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0014 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0014 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0014 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0014 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0014 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0014 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0015 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0015 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0015 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0015 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0015 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0015 
+https://doi.org/10.1109/ICSMC.2011.6084028 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0017 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0017 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0017 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0017 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0018 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0018 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0018 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0018 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0018 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0019 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0019 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0019 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0019 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0019 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0020 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0020 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0020 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0020 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0021 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0021 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0022 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0022 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0022 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0022 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0022 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0023 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0023 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0023 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0024 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0024 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0024 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0024 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0024 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0025 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0025 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0025 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0025 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0025 
+https://doi.org/10.1109/PDP.2012.94 
+https://doi.org/10.1109/SBAC-PAD.2010.15 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0028 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0028 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0028 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0028 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0029 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0029 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0029 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0030 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0030 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0030 
+https://doi.org/10.1109/IPDPS.2015.101 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0032 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0032 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0032 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0033 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0033 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0033 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0033 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0033 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0033 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0034 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0034 
+http://refhub.elsevier.com/S0020-0255(18)30069-0/sbref0034 
+https://doi.org/10.1109/CLUSTER.2011.61 
+https://doi.org/10.1007/s11227-013-0887-x 
+https://doi.org/10.1109/ICSMC.2010.5641778 
+
+GMiner: A fast GPU-based frequent itemset mining method for large-scale data 
+1 Introduction 
+2 Related work 
+2.1 Sequential method 
+2.2 Multi-threaded method 
+2.3 Distributed method 
+2.4 GPU-Based method 
+
+3 TFL strategy 
+3.1 Transaction block 
+3.2 Nested-Loop stream 
+3.3 TFL Algorithm 
+3.4 Exploiting GPUs 
+
+4 HIL Strategy 
+4.1 Fragment block 
+4.2 HIL Algorithm 
+
+5 Multiple GPUs and cost model 
+5.1 Exploiting multiple GPUs 
+5.2 Cost model 
+
+6 Performance evaluation 
+6.1 Experimental setup 
+6.2 Comparison with sequential method 
+6.3 Comparison with CPU-based parallel method 
+6.4 Comparison with GPU-based parallel method 
+6.5 Scalability test 
+6.6 Characteristics of GMiner 
+
+7 Summary 
+Acknowledgments 
+References 
+
+

@@ -1,0 +1,2183 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Efficient Use of Limited-Memory Accelerators 
+for Linear Learning on Heterogeneous Systems 
+
+Celestine Dünner 
+IBM Research - Zurich 
+
+Switzerland 
+cdu@zurich.ibm.com 
+
+Thomas Parnell 
+IBM Research - Zurich 
+
+Switzerland 
+tpa@zurich.ibm.com 
+
+Martin Jaggi 
+EPFL 
+
+Switzerland 
+martin.jaggi@epfl.ch 
+
+Abstract 
+
+We propose a generic algorithmic building block to accelerate training of machine 
+learn model on heterogeneous compute systems. Our scheme allows to effi- 
+ciently employ compute accelerator such a GPUs and FPGAs for the training 
+of large-scale machine learn models, when the training data exceeds their me- 
+mory capacity. Also, it provide adaptivity to any system’s memory hierarchy in 
+term of size and processing speed. Our technique be built upon novel theoretical 
+insight regard primal-dual coordinate methods, and us duality gap informa- 
+tion to dynamically decide which part of the data should be make available for 
+fast processing. To illustrate the power of our approach we demonstrate it perfor- 
+mance for training of generalize linear model on a large-scale dataset exceed 
+the memory size of a modern GPU, show an order-of-magnitude speedup over 
+exist approaches. 
+
+1 Introduction 
+
+As modern compute system rapidly increase in size, complexity and computational power, they 
+become less homogeneous. Today’s system exhibit strong heterogeneity at many levels: in term 
+of compute parallelism, memory size and access bandwidth, a well a communication bandwidth 
+between compute node (e.g., computers, mobile phones, server racks, GPUs, FPGAs, storage node 
+etc.). This increase heterogeneity of compute environment be pose new challenge for the 
+development of efficient distribute algorithms. That be to optimally exploit individual compute 
+resource with very diverse characteristic without suffer from the I/O cost of exchange data 
+between them. 
+
+Figure 1: Compute unitsA, B with 
+different memory size, bandwidth 
+and compute power. 
+
+In this paper, we focus on the task of training large-scale 
+machine learn model in such heterogeneous compute en- 
+vironments and propose a new generic algorithmic building 
+block to efficiently distribute the workload between heteroge- 
+neous compute units. Assume two compute units, denote A 
+and B, which differ in compute power a well a memory ca- 
+pacity a illustrate in Figure 1. The computational power of 
+unit A be small and it memory capacity be large relative to 
+it peer unit B (i.e., we assume that the training data fit into 
+the memory of A, but not into B’s). Hence, on the compu- 
+tationally more powerful unit B, only part of the data can be 
+process at any give time. The two units, A and B, be able 
+to communicate with each other over some interface, however 
+there be cost associate with do so. 
+
+31st Conference on Neural Information Processing Systems (NIPS 2017), Long Beach, CA, USA. 
+
+ar 
+X 
+
+iv 
+:1 
+
+70 
+8. 
+
+05 
+35 
+
+7v 
+2 
+
+[ 
+c 
+
+.L 
+G 
+
+] 
+7 
+
+N 
+ov 
+
+2 
+01 
+
+7 
+
+
+
+This generic setup cover many essential element of modern machine learn systems. A typical 
+example be that of accelerator units, such a a GPUs or FPGAs, augment traditional computer 
+or servers. While such device can offer a significant increase in computational power due to their 
+massively parallel architectures, their memory capacity be typically very limited. Another example 
+can be found in hierarchical memory system where data in the high level memory can be access 
+and hence process faster than data in the – typically large – low level memory. Such memory 
+system be span from, e.g., fast on-chip cache on one extreme to slow hard drive on the 
+other extreme. 
+
+The core question we address in this paper be the following: How can we efficiently distribute the 
+workload between heterogeneous unit A and B in order to accelerate large scale learning? 
+The generic algorithmic building block we propose systematically split the overall problem into two 
+workloads, a more data-intensive but less compute-intensive part for unit A and a more compute- 
+intensive but less data-intensive part for B. These workload be then execute in parallel, enable 
+full utilization of both resource while keep the amount of necessary communication between 
+the two unit minimal. Such a generic algorithmic building block be useful much more widely than 
+just for training on two heterogeneous compute unit – it can serve a a component of large training 
+algorithm or pipeline thereof. In a distribute training setting, our scheme allows each individual 
+node to locally benefit from it own accelerator, therefore speed up the overall task on a cluster, 
+e.g., a part of [14] or another distribute algorithm. Orthogonal to such a horizontal application, our 
+scheme can also be use a a building block vertically integrate in a system, serve the efficiency 
+of several level of the memory hierarchy of a give compute node. 
+
+Related Work. The most popular exist approach to deal with memory limitation be to process 
+data in batches. For example, for the special case of SVMs, [16] split data sample into block 
+which be then load and process sequentially (on B), in the set of limited RAM and the 
+full data reside on disk. This approach enables contiguous chunk of data to be load which be 
+beneficial in term of I/O overhead; it however treat sample uniformly. Later, in [2, 7] it be propose 
+to selectively load and keep informative sample in memory in order to reduce disk access, but this 
+approach be specific to support vector and be unable to theoretically quantify the possible speedup. 
+
+In this work, we propose a novel, theoretically-justified scheme to efficiently deal with memory 
+limitation in the heterogeneous two-unit set illustrate in Figure 1. Our scheme can be apply 
+to a broad class of machine learn problems, include generalize linear models, empirical risk 
+minimization problem with a strongly convex regularizer, such a SVM, a well a sparse models, 
+such a Lasso. In contrast to the related line of research [16, 2, 7], our scheme be design to take full 
+advantage of both compute resource A and B for training by systematically splitting the workload 
+amongA and B in order to adapt to their specific property and to the available bandwidth between 
+them. At the heart of our approach lie a smart data selection scheme use coordinate-wise duality 
+gap a selection criteria. Our theory will show that our selection scheme provably improves the 
+convergence rate of training overall, by explicitly quantify the benefit over uniform sampling. In 
+contrast, exist work [2, 7] only show that the linear convergence rate on SVMs be preserve 
+asymptotically, but not necessarily improved. 
+
+A different line of related research be steepest coordinate selection. It be know that steepest coor- 
+dinate descent can converge much faster than uniform [8] for single coordinate update on smooth 
+objectives, however it typically do not perform well for general convex problems, such a those 
+with L1 regularization. In our work, we overcome this issue by use the generalize primal-dual 
+gap [4] which do extend to L1 problems. Related to this notion, [3, 9, 11] have explore the use 
+of similar information a an adaptive measure of importance, in order to adapt the sample proba- 
+bilities of coordinate descent. Both, this line of research, a well a steepest coordinate descent [8] 
+be still limited to single coordinate updates, and cannot be readily extend to arbitrary accuracy 
+update on a large subset of coordinate (performed per communication round) a require in our 
+heterogeneous setting. 
+
+Contributions. The main contribution of this work be summarize a follows: 
+• We analyze the per-iteration-improvement of primal-dual block coordinate descent and how it 
+
+depends on the selection of the active coordinate block at that iteration. We extend the conver- 
+gence theory to arbitrary approximate update on the coordinate subsets, and propose a novel 
+dynamic selection scheme for block of coordinates, which relies on coordinate-wise duality 
+gaps, and we precisely quantify the speedup of the convergence rate over uniform sampling. 
+
+2 
+
+
+
+• Our theoretical finding result in a scheme for learn in heterogeneous compute environment 
+which be easy to use, theoretically justified and versatile in that it can be adapt to give re- 
+source constraints, such a memory, computation and communication. Furthermore, our scheme 
+enables parallel execution between, and also within, two heterogeneous compute units. 
+
+• For the example of joint training in a CPU plus GPU environment – which be very challenge 
+for data-intensive work load – we demonstrate a more than 10× speed-up over exist method 
+for limited-memory training. 
+
+2 Learning Problem 
+For the scope of this work we focus on the training of convex generalize linear model of the form 
+
+min 
+α∈Rn 
+
+O(α) := f(Aα) + g(α) (1) 
+
+where f be a smooth function and g(α) = 
+∑ 
+i gi(αi) be separable, α ∈ Rn describes the parameter 
+
+vector and A = [a1,a2, . . . ,an] ∈ Rd×n the data matrix with column vector ai ∈ Rd. This set 
+cover many prominent machine learn problems, include generalize linear model a use for 
+regression, classification and feature selection. To avoid confusion, it be important to distinguish the 
+two main application classes: On one hand, we cover empirical risk minimization (ERM) problem 
+with a strongly convex regularizer such a L2-regularized SVM – where α then be the dual variable 
+vector and f be the smooth regularizer conjugate, a in SDCA [13]. On the other hand, we also cover 
+the class of sparse model such a Lasso or ERM with a sparse regularizer – where f be the data-fit 
+term and g take the role of the non-smooth regularizer, so α be the original primal parameters. 
+
+Duality Gap. Through the perspective of Fenchel-Rockafellar duality, one can, for any primal- 
+dual solution pair (α,w), define the non-negative duality gap for (1) a 
+
+gap(α;w) := f(Aα) + g(α) + f∗(w) + g∗(−A>w) (2) 
+where the function f∗, g∗ in (2) be define a the convex conjugate1 of their correspond coun- 
+terparts f, g [1]. Let u consider parameter w that be optimal relative to a give α, i.e., 
+
+w := w(α) = ∇f(Aα), (3) 
+which implies f(Aα) + f∗(w) = 〈Aα,w〉. In this special case, the duality gap (2) simplifies and 
+becomes separable over the column ai of A and the correspond parameter weight αi give w. 
+We will late exploit this property to quantify the suboptimality of individual coordinates. 
+
+gap(α) = 
+∑ 
+i∈[n] 
+
+gapi(αi), where gapi(αi) := w 
+>aiαi + gi(αi) + g 
+
+∗ 
+i (−a>i w). (4) 
+
+Notation. For the remainder of the paper we use v[P] to denote a vector v with non-zero entry 
+only for the coordinate i ∈ P ⊆ [n] = {1, . . . , n}. Similarly we write A[P] to denote the matrix A 
+compose only of column indexed by i ∈ P . 
+
+3 Approximate Block Coordinate Descent 
+The theory we present in this section serf to derive a theoretical framework for our heterogeneous 
+learn scheme that will be present in Section 4. Therefore, let u consider the generic block 
+minimization scheme described in Algorithm 1 to train generalize linear model of the form (1). 
+
+3.1 Algorithm Description 
+
+In every round t, of Algorithm 1, a block P of m coordinate of α be select accord to an 
+arbitrary selection rule. Then, an update be compute on this block of coordinate by optimize 
+
+arg min 
+∆α[P]∈Rn 
+
+O(α + ∆α[P]) (5) 
+
+where an arbitrary solver can be use to find this update. This update be not necessarily perfectly 
+optimal but of a relative accuracy θ, in the follow sense of approximation quality: 
+
+1For h : Rd → R the convex conjugate be define a h∗(v) := supu∈Rd v>u− h(u). 
+
+3 
+
+
+
+Algorithm 1 Approximate Block CD 
+
+1: Initialize α(0) := 0 
+2: for t = 0, 1, 2, ... do 
+3: select a subset P with |P| = m 
+4: ∆α[P] ← θ-approx. solution to (5) 
+5: α(t+1) := α(t) + ∆α[P] 
+6: end for 
+
+Algorithm 2 DUHL 
+
+1: Initialize α(0) := 0, z := 0 
+2: for t = 0, 1, 2, ... 
+3: determine P accord to (13) 
+4: refresh memory B to contain A[P]. 
+5: on B do: 
+6: ∆α[P] ← θ-approx. solution to (12) 
+7: in parallel on A do: 
+8: while B not finish 
+9: sample j ∈ [n] 
+
+10: update zj := gapj(α 
+(t) 
+j ) 
+
+11: α(t+1) := α(t) + ∆α[P] 
+
+Definition 1 (θ-Approximate Update). The block update ∆α[P] be θ-approximate iff 
+
+∃θ ∈ [0, 1] : O(α + ∆α[P]) ≤ θO(α + ∆α?[P]) + (1− θ)O(α) (6) 
+where ∆α?[P] ∈ arg min∆α[P]∈Rn O(α + ∆α[P]). 
+
+3.2 Convergence Analysis 
+
+In order to derive a precise convergence rate for Algorithm 1 we build on the convergence analysis 
+of [4, 13]. We extend their analysis of stochastic coordinate descent in two ways: 1) to a block 
+coordinate scheme with approximate coordinate updates, and 2) to explicitly cover the importance 
+of each select coordinate, a oppose to uniform sampling. 
+
+We define 
+
+ρt,P := 
+1 
+m 
+
+∑ 
+j∈P gapj(α 
+
+(t) 
+j ) 
+
+1 
+n 
+
+∑ 
+j∈[n] gapj(α 
+
+(t) 
+j ) 
+
+(7) 
+
+which quantifies how much the coordinate i ∈ P of α(t) contribute to the global duality gap 
+(2). Thus, give a measure of suboptimality for these coordinates. In Algorithm 1 an arbitrary 
+selection scheme (deterministic or randomized) can be apply and our theory will explain how 
+the convergence of Algorithm 1 depends on the selection through the distribution of ρt,P . That 
+is, for strongly convex function gi, we found that the per-step improvement in suboptimality be 
+proportional to ρt,P of the specific coordinate block P be select at that iteration t: 
+
+�(t+1) ≤ (1− ρt,Pθc) �(t) (8) 
+
+where �(t) := O(α(t)) −O(α?) measure the suboptimality of α(t) and c > 0 be a constant which 
+will be specify in the follow theorem. A similar dependency on ρt,P can also be show for 
+non-strongly convex function gi, lead to our two main convergence result for Algorithm 1: 
+
+Theorem 1. For Algorithm 1 run on (1) where f be L-smooth and gi be µ-strongly convex with 
+µ > 0 for all i ∈ [n], it hold that 
+
+EP [�(t) |α(0)] ≤ 
+( 
+
+1− ηP 
+m 
+
+n 
+
+µ 
+
+σL+ µ 
+
+)t 
+�(0) (9) 
+
+where σ := ‖A[P]‖2op and ηP := mint θ EP [ρt,P |α(t)]. Expectations be over the choice of P . 
+
+That is, for strongly convex gi, Algorithm 1 have a linear convergence rate. This be show before 
+in [13, 4] for the special case of exact coordinate updates. In strong contrast to early coordinate 
+descent analysis which build on random uniform sampling, our theory explicitly quantifies the im- 
+pact of the sample scheme on the convergence through ρt,P . This allows one to benefit from smart 
+selection and provably improve the convergence rate by take advantage of the inhomogeneity of 
+the duality gaps. The same hold for non-strongly convex function gi: 
+
+4 
+
+
+
+Theorem 2. For Algorithm 1 run on (1) where f be L-smooth and gi have B-bounded support 
+for all i ∈ [n], it hold that 
+
+EP [�(t) |α(0)] ≤ 
+1 
+
+ηPm 
+
+2γn2 
+
+2n+ t− t0 
+(10) 
+
+with γ := 2LB2σ where σ := ‖A[P]‖2op and t ≥ t0 = max 
+{ 
+
+0, nm log 
+( 
+
+2ηm�(0) 
+
+nγ 
+
+)} 
+where ηP := 
+
+mint θ EP [ρt,P |α(t)]. Expectations be over the choice of P . 
+
+Remark 1. Note that for uniform selection, our proven convergence rate for Algorithm 1 recover 
+classical primal-dual coordinate descent [4, 13] a a special case, where in every iteration a single 
+coordinate be select and each update be solve exactly, i.e., θ = 1. In this case ρt,P measure the 
+contribution of a single coordinate to the duality gap. For uniform sampling, EP [ρt,P |α(t)] = 1 
+and hence ηP = 1 which recovers [4, Theorems 8 and 9]. 
+
+3.3 Gap-Selection Scheme 
+The convergence result of Theorems 1 and 2 suggest that the optimal rule for select the block 
+of coordinate P in step 3 of Algorithm 1, lead to the large improvement in that step, be the 
+following: 
+
+P := arg max 
+P⊂[n]:|P|=m 
+
+∑ 
+j∈P 
+
+gapj 
+( 
+α 
+
+(t) 
+j 
+
+) 
+. (11) 
+
+This scheme maximizes ρt,P at every iterate α(t). Furthermore, the selection scheme (11) guar- 
+antees ρt,P ≥ 1 which quantifies the relative gain over random uniform sampling. In contrast to 
+exist importance sample scheme [17, 12, 5] which assign static probability to individual co- 
+ordinates, our selection scheme (11) be dynamic and adapts to the current state α(t) of the algorithm, 
+similar to that use in [9, 11] in the standard non-heterogeneous setting. 
+
+4 Heterogeneous Training 
+In this section we build on the theoretical insight of the previous section to tackle the main objective 
+of this work: How can we efficiently distribute the workload between two heterogeneous compute 
+unitsA and B to train a large-scale machine learn model whereA and B fulfill the follow two 
+assumptions: 
+Assumption 1 (Difference in Memory Capacity). Compute unit A can fit the whole dataset in it 
+memory and compute unit B can only fit a subset of the data. Hence, B only have access to A[P], a 
+subset P of m column of A, where m be determine by the memory size of B. 
+Assumption 2 (Difference in Computational Power). Compute unit B can access and process data 
+faster than compute unit A. 
+
+4.1 DUHL: A Duality Gap-Based Heterogeneous Learning Scheme 
+
+We propose a duality gap-based heterogeneous learn scheme, henceforth refer to a DUHL, 
+for short. DUHL be design for efficient training on heterogeneous compute resource a described 
+above. The core idea of DUHL be to identify a block P of coordinate which be most relevant to 
+improve the model at the current stage of the algorithm, and have the correspond data columns, 
+A[P], reside locally in the memory of B. Compute unit B can then exploit it superior compute 
+power by use an appropriate solver to locally find a block coordinate update ∆α[P]. At the same 
+time, compute unit A be assign the task of update the block P of important coordinate a the 
+algorithm proceeds and the iterates change. Through this split of workload DUHL enables full 
+utilization of both compute unitsA and B. Our scheme, summarize in Algorithm 2, fit the theore- 
+tical framework establish in the previous section and can be view a an instance of Algorithm 1, 
+implement a time-delayed version of the duality gap-based selection scheme (11). 
+
+Local Subproblem. In the heterogeneous set compute unit B only have access to it local data 
+A[P] and some current state v := Aα ∈ Rd in order to compute a block update ∆α[P] in Step 4 
+of Algorithm 1. While for quadratic function f this information be sufficient to optimize (5), for 
+non-quadratic function f we consider the follow modify local optimization problem instead: 
+
+arg min 
+∆α[P]∈Rn 
+
+f(v) + 〈∇f(v), A∆α[P]〉+ 
+L 
+
+2 
+‖A∆α[P]‖22 + 
+
+∑ 
+i∈P 
+
+gi((α + ∆α[P])i). (12) 
+
+5 
+
+
+
+Figure 2: Illustration of one round of DUHL a described in Algorithm 2. 
+
+It can be show that the convergence guarantee of Theorems 1 and 2 similarly hold if the block 
+coordinate update in Step 4 of Algorithm 1 be compute on (12) instead of (5) (see Appendix C for 
+more details). 
+
+A Time-Delayed Gap Measure. Motivated by our theoretical finding from Section 3, we use 
+the duality gap a a measure of importance for select which coordinate unit B be work on. 
+However, a scheme a suggest in (11) be not suitable for our purpose since it require knowledge 
+of the duality gap (4) for every coordinate i at a give iterate α(t). For our scheme this would 
+imply a computationally expensive selection step at the begin of every round which have to be 
+perform in sequence to the update step. To overcome this and enable parallel execution of the two 
+workload on A and B, we propose to introduce a gap memory. This be an n-dimensional vector 
+z where zi measure the importance of coordinate αi. We have zi := gap(α 
+
+(t′) 
+i ) where t 
+
+′ ∈ [0, t] 
+and the different element of z be allow to be base on different, possibly stale iterates α(t 
+
+′). 
+Thus, the entry of z can be continuously update during the course of the algorithm. Then, at the 
+begin of every round the new block P be select base on the current state of z a follows: 
+
+P := arg max 
+P⊂[n]:|P|=m 
+
+∑ 
+j∈P 
+
+zj . (13) 
+
+In DUHL, keep z up to date be the job of compute unit A. Hence, while B be compute a block 
+coordinate update ∆α[P], A update z by randomly sample from the entire training data. Then, 
+a soon a B be done, the current state of z be use to determine P for the next round and data 
+column on B be replace if necessary. The parallel execution of the two workload during a single 
+round of DUHL be illustrate in Figure 2. Note, that the freshness of the gap-memory z depends 
+on the relative compute power of A versus B, a well a θ which control the amount of time spent 
+compute on unit B in every round. 
+In Section 5.2 we will experimentally investigate the effect of staleness of the value zi on the 
+convergence behavior of our scheme. 
+
+5 Experimental Results 
+For our experiment we have implement DUHL for the particular use-case where A corresponds 
+to a CPU with attach RAM and B corresponds to a GPU – A and B communicate over the PCIe 
+bus. We use an 8-core Intel Xeon E5 x86 CPU with 64GB of RAM which be connect over PCIe 
+Gen3 to an NVIDIA Quadro M4000 GPU which have 8GB of RAM. GPUs have recently experience 
+a widespread adoption in machine learn system and thus this hardware scenario be timely and 
+highly relevant. In such a set we wish to apply DUHL to efficiently populate the GPU memory 
+and thereby make this part of the data available for fast processing. 
+
+GPU solver. In order to benefit from the enormous parallelism offer by GPUs and fulfill As- 
+sumption 2, we need a local solver capable of exploit the power of the GPU. Therefore, we 
+have chosen to implement the twice parallel, asynchronous version of stochastic coordinate descent 
+
+6 
+
+
+
+(a) (b) 
+
+Figure 3: Validation of faster convergence: (a) 
+theoretical quantity ρt,P (orange), versus the 
+practically observe speedup (green) – both re- 
+lative to the random scheme baseline, (b) con- 
+vergence of gap selection compare to random 
+selection. 
+
+(a) (b) 
+
+Figure 4: Effect of stale entry in the gap me- 
+mory of DUHL: (a) number of round need 
+to reach suboptimality 10−4 for different update 
+frequency compare to o-DUHL, (b) the num- 
+ber of data column that be replace per round 
+for update frequency of 5%. 
+
+(TPA-SCD) that have be propose in [10] for learn the ridge regression model. In this work we 
+have generalize the implementation further so that it can be apply in a similar manner to solve 
+the Lasso, a well a the SVM problem. For more detail about the algorithm and how to generalize 
+it we refer the reader to Appendix D. 
+
+5.1 Algorithm Behavior 
+
+Firstly, we will use the publicly available epsilon dataset from the LIBSVM website (a fully dense 
+dataset with 400’000 sample and 2’000 features) to study the convergence behavior of our scheme. 
+For the experiment in this section we assume that the GPU fit 25% of the training data, i.e.,m = n4 
+and show result for training the sparse Lasso a well a the ridge regression model. For the Lasso 
+case we have chosen the regularizer to obtain a support size of ∼ 12% and we apply the coordinate- 
+wise Lipschitzing trick [4] to the L1-regularizer in order to allow the computation of the duality 
+gaps. For computational detail we refer the reader to Appendix E. 
+
+Validation of Faster Convergence. From our theory in Section 3.2 we expect that during any 
+give round t of Algorithm 1, the relative gain in convergence rate of one sample scheme over 
+the other should be quantify by the ratio of the correspond value of ηt,P := θρt,P (for the 
+respective block of coordinate process in that round). To verify this, we train a ridge regression 
+model on the epsilon dataset implement a) the gap-based selection scheme, (11), and b) random 
+selection, fix θ for both schemes. Then, in every round t of our experiment, we record the value 
+of ρt,P a define in (7) and measure the relative gain in convergence rate of the gap-based scheme 
+over the random scheme. In Figure 3(a) we plot the effective speedup of our scheme, and observe 
+that this speedup almost perfectly match the improvement predict by our theory a measure 
+by ρt,P - we observe an average deviation of 0.42. Both speedup number be calculate relative to 
+plain random selection. In Figure 3(b) we see that the gap-based selection can achieve a remarkable 
+10× improvement in convergence over the random reference scheme. When run on sparse 
+problem instead of ridge regression, we have observe ρt,P of the oracle scheme converge to nm 
+within only a few iteration if the support of the problem be small than m and fit on the GPU. 
+
+Effect of Gap-Approximation. In this section we study the effect of use stale, inconsistent gap- 
+memory entry for selection on the convergence of DUHL. While the freshness of the memory 
+entry is, in reality, determine by the relative compute power of unit B over unitA and the relative 
+accuracy θ, in this experiment we artificially vary the number of gap update perform during each 
+round while keep θ fixed. We train the Lasso model and show, in Figure 4(a), the number of 
+round need to reach a suboptimality of 10−4, a a function of the number of gap entry update 
+per round. As a reference we show o-DUHL which have access to an oracle provide the true duality 
+gaps. We observe that our scheme be quite robust to stale gap value and can achieve performance 
+within a factor of two over the oracle scheme up to an average delay of 20 iterations. As the update 
+frequency decrease we observe that the convergence slows down in the initial round because the 
+algorithm need more round until the active set of the sparse problem be correctly detected. 
+
+7 
+
+
+
+(d) Lasso (e) SVM (f) ridge regression 
+
+Figure 5: Performance result of DUHL on the 30GB ImageNet dataset. I/O cost (top) and conver- 
+gence behavior (bottom) for Lasso, SVM and ridge regression. 
+
+Reduced I/O operations. The efficiency of our scheme regard I/O operation be demonstrate 
+in Figure 4(b), where we plot the number of data column that be replace on B in every round 
+of Algorithm 2. Here the Lasso model be train assume a gap update frequency of 5%. We 
+observe that the number of require I/O operation of our scheme be decrease over the course of 
+the algorithm. When increase the freshness of the gap memory entry we could see the number 
+of swap go to zero faster. 
+
+5.2 Reference Schemes 
+
+In the follow we compare the performance of our scheme against four reference schemes. We 
+compare against the most widely-used scheme for use a GPU to accelerate training when the data 
+do not fit into the memory of the GPU, that be the sequential block selection scheme present 
+in [16]. Here the data column be split into block of size m which be sequentially put on the GPU 
+and operate on (the data be efficiently copy to the GPU a a contiguous memory block). 
+
+We also compare against importance sample a present in [17], which we refer to a IS. Since 
+probability assign to individual data column be static we cannot use them a importance mea- 
+sures in a deterministic selection scheme. Therefore, in order to apply importance sample in the 
+heterogeneous setting, we non-uniformly sample m data-columns to reside inside the GPU memory 
+in every round of Algorithm 2 and have the CPU determine the new set in parallel. As we will see, 
+data column norm often come with only small variance, in particular for dense datasets. Therefore, 
+importance sample often fails to give a significant gain over uniformly random selection. 
+
+Additionally, we compare against a single-threaded CPU implementation of a stochastic coordinate 
+descent solver to demonstrate that with our scheme, the use of a GPU in such a set indeed yield a 
+significant speedup over a basic CPU implementation despite the high I/O cost of repeatedly copying 
+data on and off the GPU memory. To the best of our knowledge, we be the first to demonstrate this. 
+
+For all compete schemes, we use TPA-SCD a the solver to efficiently compute the block update 
+∆α[P] on the GPU. The accuracy θ of the block update compute in every round be control by 
+the number of randomize pass of TPA-SCD through the coordinate of the select block P . For 
+a fair comparison we optimize this parameter for the individual schemes. 
+
+5.3 Performance Analysis of DUHL 
+
+For our large-scale experiment we use an extend version of the Kaggle Dogs vs. Cats ImageNet 
+dataset a present in [6], where we additionally double the number of samples, while use single 
+precision float point numbers. The result dataset be fully dense and consists of 40’000 sample 
+and 200’704 features, result in over 8 billion non-zero element and a data size of 30GB. Since 
+the memory capacity of our GPU be 8GB, we can put ∼ 25% of the data on the GPU. We will show 
+
+8 
+
+
+
+result for training a sparse Lasso model, ridge regression a well a linear L2-regularized SVM. For 
+Lasso we chose the regularization to achieve a support size of 12%, whereas for SVM the regularizer 
+be chosen through cross-validation. For all three tasks, we compare the performance of DUHL to 
+sequential block selection, random selection, selection through importance sample (IS) all on 
+GPU, a well a a single-threaded CPU implementation. In Figure 5(d) and 5(e) we demonstrate 
+that for Lasso a well a SVM, DUHL converges 10× faster than any reference scheme. This gain 
+be achieve by improve convergence – quantify through ρt,P – a well a through reduce I/O 
+cost, a illustrate in the top plot of Figure 5, which show the number of data column replace 
+per round. The result in Figure 5(f) show that the application of DUHL be not limited to sparse 
+problem and SVMs. Even for ridge regression DUHL significantly outperforms all the reference 
+scheme consider in this study. 
+
+6 Conclusion 
+
+We have present a novel theoretical analysis of block coordinate descent, highlight how the 
+performance depends on the coordinate selection. These result prove that the contribution of in- 
+dividual coordinate to the overall duality gap be indicative of their relevance to the overall model 
+optimization. Using this measure we develop a generic scheme for efficient training in the presence 
+of high performance resource of limited memory capacity. We propose DUHL, an efficient gap 
+memory-based strategy to select which part of the data to make available for fast processing. On a 
+large dataset which exceeds the capacity of a modern GPU, we demonstrate that our scheme out- 
+performs exist sequential approach by over 10× for Lasso and SVM models. Our result show 
+that the practical gain match the improve convergence predict by our theory for gap-based 
+sample under the give memory and communication constraints, highlight the versatility of the 
+approach. 
+
+References 
+[1] Heinz H Bauschke and Patrick L Combettes. Convex Analysis and Monotone Operator Theory in Hilbert 
+
+Spaces. CMS Books in Mathematics. Springer New York, New York, NY, 2011. 
+
+[2] Kai-Wei Chang and Dan Roth. Selective block minimization for faster convergence of limited memory 
+large-scale linear models. In Proceedings of the 17th ACM SIGKDD international conference on Knowl- 
+edge Discovery and Data Mining, page 699–707, New York, USA, August 2011. ACM. 
+
+[3] Dominik Csiba, Zheng Qu, and Peter Richtárik. Stochastic Dual Coordinate Ascent with Adaptive Proba- 
+bilities. In ICML 2015 - Proceedings of the 32th International Conference on Machine Learning, February 
+2015. 
+
+[4] Celestine Dünner, Simone Forte, Martin Takác, and Martin Jaggi. Primal-Dual Rates and Certificates. 
+In Proceedings of the 33th International Conference on Machine Learning (ICML) - Volume 48, page 
+783–792, 2016. 
+
+[5] Olivier Fercoq and Peter Richtárik. Optimization in High Dimensions via Accelerated, Parallel, and 
+Proximal Coordinate Descent. SIAM Review, 58(4):739–771, January 2016. 
+
+[6] Christina Heinze, Brian McWilliams, and Nicolai Meinshausen. DUAL-LOCO: Distributing Statistical 
+Estimation Using Random Projections. In AISTATS - Proceedings of the th International Conference on 
+Artificial Intelligence and Statistics, page 875–883, 2016. 
+
+[7] Shin Matsushima, SVN Vishwanathan, and Alex J Smola. Linear support vector machine via dual cached 
+loops. In Proceedings of the 18th ACM SIGKDD international conference on Knowledge discovery and 
+data mining, page 177–185, New York, USA, 2012. ACM Press. 
+
+[8] Julie Nutini, Mark Schmidt, Issam Laradji, Michael Friedlander, and Hoyt Koepke. Coordinate Descent 
+Converges Faster with the Gauss-Southwell Rule Than Random Selection. In ICML 2015 - Proceedings 
+of the 32th International Conference on Machine Learning, page 1632–1641, 2015. 
+
+[9] Anton Osokin, Jean-Baptiste Alayrac, Isabella Lukasewitz, Puneet K. Dokania, and Simon Lacoste- 
+Julien. Minding the gap for block frank-wolfe optimization of structure svms. In Proceedings of 
+the 33rd International Conference on Machine Learning (ICML) - Volume 48, page 593–602. JMLR.org, 
+2016. 
+
+[10] Thomas Parnell, Celestine Dünner, Kubilay Atasu, Manolis Sifalakis, and Haris Pozidis. Large-Scale 
+Stochastic Learning use GPUs. In Proceedings of the 6th International Workshop on Parallel and 
+Distributed Computing for Large Scale Machine Learning and Big Data Analytics (IPDPSW), IEEE, 
+2017. 
+
+9 
+
+
+
+[11] Dmytro Perekrestenko, Volkan Cevher, and Martin Jaggi. Faster Coordinate Descent via Adaptive Impor- 
+tance Sampling. In AISTATS - Artificial Intelligence and Statistics, page 869–877. April 2017. 
+
+[12] Zheng Qu and Peter Richtárik. Coordinate descent with arbitrary sample I: algorithm and complexity. 
+Optimization Methods and Software, 31(5):829–857, April 2016. 
+
+[13] Shai Shalev-Shwartz and Tong Zhang. Stochastic dual coordinate ascent method for regularize loss. J. 
+Mach. Learn. Res., 14(1):567–599, February 2013. 
+
+[14] Virginia Smith, Simone Forte, Chenxin Ma, Martin Takáč, Michael I Jordan, and Martin Jaggi. CoCoA: 
+A General Framework for Communication-Efficient Distributed Optimization. arXiv, November 2016. 
+
+[15] Robert L. Wolpert. Conditional expectation. University Lecture, 2010. 
+
+[16] Hsiang-Fu Yu, Cho-Jui Hsieh, Kai-Wei Chang, and Chih-Jen Lin. Large Linear Classification When Data 
+Cannot Fit in Memory. ACM Transactions on Knowledge Discovery from Data, 5(4):1–23, February 
+2012. 
+
+[17] Peilin Zhao and Tong Zhang. Stochastic Optimization with Importance Sampling for Regularized Loss 
+Minimization. In ICML 2015 - Proceedings of the 32th International Conference on Machine Learning, 
+page 1–9, 2015. 
+
+10 
+
+
+
+Appendix 
+Organization of the appendix: We state detailed proof of Theorem 1 and Theorem 2 in Appendix A. 
+Then, we give some background information on coordinate descent and the local subproblem in 
+Appendix B and C respectively. In Appendix D we then present detail on the generalization of the 
+TPA-SCD algorithm to SVM a well a Lasso. We provide exact expression for the local updates, 
+which together with the expression for the duality gap in Appendix E should guide the reader on how 
+to easily practically implement our scheme for the different setting consider in the experiments. 
+
+A Proofs 
+
+In this section we state the detailed proof of Theorem 1 and Theorem 2. 
+
+A.1 Key Lemma 
+
+Lemma 3. Consider problem formulation (1). Let f be L-smooth. Further, let gi be µ-strongly 
+convex with convexity parameter µ ≥ 0 ∀i ∈ [n]. For the case µ = 0 we need the additional 
+assumption of gi have bound support. Then, in any iteration t of Algorithm 1 on (1), we denote 
+the update coordinate block by P with |P| = m and define 
+
+ρt,P := 
+1 
+m 
+
+∑ 
+j∈P gapj(α 
+
+(t) 
+j ) 
+
+1 
+n 
+
+∑n 
+i=1 gapi(α 
+
+(t) 
+i ) 
+
+(14) 
+
+Then, for any s ∈ [0, 1], it hold that 
+
+EP 
+[ 
+O(α(t))−O(α(t+1))|α(t) 
+
+] 
+≥ θ 
+
+[ 
+s 
+m 
+
+n 
+EP 
+[ 
+ρt,P |α(t) 
+
+] 
+gap(α(t)) + 
+
+s2 
+
+2 
+γ 
+
+(t) 
+P 
+
+] 
+(15) 
+
+where 
+
+γ 
+(t) 
+P := EP 
+
+[ 
+µ(1− s) 
+
+s 
+‖u(t) −α(t)‖2 − L‖A(u(t) −α(t))‖2 
+
+∣∣α(t)] . (16) 
+and u(t)i ∈ ∂g∗i (−a>i w(α(t))). 
+
+Proof. First note that in every round of Algorithm 1, α(t) → α(t+1), only coordinate i ∈ P be 
+change and a θ-approximate solution be compute on these coordinates. Hence, the improvement 
+∆tO := O(α(t))−O(α(t+1)) in the objective (1) can be write a 
+
+∆tO = O(α(t))−O(α(t) + ∆α[P]) 
+
+≥ O(α(t))− 
+[ 
+(1− θ)O(α(t)) + θO(α(t) + ∆α?[P]) 
+
+] 
+= θ 
+
+[ 
+O(α(t))− min 
+
+∆α[P] 
+O(α(t) + ∆α[P]) 
+
+] 
+. (17) 
+
+In order to low bound (17) we look at a specific update direction: ∆α[P] = s(u(t) − α(t)) with 
+u 
+
+(t) 
+i ∈ ∂g∗i (−a>i w(α(t))) for i ∈ P (u 
+
+(t) 
+i = α 
+
+(t) 
+i otherwise) and some s ∈ [0, 1]. Note that for 
+
+the subgradient to be well define even for non-strongly convex function gi we need the bound 
+support assumption on gi. 
+This yield 
+
+∆tO ≥ θ 
+[ 
+O(α(t))−O(α(t) + s(u(t) −α(t))) 
+
+] 
+= θ 
+
+[ 
+f(Aα(t))− f(A(α(t) + s(u(t) −α(t))))︸ ︷︷ ︸ 
+
+∆f 
+
+] 
++θ 
+∑ 
+i∈P 
+
+[ 
+gi(α 
+
+(t) 
+i )− gi(α 
+
+(t) 
+i + s(u 
+
+(t) 
+i − α 
+
+(t) 
+i ))︸ ︷︷ ︸ 
+
+∆gi 
+
+] 
+. 
+
+11 
+
+
+
+First, to bound ∆f we use the fact that the function f : Rd → R have Lipschitz continuous gradient 
+with constant L which yield 
+
+∆f ≥ − 
+〈 
+∇f(Aα(t)), As(u(t) −α(t)) 
+
+〉 
+− L 
+
+2 
+‖As(u(t) −α(t))‖2 
+
+= − 
+∑ 
+i∈P 
+
+a>i w 
+(t)s(u 
+
+(t) 
+i − α 
+
+(t) 
+i )− 
+
+Ls2 
+
+2 
+‖A(u(t) −α(t))‖2. (18) 
+
+Then, to bound ∆gi we use µ-strong convexity of gi together with the Fenchel-Young inequality 
+gi(ui) ≥ −uia>i w − g∗i (−a>i w) which hold with equality at ui ∈ ∂g∗i (−a>i w) and find 
+
+∆gi ≥ −sgi(u 
+(t) 
+i ) + sgi(α 
+
+(t) 
+i ) + 
+
+µ 
+2 s(1− s)(u 
+
+(t) 
+i − α 
+
+(t) 
+i ) 
+
+2 
+
+= suia 
+> 
+i w 
+
+(t) + sg∗i (−a>i w(t)) + sgi(α 
+(t) 
+i ) + 
+
+µ 
+2 s(1− s)(u 
+
+(t) 
+i − α 
+
+(t) 
+i ) 
+
+2. (19) 
+
+Finally, recall the definition of the duality gap (4) and combine (18) and (19) yield 
+
+∆tO ≥ θ ∆f + θ 
+∑ 
+i∈P 
+
+∆gi 
+
+≥ θ 
+∑ 
+i∈P 
+
+s gapi(α 
+(t) 
+i ) + 
+
+θs2 
+
+2 
+
+[ 
+µ(1− s) 
+
+s 
+‖u(t) −α(t)‖2 − L‖A(u(t) −α(t))‖2 
+
+] 
+. 
+
+To conclude the proof we recall the definition of ρt,P in (7) and take the expectation over the choice 
+of the coordinate block P which yield 
+
+EP 
+[ 
+O(α(t))−O(α(t+1))|α(t) 
+
+] 
+≥ θsm 
+
+n 
+EP 
+[ 
+ρt,P |α(t) 
+
+] 
+gap(α(t)) + 
+
+θs2 
+
+2 
+γ 
+
+(t) 
+P (20) 
+
+with 
+
+γ 
+(t) 
+P := EP 
+
+[ 
+µ(1− s) 
+
+s 
+‖u(t) −α(t)‖2 − L‖A(u(t) −α(t))‖2 
+
+∣∣∣α(t)] . (21) 
+
+A.2 Proof Theorem 1 
+
+Proof. For strongly convex function gi we have µ > 0 in Lemma 3. This allows u to choose s such 
+that γ(t)P in (15) vanishes. That be s = 
+
+µ 
+σ 
+β+µ 
+
+, where 
+
+σ := ‖A[P]‖2 = max 
+v∈Rn 
+
+‖A[P]v‖2 
+
+‖v‖2 
+. (22) 
+
+This yield 
+
+EP 
+[ 
+O(α(t))−O(α(t+1))|α(t) 
+
+] 
+≥ θsm 
+
+n 
+EP 
+[ 
+ρt,P |α(t) 
+
+] 
+gap(α(t)). 
+
+Now rearrange term and exploit that the duality gap always upper bound the suboptimality 
+we get the follow recursion on the suboptimality �(t) := O(α(t))−O(α?): 
+
+EP 
+[ 
+�(t+1)|α(t) 
+
+] 
+≤ 
+
+( 
+1− θsm 
+
+n 
+EP 
+[ 
+ρt,P |α(t) 
+
+] ) 
+�(t). 
+
+Defining ηP := mint θEP 
+[ 
+ρt,P |α(t) 
+
+] 
+and recursively apply the tower property of conditional 
+
+expectation [15] which state 
+
+EP 
+[ 
+EP 
+[ 
+�(t+1)|α(t) 
+
+] 
+|α(t−1) 
+
+] 
+= EP 
+
+[ 
+�(t+1)|α(t−1) 
+
+] 
+we find 
+
+EP 
+[ 
+�(t+1)|α(0) 
+
+] 
+≤ 
+
+( 
+1− sm 
+
+n 
+ηP 
+
+)t 
+�(0) 
+
+which concludes the proof. 
+
+12 
+
+
+
+A.3 Proof Theorem 2 
+
+Proof. For the case where µ = 0 Lemma 3 states: 
+
+EP 
+[ 
+O(α(t))−O(α(t+1)) |α(t) 
+
+] 
+≥ sθm 
+
+n 
+EP 
+[ 
+ρt,P |α(t) 
+
+] 
+gap(α(t)) 
+
+−θs 
+2 
+
+2 
+LEP 
+
+[ 
+‖A(u(t) −α(t))‖2 |α(t) 
+
+] 
+. 
+
+Now rearrange terms, use σ a define in (22) and �(t) ≤ gap(α(t)), we find 
+
+EP 
+[ 
+�(t+1) |α(t) 
+
+] 
+≤ 
+
+( 
+1− sθm 
+
+n 
+EP 
+[ 
+ρt,P |α(t) 
+
+]) 
+�(t) + 
+
+θs2 
+
+2 
+Lσ EP 
+
+[ 
+‖u(t) −α(t)‖2 |α(t) 
+
+] 
+. 
+
+In order to bound the last term in the above expression we use 1) the fact that 
+∑ 
+i∈P gi have B- 
+
+bound support which implies ‖α‖ ≤ B and 2) the duality between bound support and Lips- 
+chitzness which implies ‖u‖ ≤ B since u ∈ ∂ 
+
+∑ 
+i∈P g 
+
+∗ 
+i (−a>i w). Then, by triangle inequality we 
+
+find ‖u − α‖2 ≤ 2B2 which yield the follow recursion on the suboptimality for non strongly- 
+convex gi: 
+
+EP 
+[ 
+�(t+1) |α(t) 
+
+] 
+≤ 
+
+( 
+1− sθEP 
+
+[ 
+ρt,P |α(t) 
+
+]m 
+n 
+
+) 
+�(t) + 
+
+s2 
+
+2 
+θγ, (23) 
+
+where γ := 2LB2σ. Now define ηP := mint θ EP 
+[ 
+ρt,P |α(t) 
+
+] 
+and assume ηP ≥ 1 ,∀t we can 
+
+upperbound the suboptimality at iteration t a 
+
+EP 
+[ 
+�(t) |α(0) 
+
+] 
+≤ 1 
+ηPm 
+
+2γn2 
+
+2n+ t− t0 
+(24) 
+
+with t ≥ t0 = max 
+{ 
+
+0, nm log 
+( 
+
+2ηPm� 
+(0) 
+
+γn 
+
+)} 
+. 
+
+Similar to [4] we prove this by induction: 
+
+t = t0: Choose s := 1ηP where ηP = mint θEP 
+[ 
+ρt,P |α(t) 
+
+] 
+. Then at t = t0, we have 
+
+EP 
+[ 
+�(t) |α(0) 
+
+] 
+≤ 
+
+( 
+1− m 
+
+n 
+
+) 
+EP 
+[ 
+�(t−1) |α(0) 
+
+] 
++ 
+s2 
+
+2 
+θγ 
+
+≤ 
+( 
+
+1− m 
+n 
+
+)t 
+�(0) + 
+
+t−1∑ 
+i=0 
+
+( 
+1− m 
+
+n 
+
+)i θγ 
+2η2 
+
+≤ 
+( 
+
+1− m 
+n 
+
+)t 
+�(0) + 
+
+1 
+
+1− (1−m/n) 
+θγ 
+
+2η2 
+
+≤ e−tm/n�(0) + θnγ 
+2mηP2 
+
+θ<η 
+
+≤ nγ 
+mηP 
+
+. 
+
+t > t0: For t > t0 we use an inductive argument. Suppose the claim hold for t, give 
+
+EP 
+[ 
+�(t) |α(t−1) 
+
+] 
+≤ 
+
+( 
+1− θEP 
+
+[ 
+ρt−1,P |α(t−1) 
+
+]s m 
+n 
+
+) 
+�(t−1) − s 
+
+2 
+
+2 
+
+m 
+
+n 
+θγ, 
+
+≤ 
+( 
+
+1− ηP 
+s m 
+
+n 
+
+) 1 
+ηP 
+
+2γn 
+
+2n+ (t− 1)− t0 
+− s 
+
+2 
+
+2 
+
+m 
+
+n 
+θγ, 
+
+13 
+
+
+
+then, choose s = 2n2n+(t−1)−t0 ∈ [0, 1] and apply the tower property of conditional expectation 
+we find 
+
+EP 
+[ 
+�(t) |α(0) 
+
+] 
+≤ 
+
+( 
+1− 2mηP 
+
+2n+ (t− 1)− t0 
+
+) 
+1 
+
+ηP 
+
+2γn 
+
+2n+ (t− 1)− t0 
+
++ 
+
+( 
+2n 
+
+2n+ (t− 1)− t0 
+
+)2 
+m 
+
+n 
+
+θγ 
+
+2 
+
+θ<1 
+≤ 
+
+( 
+1− mηP 
+
+2n+ (t− 1)− t0 
+
+) 
+1 
+
+ηP 
+
+2γn 
+
+2n+ (t− 1)− t0 
+
+= 
+1 
+
+ηP 
+
+2γn 
+
+(2n+ (t− 1)− t0) 
+2n+ (t− 1)− t0 −mηP 
+
+2n+ (t− 1)− t0 
+
+≤ 1 
+ηP 
+
+2γn 
+
+(2n+ t− t0) 
+. 
+
+B Coordinate Descent 
+The classical coordinate descent scheme a described in Algorithm 3 solves for a single coordinate 
+exactly in every round. This algorithm can be recover a a special case of approximate block 
+coordinate descent present in Algorithm 1 where m = 1 and θ = 1. In this case, similar to ρt,P 
+we define 
+
+ρt,i := 
+gapi(α 
+
+(t) 
+i ) 
+
+1 
+n 
+
+∑ 
+j∈[n] gapj(α 
+
+(t) 
+j ) 
+
+(25) 
+
+which quantifies how much a single coordinate i of iterate α(t) contributes to the duality gap (4). 
+
+Strongly-convex gi. Using Theorem 1 we find that for Algorithm 3 run on (1) where f be 
+L-smooth and gi be µ-strongly convex with µ > 0 for all i ∈ [n], it hold that 
+
+Ej [�(t) |α(0)] ≤ 
+( 
+
+1− ρmin 
+[ 
+
+µ 
+
+µ+ LR2 
+
+] 
+1 
+
+n 
+
+)t 
+�(0), (26) 
+
+where R upper bound the column norm of A a ‖ai‖ ≤ R ∀i ∈ [n], ρmin := mint Ej [ρt,j |α(t)] 
+and expectation be take over the sample distribution. 
+
+General convex gi. Using Theorem 2 we find that for Algorithm 3 run on (1) where f be 
+L-smooth and gi have B-bounded support for all i ∈ [n] it hold that 
+
+Ej [�(t) |α(0)] ≤ 
+1 
+
+ρmin 
+
+2γn2 
+
+2n+ t− t0 
+(27) 
+
+with t ≥ t0 = max 
+{ 
+
+0, n log 
+( 
+
+2ρmin� 
+(0) 
+
+γn 
+
+)} 
+and γ = 2LB2R2. 
+
+Note that these two result also cover widely use uniform sample a a special case, where the 
+coordinate j in step 3 of Algorithm 3 be sample uniformly at random and hence Ej 
+
+[ 
+ρt,j |α(t) 
+
+] 
+= 1 
+
+which yield ρmin = 1. In this case we exactly recover the convergence result of [4, 13]. 
+
+Algorithm 3 Coordinate Descent 
+
+1: Initialize α(0) = 0 
+2: for t = 0, 1, 2, ..... do 
+3: select coordinate i 
+4: ∆αi = arg min∆αO(α + ei∆α) 
+5: α(t+1) = α(t) + ei∆αi 
+6: end for 
+
+14 
+
+
+
+C Local Subproblem 
+
+In Section 4.1, we have suggest to replace the local optimization problem in Step 4 of Algorithm 
+1 with a simpler quadratic local problem. More precisely, to replace 
+
+arg min 
+∆α[P]∈Rn 
+
+f(A(α + ∆α[P])) + 
+∑ 
+i∈P 
+
+gi((α + ∆α)i) (5) 
+
+by instead 
+
+arg min 
+∆α[P]∈Rn 
+
+f(Aα) +∇f(Aα)>A∆α[P] + 
+L 
+
+2 
+‖A∆α[P]‖22 + 
+
+∑ 
+i∈P 
+
+gi((α + ∆α)i). (12) 
+
+Note that the modify objective (12) do not depend on ai for i /∈ P other than through v. Thus, 
+(12) can be solve locally on processing unit B with only access to A[P] (columns ai of A with 
+i ∈ P) and the current share state v := Aα. Note that for quadratic function f the two problem 
+(5) and (12) be equivalent. This applies to ridge regression, Lasso a well a L2-regularized SVM. 
+
+For function f where the Hessian ∇2f cannot be express a a scale identity, (12) form a 
+second-order upper-bound on the objective (5) by L-smoothness of f . 
+
+Proposition 4. The convergence result of Theorem 1 and 2 similarly hold if the update in Step 4 of 
+Algorithm 1 be perform on (12) instead of (5), i.e., a θ-approximate solution be compute on the 
+modify objective (12). 
+
+Proof. Let u define 
+
+Õ(α(t),v,∆α[P]) := f(Aα) +∇f(Aα)>A∆α[P] + 
+L 
+
+2 
+‖A∆α[P]‖22 + 
+
+∑ 
+i∈P 
+
+gi((α + ∆α)i) 
+
+Assume the update step ∆α[P] perform in Step 4 of Algorithm 1 be a θ-approximate solution to 
+(12), then we can bound the per-step improvement in any iteration t as: 
+
+O(α(t))−O(α(t+1)) ≥ O(α(t))− Õ(α(t),v,∆α[P]) 
+
+≥ O(α(t))− 
+[ 
+θmin 
+
+s[P] 
+Õ(α(t),v, s[P]) + (1− θ)Õ(α(t),v,0) 
+
+] 
+= θ 
+
+[ 
+O(α(t))−min 
+
+s[P] 
+Õ(α(t),v, s[P]) 
+
+] 
+. 
+
+where we use Õ(α(t),v,0) = O(α(t)) andO(α(t)+∆α[P]) ≤ Õ(α(t),v,∆α[P]) which follow 
+by smoothness of f . Hence, the follow inequality hold for an arbitrary block update s̃[P]: 
+
+O(α(t))−O(α(t+1)) ≥ θ 
+[ 
+O(α(t))− Õ(α(t),v, s̃[P]) 
+
+] 
+(28) 
+
+Now, if we plug in the definition ofO(α(t)) and Õ(α(t),v, s̃P), then split the expression into term 
+involve f and term involve gi a in Section A.1 and consider the same specific update direction, 
+(i.e. s̃ = s(u−α) where ui ∈ g∗i (−a>i w), s ∈ [0, 1]), we recover the bound (19) and (18) for the 
+respective terms. If we then proceed along the line of Section A we get exactly the same bound on 
+the per step improvement a in (15). The convergence guarantee from Theorem 1 and Theorem 2 
+follow immediately. 
+
+15 
+
+
+
+C.1 Examples 
+
+For completeness, we state the local subproblem formulation explicitly for the objective consider 
+in the experiments. 
+
+a) Ridge regression. The ridge regression objective be give by 
+
+min 
+α∈Rn 
+
+1 
+
+2d 
+‖Aα− b‖22 + 
+
+λ 
+
+2 
+‖α‖22, (29) 
+
+where b ∈ Rd denotes the vector of labels. For (29) the local subproblem (12) can be state a 
+
+arg min 
+∆α[P]∈Rn 
+
+1 
+
+2d 
+
+∥∥∥∑ 
+i∈P 
+
+ai∆α[P]i 
+
+∥∥∥2 
+2 
+
++ 
+1 
+
+d 
+
+∑ 
+i∈P 
+
+(v − b)>ai∆α[P]i + 
+λ 
+
+2 
+
+∑ 
+i∈P 
+
+(α + ∆α[P]) 
+2 
+i . 
+
+b) Lasso. For the Lasso objective 
+
+min 
+α∈Rn 
+
+1 
+
+2d 
+‖Aα− b‖22 + λ‖α‖1, (30) 
+
+where b ∈ Rd denotes the vector of labels, the local problem (12) can similarly be state a 
+
+arg min 
+∆α[P]∈Rn 
+
+1 
+
+2d 
+
+∥∥∥∑ 
+i∈P 
+
+ai∆α[P]i 
+
+∥∥∥2 
+2 
+
++ 
+1 
+
+d 
+
+∑ 
+i∈P 
+
+(v − b)>ai∆α[P]i + λ 
+∑ 
+i∈P 
+|(α + ∆α[P])i|. 
+
+c) L2-regularized SVM. In case of the L2-regularized SVM problem we consider the dual prob- 
+lem formulation 
+
+min 
+α∈Rn 
+
+1 
+
+n 
+
+∑ 
+i 
+
+(−yiαi) + 
+1 
+
+2λn2 
+‖Aα‖22, (31) 
+
+with yiαi ∈ [0, 1], ∀i, where column ai of A corresponds to sample i with correspond label yi. 
+The local subproblem (12) for (31) can then be state a 
+
+arg min 
+∆α[P]∈Rn 
+
+1 
+
+n 
+
+∑ 
+i∈P 
+
+(−yi(α + ∆α[P])i) + 
+1 
+
+2λn2 
+
+∥∥∥∑ 
+i∈P 
+
+ai∆α[P]i 
+
+∥∥∥2 
+2 
+
++ 
+1 
+
+λn2 
+
+∑ 
+i∈P 
+
+v>ai∆α[P]i 
+
+subject to yi(α + ∆α[P])i ∈ [0, 1] for i ∈ P . 
+
+D Generalization of TPA-SCD 
+
+TPA-SCD be present in [10] a an efficient GPU solver for the ridge regression problem. TPA-SCD 
+implement an asynchronous version of stochastic coordinate descent especially suit for the GPU 
+architecture. Every coordinate be update by a dedicate thread block and these thread block be 
+schedule for execution in parallel on the available stream multiprocessor of the GPU. Individual 
+coordinate update be compute by solve for this coordinate exactly while keep all the others 
+fixed. To synchronize the work between threads, the vector ṽ := Aα−b be write to the GPU main 
+memory and share among all threads. To keep α and ṽ consistent ṽ be update asynchronously by 
+the thread block after every single coordinate update to α exploit the atomic add operation of 
+modern GPUs. 
+
+16 
+
+
+
+D.1 Elastic Net 
+
+The generalization of the TPA-SCD algorithm from L2 regularization to elastic net regularize prob- 
+lem include Lasso be straightforward. Let u consider the follow objective: 
+
+min 
+α∈Rn 
+
+1 
+
+2d 
+‖Aα− b‖22 + λ 
+
+(η 
+2 
+‖α‖22 + (1− η)‖α‖1 
+
+) 
+(32) 
+
+with trade-off parameter η ∈ [0, 1]. 
+
+In this case the only difference to the ridge regression solver present in [10] be the compu- 
+tation of the individual coordinate update in [10, Algorithm 2]. That is, solve for a single 
+coordinate j exactly in (32) yield the follow update rule: 
+
+αt+1j = sign(γ) [|γ| − τ ]+ (33) 
+with soft-thresholding parameter 
+
+τ = 
+λd(1− η) 
+‖aj‖22 + ληd 
+
+(34) 
+
+and 
+
+γ = 
+αtj ‖aj‖22 − a>j ṽt 
+
+‖aj‖22 + ληd 
+. (35) 
+
+Here ṽt denotes the current state of the share vector ṽt := Aαt − b which be update after every 
+coordinate update a 
+
+ṽt+1 = ṽt + aj(α 
+t+1 
+j − α 
+
+t 
+j). 
+
+Similar to ridge regression we parallelize the computation of a>j ṽ 
+t and a>j aj in (34) and (35) in 
+
+every iteration over all thread of the thread block in order to fully exploit the parallelism of the 
+GPU. 
+
+D.2 L2-regularized SVM 
+
+TPA-SCD can also be generalize to optimize the dual SVM objective (31). In the dual formulation 
+(31) a block of coordinate P of α corresponds to a subset of sample (as oppose to features). 
+Hence, individual thread block in TPA-SCD optimize for a single sample at a time where the share 
+information corresponds to v̂ := Aα (instead of Aα− b a in the ridge regression implementation 
+which only impact initialization of the share vector). The correspond single coordinate update 
+can then be compute a 
+
+∆αj = 
+yj − 1λna 
+
+> 
+j v̂ 
+
+t 
+
+1 
+λn‖aj‖ 
+
+2 
+2 
+
+(36) 
+
+and incorporate the constraint (yiαi ∈ [0, 1], ∀i) we find: 
+
+αt+1j = yj max(0,min(1, yj(α 
+t 
+j + ∆αj))) 
+
+and update v̂ accordingly: 
+v̂t+1 = v̂t + aj(α 
+
+t+1 
+j − α 
+
+t 
+j). 
+
+Again, multiple thread in a thread block can be use to compute individual update by parallelize 
+the computation of a>j v and a 
+
+> 
+j aj for every update. 
+
+E Duality Gap 
+
+The computation of the duality gap be essential for the implementation of the selection scheme in 
+Algorithm 2. We therefore devote this section to explicitly state the duality gap for the objective 
+function consider in our experiments. 
+
+17 
+
+
+
+Ridge regression. Since the L2-norm be self-dual the computation of the duality gap for the ridge 
+regression objective (29) be straightforward: 
+
+gap(α) = 
+1 
+
+d 
+
+∑ 
+i∈[n] 
+
+αi a 
+> 
+i w + 
+
+1 
+
+2λd 
+(a>i w) 
+
+2 + λd 
+1 
+
+2 
+α2i 
+
+ 
+where w := Aα− b. 
+
+Lasso. In order to compute a valid duality gap for the Lasso problem (30) we need to employ the 
+Lipschitzing trick a suggest in [4]. This enables to compute a globally define duality gap even 
+for non-bounded conjugate function g∗i such a when the gi form the L1 norm. The Lipschitzing 
+trick be apply coordinate-wise to every gi := | · |. It artificially bound the support of gi, where 
+we choose the bound B such that ‖α(t)‖1 ≤ B ∀t > 0, and hence |αti| ≤ B, ∀i, t. Thus every 
+iterate α(t) be guaranteed to lie within the support. This choice further guarantee that the bound 
+support modification do not affect the optimization and the original objective be untouched inside 
+the region of interest. For the Lasso objective (30) we can satisfy this with the follow choice: 
+B = f(0)λd = 
+
+‖b‖22 
+2λd . Given B, the duality gap for the Lasso problem can be compute a 
+
+gap(α) = 
+1 
+
+d 
+
+∑ 
+i∈[n] 
+
+αi a 
+> 
+i w +B 
+
+[ 
+|a>i w| − λd 
+
+] 
++ 
+
++ λd|αi| 
+
+ 
+where we recall the primal-dual mapping: 
+
+w := Aα− b. 
+
+L2-regularized SVM. The L2-regularized SVM objective be give a 
+
+P(w) = 1 
+n 
+
+∑ 
+i∈[n] 
+
+hi(a 
+> 
+i w) + 
+
+λ 
+
+2 
+‖w‖22 (37) 
+
+where for every i ∈ [n], hi(u) = max{0, 1 − yiu} denotes the hinge loss and ai sample i with 
+label yi. The correspond dual problem formulation be give in (31). The duality gap (2) for the 
+L2-regularized SVM objective can be compute a follows: 
+
+gap(α) = 
+1 
+
+n 
+
+∑ 
+i∈[n] 
+
+αia 
+> 
+i w + hi(a 
+
+> 
+i w)− yiαi 
+
+ 
+where the primal-dual mapping be give a 
+
+w := 
+1 
+
+nλ 
+Aα. 
+
+18 
+
+
+1 Introduction 
+2 Learning Problem 
+3 Approximate Block Coordinate Descent 
+3.1 Algorithm Description 
+3.2 Convergence Analysis 
+3.3 Gap-Selection Scheme 
+
+4 Heterogeneous Training 
+4.1 DuHL: A Duality Gap-Based Heterogeneous Learning Scheme 
+
+5 Experimental Results 
+5.1 Algorithm Behavior 
+5.2 Reference Schemes 
+5.3 Performance Analysis of DUHL 
+
+6 Conclusion 
+A Proofs 
+A.1 Key Lemma 
+A.2 Proof Theorem ?? 
+A.3 Proof Theorem ?? 
+
+B Coordinate Descent 
+C Local Subproblem 
+C.1 Examples 
+
+D Generalization of TPA-SCD 
+D.1 Elastic Net 
+D.2 L2-regularized SVM 
+
+E Duality Gap 
+

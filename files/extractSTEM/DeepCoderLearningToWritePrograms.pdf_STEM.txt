@@ -1,0 +1,9181 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+under review a a confer paper at iclr 2017 
+
+deepcoder: learn TO write program 
+
+matej balog∗ 
+depart of engin 
+univers of cambridg 
+
+alexand L. gaunt, marc brockschmidt, 
+sebastian nowozin, daniel tarlow 
+microsoft research 
+
+abstract 
+
+We develop a first line of attack for solv program competition-styl prob- 
+lem from input-output exampl use deep learning. the approach be to train a 
+neural network to predict properti of the program that gener the output from 
+the inputs. We use the neural network’ predict to augment search techniqu 
+from the program languag community, includ enum search and 
+an smt-base solver. empirically, we show that our approach lead to an order 
+of magnitud speedup over the strong non-aug baselin and a recurr 
+neural network approach, and that we be abl to solv problem of difficulti 
+compar to the simplest problem on program competit websites. 
+
+1 introduct 
+
+A dream of artifici intellig be to build system that can write comput programs. recently, 
+there have be much interest in program-lik neural network model (grave et al., 2014; weston 
+et al., 2014; kurach et al., 2015; joulin & mikolov, 2015; grefenstett et al., 2015; sukhbaatar 
+et al., 2015; neelakantan et al., 2016; kaiser & sutskever, 2016; reed & de freitas, 2016; zaremba 
+et al., 2016; grave et al., 2016), but none of these can write programs; that is, they do not gener 
+human-read sourc code. onli veri recently, riedel et al. (2016); bunel et al. (2016); gaunt 
+et al. (2016) explor the use of gradient descent to induc sourc code from input-output exampl 
+via differenti interpreters, and ling et al. (2016) explor the gener of sourc code from 
+unstructur text descriptions. however, gaunt et al. (2016) show that differenti interpreter-bas 
+program induct be inferior to discret search-bas techniqu use by the program languag 
+community. We be then left with the question of how to make progress on program induct use 
+machin learn techniques. 
+
+In thi work, we propos two main ideas: (1) learn to induc programs; that is, use a corpu of 
+program induct problem to learn strategi that gener across problems, and (2) integr 
+neural network architectur with search-bas techniqu rather than replac them. 
+
+In more detail, we can contrast our approach to exist work on differenti interpreters. In dif- 
+ferenti interpreters, the idea be to defin a differenti map from sourc code and input 
+to outputs. after observ input and outputs, gradient descent can be use to search for a pro- 
+gram that match the input-output examples. thi approach leverag gradient-bas optimization, 
+which have proven power for train neural networks, but each synthesi problem be still solv 
+independently—solv mani synthesi problem do not help solv the next problem. 
+
+We argu that machin learn can provid signific valu toward solv induct program 
+synthesi (ips) by re-cast the problem a a big data problem. We show that train a neural 
+network on a larg number of gener ip problem to predict cue from the problem descript 
+can help a search-bas technique. In thi work, we focu on predict an order on the program 
+space and show how to use it to guid search-bas techniqu that be common in the program 
+languag community. thi approach have three desir properties: first, we transform a difficult 
+search problem into a supervis learn problem; second, we soften the effect of failur of the 
+neural network by search over program space rather than reli on a singl prediction; and third, 
+the neural network’ predict be use to guid exist program synthesi systems, allow u to 
+use and improv on the best solver from the program languag community. empirically, we 
+
+∗also affili with max-planck institut for intellig systems, tübingen, germany. work do while 
+author be an intern at microsoft research. 
+
+1 
+
+
+
+under review a a confer paper at iclr 2017 
+
+show orders-of-magnitud improv over optim standard search techniqu and a recurr 
+neural network-bas approach to the problem. 
+
+In summary, we defin and instanti a framework for use deep learn for program synthesi 
+problem like one appear on program competit websites. our concret contribut are: 
+
+1. defin a program languag that be express enough to includ real-world program- 
+ming problem while be high-level enough to be predict from input-output examples; 
+
+2. model for map set of input-output exampl to program properties; and 
+3. experi that show an order of magnitud speedup over standard program synthesi 
+
+techniques, which make thi approach feasibl for solv problem of similar difficulti a 
+the simplest problem that appear on program competit websites. 
+
+2 background ON induct program synthesi 
+
+We begin by provid background on induct program synthesis, includ a brief overview of 
+how it be typic formul and solv in the program languag community. 
+
+the induct program synthesi (ips) problem be the following: give input-output examples, 
+produc a program that have behavior consist with the examples. 
+
+build an ip system requir solv two problems. first, the search problem: to find consist 
+program we need to search over a suitabl set of possibl programs. We need to defin the set 
+(i.e., the program space) and search procedure. second, the rank problem: if there be multipl 
+program consist with the input-output examples, which one do we return? both of these problem 
+be depend on the specif of the problem formulation. thus, the first import decis in 
+formul an approach to program synthesi be the choic of a domain specif language. 
+
+domain specif languag (dsls). dsl be program languag that be suitabl for a 
+special domain but be more restrict than full-featur program languages. for example, 
+one might disallow loop or other control flow, and onli allow string data type and a small number of 
+primit oper like concatenation. most of program synthesi research focu on synthes 
+program in dsls, becaus full-featur languag like c++ enlarg the search space and complic 
+synthesis. restrict dsl can also enabl more effici special-purpos search algorithms. for 
+example, if a dsl onli allow concaten of substr of an input string, a dynam program- 
+ming algorithm can effici search over all possibl program (polozov & gulwani, 2015). the 
+choic of dsl also affect the difficulti of the rank problem. for example, in a dsl without if 
+statements, the same algorithm be appli to all inputs, reduc the number of program consist 
+with ani set of input-output examples, and thu the rank problem becom easier. Of course, the 
+restrict of the chosen dsl also determin which problem the system can solv at all. 
+
+search techniques. there be mani techniqu for search for program consist with input- 
+output examples. perhap the simplest approach be to defin a grammar and then search over all 
+deriv of the grammar, check each one for consist with the examples. thi approach 
+can be combin with prune base on type and other logic reason (feser et al., 2015). while 
+simple, these approach can be implement efficiently, and they can be surprisingli effective. 
+
+In restrict domain such a the concaten exampl discuss above, special-purpos algorithm 
+can be used. flashmeta (polozov & gulwani, 2015) describ a framework for dsl which allow 
+decomposit of the search problem, e.g., where the product of an output string from an input 
+string can be reduc to find a program for produc the first part of the output and concaten 
+it with a program for produc the latter part of the output string. 
+
+anoth class of system be base on satisfi modulo theori (smt) solving. smt combin 
+sat-styl search with theori like arithmet and inequalities, with the benefit that theory-depend 
+subproblem can be handl by special-purpos solvers. for example, a special-purpos solver can 
+easili find integ x, y such that x < y and y < −100 hold, wherea an enumer strategi may 
+need to consid mani valu befor satisfi the constraints. mani program synthesi engin 
+base on smt solver exist, e.g., sketch (solar-lezama, 2008) and brahma (gulwani et al., 2011). 
+they convert the semant of a dsl into a set of constraint between variabl repres the 
+
+2 
+
+
+
+under review a a confer paper at iclr 2017 
+
+program and the input-output values, and then call an smt solver to find a satisfi set of 
+the program variables. thi approach shine when special-purpos reason can be leveraged, but 
+complex dsl can lead to veri larg constraint problem where construct and manipul the 
+constraint can be a lot slow than an enum approach. 
+
+finally, stochast local search can be employ to search over program space, and there be a long 
+histori of appli genet algorithm to thi problem. one of the most success recent exampl 
+be the stoke super-optim system (schkufza et al., 2016), which us stochast local search 
+to find assembl program that have the same semant a an input program but execut faster. 
+
+ranking. while we focu on the search problem in thi work, we briefli mention the rank 
+problem here. A popular choic for rank be to choos the shortest program consist with input- 
+output exampl (gulwani, 2016). A more sophist approach be employ by flashfil (singh 
+& gulwani, 2015). It work in a manner similar to max-margin structur prediction, where know 
+ground truth program be given, and the learn task be to assign score to program such that the 
+ground truth program score high than other program that satisfi the input-output specification. 
+
+3 learn induct program synthesi (lips) 
+
+In thi section we outlin the gener approach that we follow in thi work, which we call learn 
+induct program synthesi (lips). the detail of our instanti of lip appear in sect. 4. the 
+compon of lip be (1) a dsl specification, (2) a data-gener procedure, (3) a machin learn- 
+ing model that map from input-output exampl to program attributes, and (4) a search procedur 
+that search program space in an order guid by the model from (3). the framework be relat to 
+the formul of menon et al. (2013); the relationship and key differ be discuss in sect. 6. 
+
+(1) dsl and attributes. the choic of dsl be import in lips, just a it be in ani program 
+synthesi system. It should be express enough to captur the problem that we wish to solve, but 
+restrict a much a possibl to limit the difficulti of the search. In lip we addit specifi 
+an attribut function A that map program P of the dsl to finit attribut vector a = a(p ). 
+(attribut vector of differ program need not have equal length.) attribut serv a the link 
+between the machin learn and the search compon of lips: the machin learn model 
+predict a distribut q(a | e), where E be the set of input-output examples, and the search procedur 
+aim to search over program P a order by q(a(p ) | e). thu an attribut be use if it be both 
+predict from input-output examples, and if condit on it valu significantli reduc the 
+effect size of the search space. 
+
+possibl attribut be the (possibl position-dependent) presenc or absenc of high-level function 
+(e.g., do the program contain or end in a call to sort). other possibl attribut includ control 
+flow templat (e.g., the number of loop and conditionals). In the extrem case, one may set A 
+to the ident function, in which case the attribut be equival to the program; however, in our 
+experi we find that perform be improv by choos a more abstract attribut function. 
+
+(2) data generation. step 2 be to gener a dataset D = ((p (n),a(n), e(n)))nn=1 of program 
+P (n) in the chosen dsl, their correspond attribut a(n), and accompani input-output exam- 
+ple e(n). there be mani choic for data generation, rang from enumer valid program in 
+the dsl and pruning, to train a more sophist gener model of program in the dsl. the 
+key in the lip formul be to ensur that it be feasibl to gener a larg dataset (ideal million 
+of programs). 
+
+(3) machin learn model. the machin learn problem be to learn a distribut of at- 
+tribut give input-output examples, q(a | e). there be freedom to explor a larg space of models, 
+so long a the input compon can encod E , and the output be a proper distribut over attribut 
+(e.g., if attribut be a fixed-s binari vector, then a neural network with independ sigmoid 
+output be appropriate; if attribut be variabl size, then a recurr neural network output could be 
+used). attribut be observ at train time, so train can use a maximum likelihood objective. 
+
+3 
+
+
+
+under review a a confer paper at iclr 2017 
+
+(4) search. the aim of the search compon be to interfac with an exist solver, use the 
+predict q(a | E) to guid the search. We describ specif approach in the next section. 
+
+4 deepcod 
+
+here we describ deepcoder, our instanti of lip includ a choic of dsl, a data gener 
+strategy, model for encod input-output sets, and algorithm for search over program space. 
+
+4.1 domain specif languag and attribut 
+
+We consid binari attribut indic the presenc or absenc of high-level function in the target 
+program. To make thi effective, the chosen dsl need to contain construct that be not so low-level 
+that they all appear in the vast major of programs, but at the same time should be common enough 
+so that predict their occurr from input-output exampl can be learn successfully. 
+
+follow thi observation, our dsl be loos inspir by queri languag such a sql or linq, 
+where high-level function be use in sequenc to manipul data. A program in our dsl be a 
+sequenc of function calls, where the result of each call initi a fresh variabl that be either a 
+singleton (integer) or an (integer) array. function can be appli to ani of the input or previous 
+comput (intermediate) variables. the output of the program be the return valu of the last function 
+call, i.e. the last variable. see fig. 1 for an exampl program of length T = 4 in our dsl. 
+
+a← [int] 
+b← filter (<0) a 
+c← map (*4) b 
+d← sort c 
+e← revers d 
+
+An input-output example: 
+input: 
+[-17, -3, 4, 11, 0, -5, -9, 13, 6, 6, -8, 11] 
+output: 
+[-12, -20, -32, -36, -68] 
+
+figur 1: An exampl program in our dsl that take a singl integ array a it input. 
+
+overall, our dsl contain the first-ord function head, last, take, drop, access, minimum, 
+maximum, reverse, sort, sum, and the higher-ord function map, filter, count, zip- 
+with, scanl1. higher-ord function requir suitabl lambda function for their behavior to be 
+fulli specified: for map our dsl provid lambda (+1), (-1), (*2), (/2), (*(-1)), (**2), 
+(*3), (/3), (*4), (/4); for filter and count there be predic (>0), (<0), (%2==0), 
+(%2==1) and for zipwith and scanl1 the dsl provid lambda (+), (-), (*), min, max. 
+A descript of the semant of all function be provid in appendix F. 
+
+note that while the languag do not allow explicit control flow, mani of it function do perform 
+branch and loop intern (e.g., sort, count, ...). exampl of more sophist program 
+express in our dsl, which be inspir by the simplest problem appear on program 
+competit websites, be show in appendix A. 
+
+4.2 data gener 
+
+To gener a dataset, we enumer program in the dsl, heurist prune away those with 
+easili detect issu such a a redund variabl whose valu do not affect the program output, 
+or, more generally, exist of a shorter equival program (equival can be overapproxim 
+by ident behavior on randomli or care chosen inputs). To gener valid input for a program, 
+we enforc a constraint on the output valu bound integ to some predetermin range, and then 
+propag these constraint backward through the program to obtain a rang of valid valu for each 
+input. If one of these rang be empty, we discard the program. otherwise, input-output pair can be 
+gener by pick input from the pre-comput valid rang and execut the program to obtain 
+the output values. the binari attribut vector be easili comput from the program sourc codes. 
+
+4 
+
+
+
+under review a a confer paper at iclr 2017 
+
+4.3 machin learn model 
+
+observ how the input-output data in fig. 1 be inform of the function appear in the program: 
+the valu in the output be all negative, divis by 4, they be sort in decreas order, and they 
+happen to be multipl of 4 of number appear in the input. our aim be to learn to recogn such 
+pattern in the input-output examples, and to leverag them to predict the presenc or absenc of 
+individu functions. We employ neural network to model and learn the map from input-output 
+exampl to attributes. We can think of these network a consist of two parts: 
+
+1. an encoder: a differenti map from a set of N input-output exampl gener by a 
+singl program to a latent real-valu vector, and 
+
+2. a decoder: a differenti map from the latent vector repres a set of N input- 
+output exampl to predict of the ground truth program’ attributes. 
+
+for the encod we use a simpl feed-forward architecture. first, we repres the input and output 
+type (singleton or array) by a one-hot-encoding, and we pad the input and output to a maximum 
+length L with a special null value. second, each integ in the input and in the output be map 
+to a learn emb vector of size E = 20. (the rang of integ be restrict to a finit rang 
+and each emb be parametr individually.) third, for each input-output exampl separately, 
+we concaten the embed of the input types, the inputs, the output type, and the output into a 
+singl (fixed-length) vector, and pa thi vector through H = 3 hidden layer contain K = 256 
+sigmoid unit each. the third hidden layer thu provid an encod of each individu input-output 
+example. finally, for input-output exampl in a set gener from the same program, we pool these 
+represent togeth by simpl arithmet averaging. see appendix C for more details. 
+
+the advantag of thi encod lie in it simplicity, and we found it reason easi to train. A 
+disadvantag be that it requir an upper bound L on the length of array appear in the input and 
+output. We confirm that the chosen encod architectur be sensibl in that it perform empir 
+at least a well a an rnn encoder, a natur baseline, which may howev be more difficult to train. 
+
+deepcod learn to predict presenc or absenc of individu function of the dsl. We shall see 
+thi can alreadi be exploit by variou search techniqu to larg comput gains. We use a 
+decod that pre-multipli the encod of input-output exampl by a learnedk×c matrix, where 
+C = 34 be the number of function in our dsl (higher-ord function and lambda be predict 
+independently), and treat the result C number a log-unnorm probabl (logits) of each 
+function appear in the sourc code. fig. 2 show the predict a train neural network make 
+from 5 input-output exampl for the program show in fig. 1. 
+
+(+ 
+1 
+
+) 
+
+(- 
+1 
+
+) 
+
+(* 
+2 
+
+) 
+
+(/ 
+2 
+
+) 
+
+(* 
+-1 
+
+) 
+
+(* 
+*2 
+
+) 
+
+(* 
+3 
+
+) 
+
+(/ 
+3 
+
+) 
+
+(* 
+4 
+
+) 
+
+(/ 
+4 
+
+) 
+
+(> 
+0 
+
+) 
+
+(> 
+0 
+
+) 
+
+(% 
+2 
+
+= 
+= 
+
+1 
+) 
+
+(% 
+2 
+
+= 
+= 
+
+0 
+) 
+
+H 
+E 
+A 
+
+D 
+
+LA 
+S 
+T 
+
+M 
+A 
+
+P 
+
+FI 
+LT 
+
+E 
+R 
+
+S 
+O 
+
+R 
+T 
+
+R 
+E 
+V 
+
+E 
+R 
+
+S 
+E 
+
+T 
+A 
+
+K 
+E 
+
+D 
+R 
+
+O 
+P 
+
+A 
+C 
+
+C 
+E 
+S 
+S 
+
+Z 
+IP 
+
+W 
+IT 
+
+H 
+
+S 
+C 
+
+A 
+N 
+
+L1 
+
++ - * M 
+IN 
+
+M 
+A 
+
+X 
+
+C 
+O 
+
+U 
+N 
+
+T 
+
+M 
+IN 
+
+IM 
+U 
+
+M 
+
+M 
+A 
+
+X 
+IM 
+
+U 
+M 
+
+S 
+U 
+
+M 
+
+.0 .0 .1 .0 .0 .0 .0 .0 1.0 .0 .0 1.0 .0 .2 .0 .0 1.0 1.0 1.0 .7 .0 .1 .0 .4 .0 .0 .1 .0 .2 .1 .0 .0 .0 .0 
+
+figur 2: neural network predict the probabl of each function appear in the sourc code. 
+
+4.4 search 
+
+one of the central idea of thi work be to use a neural network to guid the search for a program 
+consist with a set of input-output exampl instead of directli predict the entir sourc code. 
+thi section briefli describ the search techniqu and how they integr the predict attributes. 
+
+depth-first search (dfs). We use an optim version of df to search over program with a 
+give maximum length T (see appendix D for details). when the search procedur extend a partial 
+program by a new function, it have to tri the function in the dsl in some order. At thi point df 
+can opt to consid the function a order by their predict probabl from the neural network. 
+
+“sort and add” enumeration. A strong way of util the predict probabl of function 
+in an enum search procedur be to use a sort and add scheme, which maintain a set of activ 
+function and perform df with the activ function set only. whenev the search fails, the next 
+
+5 
+
+
+
+under review a a confer paper at iclr 2017 
+
+most probabl function (or several) be add to the activ set and the search restart with thi larg 
+activ set. note that thi scheme have the defici of potenti re-explor some part of the 
+search space sever times, which could be avoid by a more sophist search procedure. 
+
+sketch. sketch (solar-lezama, 2008) be a success smt-base program synthesi tool from the 
+program languag research community. while it main use case be to synthes program 
+by fill in “holes” in incomplet sourc code so a to match specifi requirements, it be flexibl 
+enough for our use case a well. the function in each step and it argument can be treat a 
+the “holes”, and the requir to be satisfi be consist with the provid set of input-output 
+examples. sketch can util the neural network predict in a sort and add scheme a describ 
+above, a the possibl for each function hole can be restrict to the current activ set. 
+
+λ2. λ2 (feser et al., 2015) be a program synthesi tool from the program languag commun 
+that combin enum search with deduct to prune the search space. It be design to infer 
+small function program for data structur manipul from input-output examples, by combin 
+function from a provid library. λ2 can be use in our framework use a sort and add scheme a 
+describ abov by choos the librari of function accord to the neural network predictions. 
+
+4.5 train loss function 
+
+We use the neg cross entropi loss to train the neural network describ in sect. 4.3, so that it 
+predict about each function can be interpret a margin probabilities. the lip framework 
+dictat learn q(a | e), the joint distribut of all attribut a give the input-output examples, 
+and it be not clear a priori how much deepcod lose by ignor correl between functions. 
+however, under the simplifi assumpt that the runtim of search for a program of length T 
+with C function make avail to a search routin be proport to CT , the follow result for 
+sort and add procedur show that their runtim can be optim use margin probabilities. 
+
+lemma 1. for ani fix program length T , the expect total runtim of a sort and add search 
+scheme can be upper bound by a quantiti that be minim by add the function in the order of 
+decreas true margin probabilities. 
+
+proof. predict sourc code function from input-output exampl can be see a a multi-label 
+classif problem, where each set of input-output exampl be associ with a set of relev 
+label (function appear in the ground truth sourc code). dembczynski et al. (2010) show 
+that in multi-label classif under a so-cal rank loss, it be bay optim to rank the label 
+accord to their margin probabilities. If the runtim of search with C function be proport 
+to CT , the total runtim of a sort and add procedur can be monoton transform so that it be 
+upper bound by thi rank loss. see appendix E for more details. 
+
+5 experi 
+
+In thi section we report result from two categori of experiments. our main experi (sect. 5.1) 
+show that the lip framework can lead to signific perform gain in solv ip by demon- 
+strate such gain with deepcoder. In sect. 5.2 we illustr the robust of the method by 
+demonstr a strong kind of gener abil across program of differ lengths. 
+
+5.1 deepcod compar TO baselin 
+
+We train a neural network a describ in sect. 4.3 to predict use function from input-output 
+exampl and construct a test set of P = 500 programs, guarante to be semant disjoint from 
+all program on which the neural network be train (similarli to the equival check describ 
+in sect. 4.2, we have ensur that all test program behav differ from all program use dure 
+train on at least one input). for each test program we gener M = 5 input-output exampl 
+involv integ of magnitud up to 256, pass the exampl to the train neural network, and 
+fed the obtain predict to the search procedur from sect. 4.4. We also consid a rnn-base 
+decod gener program use beam search (see sect. 5.3 for details). To evalu deepcoder, 
+we then record the time the search procedur need to find a program consist with the M 
+
+6 
+
+
+
+under review a a confer paper at iclr 2017 
+
+input-output examples. As a baseline, we also ran all search procedur use a simpl prior a 
+function probabilities, comput from their global incid in the program corpus. 
+
+tabl 1: search speedup on program of length T = 3 due to use neural network predictions. 
+
+timeout need df enumer λ2 sketch beam 
+to solv 20% 40% 60% 20% 40% 60% 20% 40% 60% 20% 40% 20% 
+
+baselin 41m 126m 314m 80m 335m 861m 18.9 49.6 84.2 >103 >103 >103 
+deepcod 2.7m 33m 110m 1.3m 6.1m 27m 0.23 0.52 13.5 2.13 455 292 
+
+speedup 15.2× 3.9× 2.9× 62.2× 54.6× 31.5× 80.4× 94.6× 6.2× >467× >2.2× >3.4× 
+
+In the first, smaller-scal experi (program search space size ∼ 2 × 106) we train the neural 
+network on program of length T = 3, and the test program be of the same length. tabl 1 show 
+the per-task timeout requir such that a solut could be found for give proport of the test 
+task in time less than or equal to the timeout. for example, in a hypothet test set with 4 task and 
+runtim of 1s, 2s, 3s, 4s, the timeout requir to solv 50% of task would be 2s. more detail 
+experiment result be discuss in appendix B. 
+
+In the main experiment, we tackl a large-scal problem of search for program consist with 
+input-output exampl gener from program of length T = 5 (search space size on the order of 
+1010), support by a neural network train with program of shorter length T = 4. here, we onli 
+consid P = 100 program for reason of comput efficiency, after have verifi that thi 
+do not significantli affect the result in tabl 1. the tabl in fig. 3a show signific speedup 
+for dfs, sort and add enumeration, and λ2 with sort and add enumeration, the search techniqu 
+capabl of solv the search problem in reason time frames. note that sort and add enumer 
+without the neural network (use prior probabl of functions) exceed the 104 second timeout 
+in two cases, so the rel speedup show be crude low bounds. 
+
+timeout need df enumer λ2 
+
+to solv 20% 40% 60% 20% 40% 60% 20% 
+
+baselin 163 2887 6832 8181 >104 >104 463 
+deepcod 24 514 2654 9 264 4640 48 
+
+speedup 6.8× 5.6× 2.6× 907× >37× >2× 9.6× 
+
+(a) 
+
+1 2 3 4 5 
+
+length of test program ttest 
+
+100 
+
+101 
+
+102 
+
+103 
+
+S 
+p 
+e 
+e 
+d 
+u 
+p 
+
+1 
+
+2 
+
+3 
+
+4 
+
+ttrain : 
+
+none 
+
+(b) 
+
+figur 3: search speedup on program of length T = 5 and influenc of length of train programs. 
+
+We hypothes that the substanti larg perform gain on sort and add scheme a compar 
+to gain on df can be explain by the fact that the choic of attribut function (predict presenc 
+of function anywher in the program) and learn object of the neural network be good match 
+to the sort and add schemes. indeed, a more appropri attribut function for df would be one 
+that be more inform of the function appear earli in the program, sinc explor an incorrect 
+first function be costli with dfs. On the other hand, the discuss in sect. 4.5 provid theoret 
+indic that ignor the correl between function be not cataclysm for sort and add 
+enumeration, sinc a rank loss that upper bound the sort and add runtim can still be minimized. 
+
+In appendix G we analys the perform of neural network use in these experiments, by investi- 
+gate which attribut (program instructions) tend to be difficult to distinguish from each other. 
+
+5.2 gener across program length 
+
+To investig the encoder’ gener abil across program of differ lengths, we train 
+a network to predict use function from input-output exampl that be gener from program 
+of length ttrain ∈ {1, . . . , 4}. We then use each of these network to predict function on 5 test set 
+contain input-output exampl gener from program of length ttest ∈ {1, . . . , 5}, respectively. 
+the test program of a give length T be semant disjoint from all train program of the 
+same length T and also from all train and test program of shorter length T ′ < T . 
+
+7 
+
+
+
+under review a a confer paper at iclr 2017 
+
+for each of the combin of ttrain and ttest, sort and add enum search be run both with 
+and without use the neural network’ predict (in the latter case use prior probabilities) until 
+it solv 20% of the test set tasks. fig. 3b show the rel speedup of the solver have access to 
+predict from the train neural networks. these result indic that the neural network be abl 
+to gener beyond program of the same length that they be train on. thi be partli due to the 
+search procedur on top of their predictions, which have the opportun to correct for the presenc of 
+function that the neural network fail to predict. note that a sequence-to-sequ model train 
+on program of a fix length could not be expect to exhibit thi kind of gener ability. 
+
+5.3 altern model 
+
+encod We evalu replac the feed-forward architectur encod (sect. 4.3) with an rnn, a 
+natur baseline. use a gru-bas rnn we be abl to achiev result almost a good a use 
+the feed-forward architecture, but found the rnn encod more difficult to train. 
+
+decod We also consid a pure neural network-bas approach, where an rnn decod 
+be train to predict the entir program token-by-token. We combin thi with our feed-forward 
+encod by initi the rnn use the pool final layer of the encoder. We found it substanti 
+more difficult to train an rnn decod a compar to the independ binari classifi employ 
+above. beam search be use to explor like program predict by the rnn, but it onli lead to a 
+solut compar with the other techniqu when search for program of length T ≤ 2, where 
+the search space size be veri small (on the order of 103). note that use an rnn for both the encod 
+and decod correspond to a standard sequence-to-sequ model. however, we do do not rule out 
+that a more sophist rnn decod or train procedur could be possibl more successful. 
+
+6 relat work 
+
+machin learn for induct program synthesis. there be rel littl work on use 
+machin learn for program by example. the most close relat work be that of menon 
+et al. (2013), in which a hand-cod set of featur of input-output exampl be use a “clues.” 
+when a clue appear in the input-output exampl (e.g., the output be a permut of the input), 
+it reweight the probabl of product in a probabilist context free grammar by a learn 
+amount. thi work share the idea of learn to guid the search over program space condit on 
+input-output examples. one differ be in the domains. menon et al. (2013) oper on short string 
+manipul programs, where it be arguabl easi to hand-cod featur to recogn pattern in the 
+input-output exampl (e.g., if the output be alway permut or substr of the input). our 
+work show that there be strong cue in pattern in input-output exampl in the domain of number 
+and lists. however, the main differ be the scale. menon et al. (2013) learn from a small (280 
+examples), manually-construct dataset, which limit the capac of the machin learn model 
+that can be trained. thus, it forc the machin learn compon to be rel simple. indeed, 
+menon et al. (2013) use a log-linear model and reli on hand-construct features. lip automat 
+gener train data, which yield dataset with million of program and enabl high-capac 
+deep learn model to be brought to bear on the problem. 
+
+learn represent of program state. piech et al. (2015) propos to learn joint embed- 
+ding of program state and program to automat extend teacher feedback to mani similar 
+program in the mooc setting. thi work be similar in that it consid emb program states, 
+but the domain be different, and it otherwis specif focu on syntact differ between 
+semant equival program to provid stylist feedback. Li et al. (2016) use graph neural 
+network (gnns) to predict logic descript from program states, focu on data structur 
+shape instead of numer and list data. such gnn may be a suitabl architectur to encod state 
+appear when extend our dsl to handl more complex data structures. 
+
+learn to infer. veri recently, alemi et al. (2016) use neural sequenc model in tandem 
+with an autom theorem prover. similar to our setup, a neural network compon be train to 
+select premis that the theorem prover can use to prove a theorem. the main differ be in the 
+domains, and that they train on an exist corpu of theorems. more broadly, if we view a dsl a 
+defin a model and search a a form of infer algorithm, then there be a larg bodi of work 
+
+8 
+
+
+
+under review a a confer paper at iclr 2017 
+
+on use discriminatively-train model to aid infer in gener models. exampl includ 
+dayan et al. (1995); kingma & well (2013); shotton et al. (2013); stuhlmül et al. (2013); 
+heess et al. (2013); jampani et al. (2015). 
+
+7 discuss and futur work 
+
+We have present a framework for improv ip system by use neural network to translat cue 
+in input-output exampl to guidanc over where to search in program space. our empir result 
+show that for mani programs, thi techniqu improv the runtim of a wide rang of ip baselin 
+by 1-3 orders. We have found sever problem in real onlin program challeng that can be 
+solv with a program in our language, which valid the relev of the class of problem that 
+we have studi in thi work. In sum, thi suggest that we have make signific progress toward 
+be abl to solv program competit problems, and the machin learn compon play 
+an import role in make it tractable. 
+
+there remain some limitations, however. first, the program we can synthes be onli the simplest 
+problem on program competit websit and be simpler than most competit problems. 
+mani problem requir more complex algorithm solut like dynam program and search, 
+which be current beyond our reach. our chosen dsl current cannot express solut to mani 
+problems. To do so, it would need to be extend by add more primit and allow for more 
+flexibl in program construct (such a allow loops). second, we current use five input-output 
+exampl with rel larg integ valu (up to 256 in magnitude), which be probabl more 
+inform than typic (smaller) examples. while we remain optimist about lips’ applic a 
+the dsl becom more complex and the input-output exampl becom less informative, it remain 
+to be see what the magnitud of these effect be a we move toward solv larg subset of 
+program competit problems. 
+
+We forese mani extens of deepcoder. We be most interest in good data gener pro- 
+cedur by use gener model of sourc code, and to incorpor natur languag problem 
+descript to lessen the inform burden requir from input-output examples. In sum, deep- 
+coder repres a promis direct forward, and we be optimist about the futur prospect of 
+use machin learn to synthes programs. 
+
+acknowledg 
+
+the author would like to express their gratitud to rishabh singh and jack feser for their valuabl 
+guidanc and help on use the sketch and λ2 program synthesi systems. 
+
+refer 
+alex A. alemi, françoi chollet, geoffrey irving, christian szegedy, and josef urban. deepmath - 
+
+deep sequenc model for premis selection. 2016. To appear. 
+
+rudi bunel, alban desmaison, pushmeet kohli, philip H. S. torr, and M. pawan kumar. adapt 
+neural compilation. corr, abs/1605.07969, 2016. url http://arxiv.org/abs/1605. 
+07969. 
+
+peter dayan, geoffrey E hinton, radford M neal, and richard S zemel. the helmholtz machine. 
+neural computation, 7(5):889–904, 1995. 
+
+krzysztof dembczyński, willem waegeman, weiwei cheng, and eyk hüllermeier. On label de- 
+pendenc and loss minim in multi-label classification. machin learning, 88(1):5–45, 
+2012. 
+
+krzysztof J. dembczynski, weiwei cheng, and eyk hllermeier. bay optim multilabel classifi- 
+cation via probabilist classifi chains. In proceed of the 27th intern confer on 
+machin learn (icml-10), pp. 279–286, 2010. 
+
+john K. feser, swarat chaudhuri, and isil dillig. synthes data structur transform from 
+input-output examples. In proceed of the 36th acm sigplan confer on program 
+languag design and implement (pldi), pp. 229–239, 2015. 
+
+9 
+
+http://arxiv.org/abs/1605.07969 
+http://arxiv.org/abs/1605.07969 
+
+
+under review a a confer paper at iclr 2017 
+
+alexand L. gaunt, marc brockschmidt, rishabh singh, nate kushman, pushmeet kohli, jonathan 
+taylor, and daniel tarlow. terpret: A probabilist program languag for program induction. 
+corr, abs/1608.04428, 2016. url http://arxiv.org/abs/1608.04428. 
+
+alex graves, greg wayne, and ivo danihelka. neural ture machines. corr, abs/1410.5401, 2014. 
+url http://arxiv.org/abs/1410.5401. 
+
+alex graves, greg wayne, malcolm reynolds, tim harley, ivo danihelka, agnieszka grabska- 
+barwińska, sergio gómez colmenarejo, edward grefenstette, tiago ramalho, john agapiou, 
+et al. hybrid comput use a neural network with dynam extern memory. nature, 2016. 
+
+edward grefenstette, karl moritz hermann, mustafa suleyman, and phil blunsom. learn to 
+transduc with unbound memory. In advanc in neural inform process system 
+28: annual confer on neural inform process system 2015, decemb 7-12, 2015, 
+montreal, quebec, canada, pp. 1828–1836, 2015. 
+
+sumit gulwani. program by examples: applications, algorithms, and ambigu resolution. In 
+proceed of the 8th intern joint confer on autom reason (ijcar), pp. 9–14, 
+2016. 
+
+sumit gulwani, susmit jha, ashish tiwari, and ramarathnam venkatesan. synthesi of loop-fre 
+programs. In proceed of the 32nd acm sigplan confer on program languag 
+design and implement (pldi), pp. 62–73, 2011. 
+
+nicola heess, daniel tarlow, and john winn. learn to pa expect propag messages. 
+In advanc in neural inform process systems, pp. 3219–3227, 2013. 
+
+varun jampani, sebastian nowozin, matthew loper, and peter V gehler. the inform sampler: A 
+discrimin approach to bayesian infer in gener comput vision models. comput 
+vision and imag understanding, 136:32–44, 2015. 
+
+armand joulin and toma mikolov. infer algorithm pattern with stack-aug recurr 
+nets. In advanc in neural inform process system 28: annual confer on neural 
+inform process system 2015, decemb 7-12, 2015, montreal, quebec, canada, pp. 190– 
+198, 2015. 
+
+łukasz kaiser and ilya sutskever. neural gpu learn algorithms. In proceed of the 4th interna- 
+tional confer on learn representations., 2016. 
+
+diederik P kingma and max welling. auto-encod variat bayes. arxiv preprint 
+arxiv:1312.6114, 2013. 
+
+karol kurach, marcin andrychowicz, and ilya sutskever. neural random-access machines. In 
+proceed of the 4th intern confer on learn represent 2016, 2015. url 
+http://arxiv.org/abs/1511.06392. 
+
+yujia li, daniel tarlow, marc brockschmidt, and richard S. zemel. gate graph sequenc neural 
+networks. In proceed of the 4th intern confer on learn represent (iclr), 
+2016. url http://arxiv.org/abs/1511.05493. 
+
+wang ling, edward grefenstette, karl moritz hermann, tomáš kočiský, andrew senior, fumin 
+wang, and phil blunsom. latent predictor network for code generation. In proceed of the 
+54th annual meet of the associ for comput linguistics, pp. 599–609, 2016. 
+
+aditya krishna menon, omer tamuz, sumit gulwani, butler W lampson, and adam kalai. A 
+machin learn framework for program by example. In proceed of the intern 
+confer on machin learn (icml), 2013. 
+
+arvind neelakantan, quoc V. le, and ilya sutskever. neural programmer: induc latent pro- 
+gram with gradient descent. In proceed of the 4th intern confer on learn 
+represent 2016, 2016. 
+
+10 
+
+http://arxiv.org/abs/1608.04428 
+http://arxiv.org/abs/1410.5401 
+http://arxiv.org/abs/1511.06392 
+http://arxiv.org/abs/1511.05493 
+
+
+under review a a confer paper at iclr 2017 
+
+chri piech, jonathan huang, andi nguyen, mike phulsuksombati, mehran sahami, and leonida J. 
+guibas. learn program embed to propag feedback on student code. In proceed of 
+the 32nd intern confer on machin learn (icml), pp. 1093–1102, 2015. 
+
+oleksandr polozov and sumit gulwani. flashmeta: a framework for induct program synthesis. In 
+oopsla, pp. 107–126, 2015. 
+
+scott E. reed and nando de freitas. neural programmer-interpreters. 2016. 
+
+sebastian riedel, matko bosnjak, and tim rocktäschel. program with a differenti forth 
+interpreter. corr, abs/1605.06640, 2016. url http://arxiv.org/abs/1605.06640. 
+
+eric schkufza, rahul sharma, and alex aiken. stochast program optimization. communun 
+of the acm, 59(2):114–122, 2016. 
+
+jami shotton, tobi sharp, alex kipman, andrew fitzgibbon, mark finocchio, andrew blake, mat 
+cook, and richard moore. real-tim human pose recognit in part from singl depth images. 
+commun of the acm, 56(1):116–124, 2013. 
+
+rishabh singh and sumit gulwani. predict a correct program in program by example. In 
+proceed of the 27th confer on comput aid verif (cav), pp. 398–414, 2015. 
+
+armando solar-lezama. program synthesi By sketching. phd thesis, eec dept., UC berkeley, 
+2008. 
+
+andrea stuhlmüller, jessica taylor, and noah D. goodman. learn stochast inverses. 2013. 
+url http://stuhlmueller.org/papers/inverses-nips2013.pdf. 
+
+sainbayar sukhbaatar, arthur szlam, jason weston, and rob fergus. end-to-end memori networks. 
+In advanc in neural inform process system 28: annual confer on neural informa- 
+tion process system 2015, decemb 7-12, 2015, montreal, quebec, canada, pp. 2440–2448, 
+2015. 
+
+jason weston, sumit chopra, and antoin bordes. memori networks. In proceed of the 3rd 
+intern confer on learn represent 2015, 2014. url http://arxiv.org/ 
+abs/1410.3916. 
+
+wojciech zaremba, toma mikolov, armand joulin, and rob fergus. learn simpl algorithm 
+from examples. In proceed of the 33nd intern confer on machin learning, icml 
+2016, pp. 421–429, 2016. 
+
+11 
+
+http://arxiv.org/abs/1605.06640 
+http://stuhlmueller.org/papers/inverses-nips2013.pdf 
+http://arxiv.org/abs/1410.3916 
+http://arxiv.org/abs/1410.3916 
+
+
+under review a a confer paper at iclr 2017 
+
+A exampl program 
+
+thi section show exampl program in our domain specif languag (dsl), togeth with input- 
+output exampl and short descriptions. these program have be inspir by simpl task appear 
+on real program competit websites, and be meant to illustr the express power of our 
+dsl. 
+
+program 0: 
+k← int 
+b← [int] 
+c← sort b 
+d← take k c 
+e← sum d 
+
+input-output example: 
+input: 
+2, [3 5 4 7 5] 
+output: 
+[7] 
+
+description: 
+A new shop near you be sell n paintings. 
+you have k < n friend and you would 
+like to buy each of your friend a paint 
+from the shop. return the minim amount 
+of money you will need to spend. 
+
+program 1: 
+w← [int] 
+t← [int] 
+c← map (*3) w 
+d← zipwith (+) c t 
+e← maximum d 
+
+input-output example: 
+input: 
+[6 2 4 7 9], 
+[5 3 6 1 0] 
+output: 
+27 
+
+description: 
+In soccer leagues, match winner be 
+award 3 points, loser 0 points, and both 
+team get 1 point in the case of a tie. com- 
+pute the number of point award to the 
+winner of a leagu give two array w, t of 
+the same length, where w[i] (resp. t[i]) be the 
+number of time team i won (resp. tied). 
+
+program 2: 
+a← [int] 
+b← [int] 
+c← zipwith (-) b a 
+d← count (>0) c 
+
+input-output example: 
+input: 
+[6 2 4 7 9], 
+[5 3 2 1 0] 
+output: 
+4 
+
+description: 
+alic and bob be compar their result in 
+a recent exam. given their mark per ques- 
+tion a two array a and b, count on how 
+mani question alic get more point than 
+bob. 
+
+program 3: 
+h← [int] 
+b← scanl1 min h 
+c← zipwith (-) h b 
+d← filter (>0) c 
+e← sum d 
+
+input-output example: 
+input: 
+[8 5 7 2 5] 
+output: 
+5 
+
+description: 
+perditia be veri peculiar about her garden 
+and want that the tree stand in a row be 
+all of non-increas heights. given the tree 
+height in centimet in order of the row a 
+an array h, comput how mani centimet 
+she need to trim the tree in total. 
+
+program 4: 
+x← [int] 
+y← [int] 
+c← sort x 
+d← sort y 
+e← revers d 
+f← zipwith (*) d e 
+g← sum f 
+
+input-output example: 
+input: 
+[7 3 8 2 5], 
+[2 8 9 1 3] 
+output: 
+79 
+
+description: 
+xavier and yasmin be lay stick to form 
+non-overlap rectangl on the ground. 
+they both have fix set of pair of stick 
+of certain length (repres a array x 
+and y of numbers). xavier onli lay stick 
+parallel to the x axis, and yasmin lay stick 
+onli parallel to y axis. comput the area 
+their rectangl will cover at least. 
+
+program 5: 
+a← [int] 
+b← revers a 
+c← zipwith min a b 
+
+input-output example: 
+input: 
+[3 7 5 2 8] 
+output: 
+[3 2 5 2 3] 
+
+description: 
+A sequenc call billi be look into the 
+mirror, wonder how much weight it could 
+lose by replac ani of it element by their 
+mirror images. given a descript of billi 
+a an array b of length n, return an array c 
+of minim sum where each element c[i] be 
+either b[i] or it mirror imag b[n− i− 1]. 
+
+12 
+
+
+
+under review a a confer paper at iclr 2017 
+
+program 6: 
+t← [int] 
+p← [int] 
+c← map (-1) t 
+d← map (-1) p 
+e← zipwith (+) c d 
+f← minimum e 
+
+IO example: 
+input: 
+[4 8 11 2], 
+[2 3 4 1] 
+output: 
+1 
+
+description: 
+umberto have a larg collect of tie and match- 
+ing pocket squares—too large, hi wife says—and he 
+need to sell one pair. given their valu a array t 
+and p, assum that he sell the cheapest pair, and 
+sell cost 2, how much will he lose from the sale? 
+
+program 7: 
+s← [int] 
+p← [int] 
+c← scanl1 (+) p 
+d← zipwith (*) s c 
+e← sum d 
+
+IO example: 
+input: 
+[4 7 2 3], 
+[2 1 3 1] 
+output: 
+48 
+
+description: 
+zack alway promis hi n friend to buy them 
+candy, but never did. now he won the lotteri 
+and count how often and how much candi he 
+promis to hi friends, obtain array p (num- 
+ber of promises) and s (number of promis sweets). 
+He announc that to repay them, he will buy 
+s[1]+s[2]+...+s[n] piec of candi for the 
+first p[1] days, then s[2]+s[3]+...+s[n] for 
+p[2] days, and so on, until he have fulfil all 
+promises. how much candi will he buy in total? 
+
+program 8: 
+s← [int] 
+b← revers s 
+c← zipwith (-) b s 
+d← filter (>0) c 
+e← sum d 
+
+IO example: 
+input: 
+[1 2 4 5 7] 
+output: 
+9 
+
+description: 
+vivian love rearrang things. most of all, when 
+she see a row of heaps, she want to make sure that 
+each heap have more item than the one to it left. she 
+be also obsess with efficiency, so alway move the 
+least possibl number of items. her dad realli dislik 
+if she chang the size of heaps, so she onli move 
+singl item between them, make sure that the set of 
+size of the heap be the same a at the start; they be 
+onli in a differ order. when you come in, you see 
+heap of size (of course, size strictli monoton 
+increasing) s[0], s[1], ... s[n]. what be 
+the maxim number of item that vivian could have 
+moved? 
+
+fig. 4 show the predict make by a neural network train on program of length T = 4 that 
+be ensur to be semant disjoint from all 9 exampl program show in thi section. for each 
+task, the neural network be provid with 5 input-output examples. 
+
+(+ 
+1 
+) 
+
+(- 
+1 
+) 
+
+(* 
+2 
+) 
+
+(/ 
+2 
+) 
+
+(* 
+-1 
+
+) 
+
+(* 
+*2 
+
+) 
+
+(* 
+3 
+) 
+
+(/ 
+3 
+) 
+
+(* 
+4 
+) 
+
+(/ 
+4 
+) 
+
+(> 
+0 
+) 
+
+(< 
+0 
+) 
+
+(% 
+2 
+= 
+
+= 
+1 
+) 
+
+(% 
+2 
+= 
+
+= 
+0 
+) 
+
+H 
+E 
+A 
+
+D 
+
+LA 
+S 
+T 
+
+M 
+A 
+
+P 
+
+FI 
+LT 
+
+E 
+R 
+
+S 
+O 
+
+R 
+T 
+
+R 
+E 
+V 
+
+E 
+R 
+
+S 
+E 
+
+T 
+A 
+
+K 
+E 
+
+D 
+R 
+
+O 
+P 
+
+A 
+C 
+
+C 
+E 
+S 
+S 
+
+Z 
+IP 
+
+W 
+IT 
+
+H 
+
+S 
+C 
+
+A 
+N 
+
+L1 
+
++ - * M 
+IN 
+
+M 
+A 
+
+X 
+
+C 
+O 
+
+U 
+N 
+
+T 
+
+M 
+IN 
+
+IM 
+U 
+
+M 
+
+M 
+A 
+
+X 
+IM 
+
+U 
+M 
+
+S 
+U 
+
+M 
+
+0: sort b | take a c | sum d 
+
+1: map (*3) a | zipwith + b c | maximum d 
+
+2: zipwith - b a | count (>0) c 
+
+3: scanl1 min a | zipwith - a b | filter (>0) c | sum d 
+
+4: sort a | sort b | revers d | zipwith * d e | sum f 
+
+5: revers a | zipwith min a b 
+
+6: map (-1) a | map (-1) b | zipwith + c d | minimum e 
+
+7: scanl1 + b | zipwith * a c | sum d 
+
+8: revers a | zipwith - b a | filter (>0) c | sum d 
+
+.0 .2 .0 .1 .4 .0 .0 .2 .0 .1 .0 .2 .1 .0 .1 .0 .3 .4 .2 .1 .5 .2 .2 .6 .5 .2 .4 .0 .9 .1 .0 .1 .0 1.0 
+
+.1 .1 .1 .1 .0 .0 1.0 .0 .1 .0 .2 .1 .1 .1 .0 .3 1.0 .2 .1 .1 .0 .0 .1 1.0 .0 .6 .6 .0 .1 .1 .2 .0 .9 .0 
+
+.1 .2 .0 .1 .0 .0 .0 .1 .0 .1 .2 .2 .3 .3 .0 .0 .6 .0 .1 .1 .0 .0 .0 1.0 .3 .4 .5 .0 .5 .5 1.0 .0 .0 .0 
+
+.3 .1 .1 .1 .1 .0 .0 .0 .0 .0 .1 .0 .0 .0 .0 .0 .6 .2 .1 .1 .0 .0 .0 1.0 .3 .3 .3 .1 .2 .7 .0 .0 .1 1.0 
+
+.0 .0 .1 .4 .1 .4 .0 .0 .2 .0 .0 .2 .0 .2 .1 .2 .9 .2 .1 .0 .0 .0 .4 .6 .2 .2 .3 .3 .4 .1 .2 .4 .0 .4 
+
+.2 .2 .0 .2 .0 .0 .0 .0 .0 .0 .0 .0 .0 .0 .0 .0 .9 .0 .0 1.0 .0 .0 .0 1.0 .0 .2 .0 .0 1.0 .1 .0 .0 .0 .0 
+
+.1 .1 .0 .0 .0 .0 .0 .0 .0 .0 .0 .2 .2 .2 .7 .0 .3 .3 .1 .0 .0 .0 .0 1.0 .1 .9 .1 .0 .7 .2 .1 .8 .0 .0 
+
+.0 .0 .0 .0 .0 .1 .0 .0 .1 .0 .1 .1 .1 .1 .0 .1 .4 .1 .0 .0 .0 .0 .0 1.0 .8 .5 .4 1.0 .1 .0 .2 .0 .1 .7 
+
+.2 .1 .0 .1 .1 .0 .0 .1 .0 .1 .1 .1 .1 .0 .0 .0 .5 .5 .1 .0 .0 .0 .0 1.0 .4 .4 .5 .0 .3 .6 .0 .0 .1 1.0 
+
+figur 4: predict of a neural network on the 9 exampl program describ in thi section. 
+number in squar would ideal be close to 1 (function be present in the ground truth sourc code), 
+wherea all other number should ideal be close to 0 (function be not needed). 
+
+B experiment result 
+
+result present in sect. 5.1 showcas the comput speedup obtain from the lip frame- 
+work (use deepcoder), a oppos to solv each program synthesi problem with onli the 
+
+13 
+
+
+
+under review a a confer paper at iclr 2017 
+
+inform about global incid of function in sourc code available. for completeness, here we 
+show plot of raw comput time of each search procedur to solv a give number of problems. 
+
+fig. 5 show the comput time of dfs, of enum search with a sort and add scheme, of 
+the λ2 and sketch solver with a sort and add scheme, and of beam search, when search for a 
+program consist with input-output exampl gener from P = 500 differ test program of 
+length T = 3. As discuss in sect. 5.1, these test program be ensur to be semant disjoint 
+from all program use to train the neural networks, a well a from all program of shorter length 
+(a discuss in sect. 4.2). 
+
+10-4 10-3 10-2 10-1 100 101 102 103 
+
+solver comput time [s] 
+
+0 
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+P 
+ro 
+
+g 
+ra 
+
+m 
+s 
+
+so 
+lv 
+
+e 
+d dfs: use neural network 
+
+dfs: use prior order 
+
+l2: sort and add use neural network 
+
+l2: sort and add in prior order 
+
+enumeration: sort and add use neural network 
+
+enumeration: sort and add in prior order 
+
+beam search 
+
+sketch: sort and add use neural network 
+
+sketch: sort and add in prior order 
+
+figur 5: number of test problem solv versu comput time. 
+
+the “steps” in the result for beam search be due to our search strategy, which doubl the size of 
+the consid beam until reach the timeout (of 1000 seconds) and thu step occur whenev 
+the search for a beam of size 2k be finished. for λ2, we observ that no solut for a give set of 
+allow function be ever found after about 5 second (on the benchmark machines), but that λ2 
+continu to search. hence, we introduc a hard timeout after 6 second for all but the last iter 
+of our sort and add scheme. 
+
+fig. 6 show the comput time of dfs, enum search with a sort and add scheme, and 
+λ2 with a sort and add scheme when search for program consist with input-output exampl 
+gener from P = 100 differ test program of length T = 5. the neural network be train 
+on program of length T = 4. 
+
+10-4 10-3 10-2 10-1 100 101 102 103 104 
+
+solver comput time [s] 
+
+0 
+
+20 
+
+40 
+
+60 
+
+80 
+
+100 
+
+P 
+ro 
+
+g 
+ra 
+
+m 
+s 
+
+so 
+lv 
+
+e 
+d dfs: use neural network 
+
+dfs: use prior order 
+
+l2: sort and add use neural network 
+
+l2: sort and add in prior order 
+
+enumeration: sort and add use neural network 
+
+enumeration: sort and add in prior order 
+
+figur 6: number of test problem solv versu comput time. 
+
+C the neural network 
+
+As briefli describ in sect. 4.3, we use the follow simpl feed-forward architectur encoder: 
+
+• for each input-output exampl in the set gener from a singl ground truth program: 
+– pad array appear in the input and in the output to a maximum length L = 20 with 
+
+a special null value. 
+– repres the type (singleton integ or integ array) of each input and of the output 
+
+use a one-hot-encod vector. emb each integ in the valid integ rang (−256 
+to 255) use a learn emb into E = 20 dimension space. also learn an 
+emb for the pad null value. 
+
+14 
+
+
+
+under review a a confer paper at iclr 2017 
+
+– concaten the represent of the input types, the embed of integ in the 
+inputs, the represent of the output type, and the embed of integ in the 
+output into a singl (fixed-length) vector. 
+
+– pass thi vector through H = 3 hidden layer contain K = 256 sigmoid unit each. 
+• pool the last hidden layer encod of each input-output exampl togeth by simpl arith- 
+
+metic averaging. 
+
+fig. 7 show a schemat draw of thi encod architecture, togeth with the decod that perform 
+independ binari classif for each function in the dsl, indic whether or not it appear 
+in the ground truth sourc code. 
+
+input 1 output 1 
+
+…program state 
+
+state embed 
+
+hidden 1 
+
+hidden 2 
+
+hidden 3 
+
+pool 
+
+input 5 output 5 
+
+… 
+
+final activ 
+sigmoid 
+
+attribut predict 
+
+figur 7: schemat represent of our feed-forward encoder, and the decoder. 
+
+while deepcod learn to emb integ into a E = 20 dimension space, we built the system up 
+gradually, start with a E = 2 dimension space and onli train on program of length T = 1. 
+such a small scale set allow easi investig of the work of the neural network, and 
+inde fig. 8 below show a learn emb of integ in r2. the figur demonstr that 
+the network have learnt the concept of number magnitude, sign (posit or negative) and evenness, 
+presum due to filter (>0), filter (<0), filter (%2==0) and filter (%2==1) all be 
+among the program on which the network be trained. 
+
+D depth-first search 
+
+We use an optim c++ implement of depth-first search (dfs) to search over program with 
+a give maximum length T . In depth-first search, we start by choos the first function (and it 
+arguments) of a potenti solut program, and then recurs consid all way of fill in the 
+rest of the program (up to length T ), befor move on to a next choic of first instruct (if a 
+solut have not yet be found). 
+
+A program be consid a solut if it be consist with all M = 5 provid input-output examples. 
+note that thi requir evalu all candid program on them input and check the result for 
+equal with the provid M respect outputs. our implement of df exploit the sequenti 
+structur of program in our dsl by cach the result of evalu all prefix of the current 
+consid program on the exampl inputs, thu allow effici reus of comput between 
+candid program with common prefixes. 
+
+thi allow u to explor the search space at roughli the speed of ∼ 3× 106 program per second. 
+
+15 
+
+
+
+under review a a confer paper at iclr 2017 
+
+first emb dimens φ1(n) 
+
+S 
+e 
+co 
+
+n 
+d 
+e 
+
+m 
+b 
+e 
+d 
+d 
+in 
+
+g 
+d 
+
+im 
+e 
+n 
+si 
+
+o 
+n 
+φ 
+
+2 
+(n 
+
+) 
+
+-256-255 
+
+-7 
+
+-6 
+-5 
+
+-4 
+-3 
+
+-2 -1 
+
+01 
+2 
+
+3 
+4 
+
+5 
+6 
+
+7 
+
+254 
+255 
+
+null 
+
+even posit number 
+even neg number 
+odd posit number 
+odd neg number 
+zero 
+null (pad value) 
+
+figur 8: A learn emb of integ {−256,−255, . . . ,−1, 0, 1, . . . , 255} in r2. the color 
+intens correspond to the magnitud of the emb integer. 
+
+when the search procedur extend a partial program by a new function, it have to tri the function 
+in the dsl in some order. At thi point df can opt to consid the function a order by their 
+predict probabl from the neural network. the probabl of a function consist of a higher- 
+order function and a lambda be take to be the minimum of the probabl of the two constitu 
+functions. 
+
+E train loss function 
+
+In sect. 4.5 we outlin a justif for use margin probabl of individu function a 
+a sensibl intermedi represent to provid a solver employ a sort and add scheme (we 
+consid enum search and the sketch solver with thi scheme). here we provid a more 
+detail discussion. 
+
+predict program compon from input-output exampl can be cast a a multilabel classif 
+problem, where each instanc (set of input-output examples) be associ with a set of relev 
+label (function appear in the code that gener the examples). We denot the number of label 
+(functions) by C, and note that throughout thi work C = 34. 
+
+when the task be to predict a subset of label y ∈ {0, 1}c , differ loss function can be employ 
+to measur the predict error of a classifi h(x) or rank function f(x). dembczynski et al. 
+(2010) discu the follow three loss functions: 
+
+• ham loss count the number of label that be predict incorrectli by a classifi h: 
+
+lh(y,h(x)) = 
+
+C∑ 
+c=1 
+
+1{yc 6=hc(x)} 
+
+• rank loss count the number of label pair violat the condit that relev label be 
+rank high than irrelev one by a score function f : 
+
+lr(y, f(x)) = 
+
+C∑ 
+(i,j):yi=1,yj=0 
+
+1{fi<fj} 
+
+• subset zero-on loss indic whether all label have be correctli predict by h: 
+
+ls(y,h(x)) = 1{i 6=h(x)} 
+
+16 
+
+
+
+under review a a confer paper at iclr 2017 
+
+dembczynski et al. (2010) prove that bay optim decis under the ham and rank loss 
+functions, i.e., decis minim the expect loss under these loss functions, can be comput 
+from margin probabl pc(yc|x). thi suggest that: 
+
+• multilabel classif under these two loss function may not benefit from consid 
+depend between the labels. 
+• ”instead of minim the rank loss directly, one can simpli use ani approach for singl 
+
+label predict that properli estim the margin probabilities.” (dembczyński et al., 
+2012) 
+
+train the neural network with the neg cross entropi loss function a the train object be 
+precis a method for properli estim the margin probabl of label (function appear 
+in sourc code). It be thu a sensibl step in prepar for make predict under a rank loss. 
+
+It remain to discu the relationship between the rank loss and the actual quantiti we care about, 
+which be the total runtim of a sort and add search procedure. recal the simplifi assumpt that 
+the runtim of search for a program of length T with C function make avail to the search be 
+proport to CT , and consid a sort and add search for a program of length T , where the size 
+of the activ set be increas by 1 whenev the search fails. start with an activ set of size 1, the 
+total time until a solut be found can be upper bound by 
+
+1T + 2T + · · ·+ cta ≤ ct+1a ≤ CC 
+T 
+A 
+
+where CA be the size of the activ set when the search final succeed (i.e., when the activ set final 
+contain all necessari function for a solut to exist). henc the total runtim of a sort and add 
+search can be upper bound by a quantiti that be proport to cta . 
+
+now fix a valid program solut P that requir CP functions, and let yP ∈ {0, 1}c be the indic 
+vector of function use by P . let D := CA − CP be the number of redund oper add 
+into the activ set until all oper from P have be added. 
+exampl 1. suppos the labels, a sort by decreas predict margin probabl f(x), be 
+a follows: 
+
+1 1 1 1 0 0 1 0 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 
+then the solut P contain CP = 6 functions, but the activ set need to grow to size CA = 11 
+to includ all of them, add D = 5 redund function along the way. note that the rank loss of 
+the predict f(x) be lr(yp , f(x)) = 2 + 5 = 7, a it doubl count the two redund function 
+which be score high than two relev labels. 
+
+note that in gener lr(yp , f(x)) ≥ D, the previou upper bound on the runtim of sort and add 
+can be further upper bound a follows: 
+
+cta = (cp +d) 
+T ≤ const + const×dt ≤ const + const× lr(yp , f(x))t 
+
+henc we see that for a constant valu of T , thi upper bound can be minim by optim the 
+rank loss of the predict f(x). note also that lr(yp , f(x)) = 0 would impli D = 0, in which 
+case CA = CP . 
+
+F domain specif languag OF deepcod 
+
+here we provid a descript of the semant of our dsl from sect. 4.1, both in english and a a 
+python implementation. throughout, null be a special valu that can be set e.g. to an integ outsid 
+the work integ range. 
+
+first-ord functions: 
+
+• head :: [int] -> int 
+lambda xs: xs[0] if len(xs)>0 els null 
+given an array, return it first element (or null if the array be empty). 
+
+• last :: [int] -> int 
+lambda xs: xs[-1] if len(xs)>0 els null 
+given an array, return it last element (or null if the array be empty). 
+
+17 
+
+
+
+under review a a confer paper at iclr 2017 
+
+• take :: int -> [int] -> int 
+lambda n, xs: xs[:n] 
+given an integ n and array xs, return the array truncat after the n-th element. (if the 
+length of x be no larg than n in the first place, it be return without modification.) 
+
+• drop :: int -> [int] -> int 
+lambda n, xs: xs[n:] 
+given an integ n and array xs, return the array with the first n element dropped. (if the 
+length of x be no larg than n in the first place, an empti array be returned.) 
+
+• access :: int -> [int] -> int 
+lambda n, xs: xs[n] if n>=0 and len(xs)>n els null 
+given an integ n and array xs, return the (n+1)-st element of xs. (if the length of x 
+be less than or equal to n, the valu null be return instead.) 
+
+• minimum :: [int] -> int 
+lambda xs: min(xs) if len(xs)>0 els null 
+given an array, return it minimum (or null if the array be empty). 
+
+• maximum :: [int] -> int 
+lambda xs: max(xs) if len(xs)>0 els null 
+given an array, return it maximum (or null if the array be empty). 
+
+• revers :: [int] -> [int] 
+lambda xs: list(reversed(xs)) 
+given an array, return it element in revers order. 
+
+• sort :: [int] -> [int] 
+lambda xs: sorted(xs) 
+given an array, return it element in non-decreas order. 
+
+• sum :: [int] -> int 
+lambda xs: sum(xs) 
+given an array, return the sum of it elements. (the sum of an empti array be 0.) 
+
+higher-ord functions: 
+
+• map :: (int -> int) -> [int] -> [int] 
+lambda f, xs: [f(x) for x in xs] 
+given a lambda function f map from integ to integers, and an array xs, return the 
+array result from appli f to each element of xs. 
+
+• filter :: (int -> bool) -> [int] -> [int] 
+lambda f, xs: [x for x in x if f(x)] 
+given a predic f map from integ to truth values, and an array xs, return the 
+element of x satisfi the predic in their origin order. 
+
+• count :: (int -> bool) -> [int] -> int 
+lambda f, xs: len([x for x in x if f(x)]) 
+given a predic f map from integ to truth values, and an array xs, return the 
+number of element in x satisfi the predicate. 
+
+• zipwith :: (int -> int -> int) -> [int] -> [int] -> [int] 
+lambda f, xs, ys: [f(x, y) for (x, y) in zip(xs, ys)] 
+given a lambda function f map integ pair to integers, and two array x and ys, 
+return the array result from appli f to correspond element of x and ys. the 
+length of the return array be the minimum of the length of x and ys. 
+
+• scanl1 :: (int -> int -> int) -> [int] -> [int] 
+given a lambda function f map integ pair to integers, and an array xs, return an 
+array y of the same length a x and with it content defin by the recurr ys[0] = 
+xs[0], ys[n] = f(ys[n-1], xs[n]) for n ≥ 1. 
+
+the int→int lambda (+1), (-1), (*2), (/2), (*(-1)), (**2), (*3), (/3), (*4), (/4) 
+provid by our dsl map integ to integ in a self-explanatori manner. the int→bool lambda 
+(>0), (<0), (%2==0), (%2==1) respect test positivity, negativity, even and odd of 
+
+18 
+
+
+
+under review a a confer paper at iclr 2017 
+
+the input integ value. finally, the int→int→int lambda (+), (-), (*), min, max appli a 
+function to a pair of integ and produc a singl integer. 
+
+As an example, consid the function scanl1 max, consist of the higher-ord function scanl1 
+and the int→int→int lambda max. given an integ array a of length L, thi function comput 
+the run maximum of the array a. specifically, it return an array b of the same length L whose 
+i-th element be the maximum of the first i element in a. 
+
+H 
+E 
+A 
+
+D 
+
+LA 
+S 
+T 
+
+A 
+C 
+
+C 
+E 
+S 
+S 
+
+M 
+IN 
+
+IM 
+U 
+
+M 
+
+M 
+A 
+
+X 
+IM 
+
+U 
+M 
+
+T 
+A 
+
+K 
+E 
+
+D 
+R 
+
+O 
+P 
+
+FI 
+LT 
+
+E 
+R 
+
+(> 
+0 
+
+) 
+
+(< 
+0 
+
+) 
+
+(% 
+2 
+
+= 
+= 
+
+1 
+) 
+
+(% 
+2 
+
+= 
+= 
+
+0 
+) 
+
+C 
+O 
+
+U 
+N 
+
+T 
+
+M 
+A 
+
+P 
+
+M 
+IN 
+
+M 
+A 
+
+X 
+
++ - * Z 
+IP 
+
+W 
+IT 
+
+H 
+
+S 
+C 
+
+A 
+N 
+
+L1 
+
+S 
+O 
+
+R 
+T 
+
+R 
+E 
+V 
+
+E 
+R 
+
+S 
+E 
+
+(* 
+-1 
+
+) 
+
+(* 
+*2 
+
+) 
+
+(+ 
+1 
+
+) 
+
+(- 
+1 
+
+) 
+
+(* 
+2 
+
+) 
+
+(* 
+3 
+
+) 
+
+(* 
+4 
+
+) 
+
+(/ 
+2 
+
+) 
+
+(/ 
+3 
+
+) 
+
+(/ 
+4 
+
+) 
+
+S 
+U 
+
+M 
+
+head 
+
+last 
+
+access 
+
+minimum 
+
+maximum 
+
+take 
+
+drop 
+
+filter 
+
+(>0) 
+
+(<0) 
+
+(%2==1) 
+
+(%2==0) 
+
+count 
+
+map 
+
+min 
+
+max 
+
++ 
+
+- 
+
+* 
+
+zipwith 
+
+scanl1 
+
+sort 
+
+revers 
+
+(*-1) 
+
+(**2) 
+
+(+1) 
+
+(-1) 
+
+(*2) 
+
+(*3) 
+
+(*4) 
+
+(/2) 
+
+(/3) 
+
+(/4) 
+
+sum 
+
+.17 
+(15) 
+
+.05 
+(12) 
+
+.29 
+(14) 
+
+.09 
+(15) 
+
+.04 
+(9) 
+
+.06 
+(14) 
+
+.12 
+(12) 
+
+.06 
+(14) 
+
+.08 
+(15) 
+
+.07 
+(13) 
+
+.06 
+(15) 
+
+.06 
+(15) 
+
+.16 
+(9) 
+
+.11 
+(15) 
+
+.03 
+(13) 
+
+.06 
+(14) 
+
+.00 
+(13) 
+
+.09 
+(12) 
+
+.05 
+(7) 
+
+.05 
+(15) 
+
+.03 
+(15) 
+
+.03 
+(14) 
+
+.01 
+(14) 
+
+.01 
+(13) 
+
+.02 
+(15) 
+
+.03 
+(14) 
+
+.02 
+(15) 
+
+.00 
+(14) 
+
+.06 
+(15) 
+
+.01 
+(14) 
+
+.02 
+(14) 
+
+.08 
+(15) 
+
+.00 
+(15) 
+
+.34 
+(6) 
+
+.15 
+(6) 
+
+.01 
+(6) 
+
+.05 
+(6) 
+
+.07 
+(4) 
+
+.04 
+(4) 
+
+.09 
+(6) 
+
+.04 
+(6) 
+
+.01 
+(6) 
+
+.02 
+(6) 
+
+.11 
+(6) 
+
+.04 
+(6) 
+
+.01 
+(2) 
+
+.04 
+(5) 
+
+.11 
+(6) 
+
+.05 
+(5) 
+
+.11 
+(6) 
+
+.01 
+(5) 
+
+.03 
+(3) 
+
+.06 
+(6) 
+
+.01 
+(6) 
+
+.03 
+(6) 
+
+.03 
+(5) 
+
+.01 
+(6) 
+
+.03 
+(6) 
+
+.01 
+(5) 
+
+.02 
+(5) 
+
+.00 
+(5) 
+
+.02 
+(6) 
+
+.13 
+(6) 
+
+.00 
+(6) 
+
+.01 
+(6) 
+
+.02 
+(6) 
+
+.10 
+(15) 
+
+.19 
+(18) 
+
+.15 
+(16) 
+
+.05 
+(18) 
+
+.10 
+(16) 
+
+.18 
+(16) 
+
+.16 
+(14) 
+
+.03 
+(14) 
+
+.09 
+(17) 
+
+.13 
+(16) 
+
+.12 
+(16) 
+
+.03 
+(13) 
+
+.14 
+(13) 
+
+.18 
+(17) 
+
+.06 
+(16) 
+
+.05 
+(17) 
+
+.00 
+(16) 
+
+.02 
+(17) 
+
+.10 
+(14) 
+
+.07 
+(15) 
+
+.04 
+(15) 
+
+.07 
+(17) 
+
+.02 
+(16) 
+
+.01 
+(17) 
+
+.04 
+(17) 
+
+.03 
+(17) 
+
+.02 
+(18) 
+
+.00 
+(18) 
+
+.03 
+(18) 
+
+.02 
+(18) 
+
+.02 
+(17) 
+
+.03 
+(18) 
+
+.02 
+(18) 
+
+.16 
+(8) 
+
+.22 
+(9) 
+
+.04 
+(7) 
+
+.12 
+(9) 
+
+.12 
+(7) 
+
+.08 
+(8) 
+
+.24 
+(8) 
+
+.03 
+(8) 
+
+.16 
+(9) 
+
+.13 
+(9) 
+
+.13 
+(9) 
+
+.13 
+(9) 
+
+.06 
+(7) 
+
+.34 
+(9) 
+
+.02 
+(8) 
+
+.25 
+(8) 
+
+.10 
+(5) 
+
+.00 
+(8) 
+
+.01 
+(3) 
+
+.05 
+(8) 
+
+.03 
+(7) 
+
+.06 
+(9) 
+
+.02 
+(8) 
+
+.00 
+(9) 
+
+.02 
+(9) 
+
+.03 
+(9) 
+
+.04 
+(9) 
+
+.00 
+(9) 
+
+.00 
+(9) 
+
+.01 
+(9) 
+
+.04 
+(8) 
+
+.02 
+(9) 
+
+.02 
+(9) 
+
+.25 
+(10) 
+
+.23 
+(10) 
+
+.22 
+(10) 
+
+.05 
+(10) 
+
+.08 
+(7) 
+
+.02 
+(6) 
+
+.10 
+(9) 
+
+.09 
+(9) 
+
+.04 
+(10) 
+
+.08 
+(10) 
+
+.06 
+(10) 
+
+.10 
+(10) 
+
+.05 
+(7) 
+
+.08 
+(8) 
+
+.04 
+(6) 
+
+.09 
+(9) 
+
+.08 
+(8) 
+
+.00 
+(10) 
+
+.03 
+(5) 
+
+.02 
+(7) 
+
+.04 
+(10) 
+
+.09 
+(10) 
+
+.01 
+(10) 
+
+.00 
+(10) 
+
+.02 
+(10) 
+
+.02 
+(10) 
+
+.02 
+(10) 
+
+.00 
+(10) 
+
+.00 
+(9) 
+
+.07 
+(10) 
+
+.01 
+(9) 
+
+.00 
+(9) 
+
+.00 
+(10) 
+
+.05 
+(36) 
+
+.06 
+(40) 
+
+.04 
+(40) 
+
+.06 
+(40) 
+
+.02 
+(39) 
+
+.05 
+(39) 
+
+.12 
+(36) 
+
+.06 
+(40) 
+
+.05 
+(42) 
+
+.09 
+(40) 
+
+.02 
+(36) 
+
+.01 
+(38) 
+
+.05 
+(21) 
+
+.06 
+(40) 
+
+.05 
+(37) 
+
+.03 
+(34) 
+
+.00 
+(37) 
+
+.02 
+(32) 
+
+.11 
+(20) 
+
+.02 
+(35) 
+
+.03 
+(41) 
+
+.04 
+(40) 
+
+.00 
+(41) 
+
+.03 
+(40) 
+
+.01 
+(37) 
+
+.04 
+(39) 
+
+.02 
+(39) 
+
+.00 
+(42) 
+
+.02 
+(41) 
+
+.03 
+(39) 
+
+.01 
+(39) 
+
+.00 
+(41) 
+
+.00 
+(42) 
+
+.04 
+(44) 
+
+.03 
+(43) 
+
+.03 
+(43) 
+
+.03 
+(44) 
+
+.03 
+(41) 
+
+.11 
+(42) 
+
+.09 
+(36) 
+
+.06 
+(42) 
+
+.08 
+(44) 
+
+.09 
+(38) 
+
+.05 
+(38) 
+
+.01 
+(35) 
+
+.14 
+(29) 
+
+.06 
+(39) 
+
+.04 
+(40) 
+
+.09 
+(39) 
+
+.09 
+(39) 
+
+.00 
+(38) 
+
+.10 
+(21) 
+
+.03 
+(40) 
+
+.05 
+(44) 
+
+.08 
+(43) 
+
+.01 
+(44) 
+
+.01 
+(45) 
+
+.05 
+(44) 
+
+.06 
+(40) 
+
+.03 
+(43) 
+
+.02 
+(41) 
+
+.01 
+(43) 
+
+.02 
+(44) 
+
+.03 
+(42) 
+
+.01 
+(44) 
+
+.00 
+(45) 
+
+.01 
+(115) 
+
+.01 
+(118) 
+
+.01 
+(114) 
+
+.02 
+(117) 
+
+.00 
+(117) 
+
+.03 
+(112) 
+
+.06 
+(109) 
+
+.06 
+(90) 
+
+.05 
+(87) 
+
+.07 
+(88) 
+
+.08 
+(81) 
+
+.05 
+(110) 
+
+.11 
+(86) 
+
+.08 
+(93) 
+
+.04 
+(91) 
+
+.11 
+(89) 
+
+.07 
+(92) 
+
+.01 
+(89) 
+
+.03 
+(22) 
+
+.03 
+(102) 
+
+.02 
+(113) 
+
+.04 
+(110) 
+
+.05 
+(115) 
+
+.01 
+(117) 
+
+.02 
+(114) 
+
+.03 
+(116) 
+
+.01 
+(114) 
+
+.00 
+(111) 
+
+.01 
+(112) 
+
+.05 
+(116) 
+
+.03 
+(115) 
+
+.02 
+(114) 
+
+.00 
+(116) 
+
+.03 
+(33) 
+
+.02 
+(34) 
+
+.01 
+(30) 
+
+.02 
+(33) 
+
+.01 
+(33) 
+
+.02 
+(32) 
+
+.07 
+(31) 
+
+.08 
+(6) 
+
+.13 
+(33) 
+
+.15 
+(32) 
+
+.13 
+(31) 
+
+.06 
+(23) 
+
+.16 
+(25) 
+
+.11 
+(26) 
+
+.11 
+(29) 
+
+.16 
+(30) 
+
+.05 
+(25) 
+
+.00 
+(29) 
+
+.05 
+(11) 
+
+.06 
+(30) 
+
+.02 
+(32) 
+
+.04 
+(32) 
+
+.02 
+(33) 
+
+.01 
+(34) 
+
+.03 
+(34) 
+
+.02 
+(32) 
+
+.01 
+(33) 
+
+.00 
+(32) 
+
+.00 
+(31) 
+
+.05 
+(32) 
+
+.06 
+(34) 
+
+.03 
+(34) 
+
+.02 
+(34) 
+
+.00 
+(33) 
+
+.01 
+(33) 
+
+.00 
+(32) 
+
+.00 
+(33) 
+
+.00 
+(33) 
+
+.01 
+(33) 
+
+.01 
+(32) 
+
+.00 
+(2) 
+
+.13 
+(32) 
+
+.07 
+(32) 
+
+.06 
+(33) 
+
+.01 
+(31) 
+
+.14 
+(27) 
+
+.11 
+(24) 
+
+.03 
+(27) 
+
+.13 
+(16) 
+
+.10 
+(24) 
+
+.01 
+(26) 
+
+.04 
+(3) 
+
+.02 
+(24) 
+
+.04 
+(33) 
+
+.01 
+(31) 
+
+.06 
+(32) 
+
+.01 
+(32) 
+
+.03 
+(32) 
+
+.04 
+(33) 
+
+.00 
+(32) 
+
+.00 
+(32) 
+
+.00 
+(32) 
+
+.04 
+(33) 
+
+.05 
+(33) 
+
+.04 
+(32) 
+
+.01 
+(32) 
+
+.01 
+(36) 
+
+.01 
+(38) 
+
+.01 
+(36) 
+
+.04 
+(38) 
+
+.00 
+(38) 
+
+.06 
+(36) 
+
+.06 
+(31) 
+
+.05 
+(8) 
+
+.09 
+(36) 
+
+.11 
+(37) 
+
+.19 
+(37) 
+
+.06 
+(26) 
+
+.12 
+(29) 
+
+.12 
+(32) 
+
+.05 
+(30) 
+
+.07 
+(27) 
+
+.16 
+(34) 
+
+.00 
+(29) 
+
+.02 
+(10) 
+
+.06 
+(32) 
+
+.03 
+(35) 
+
+.06 
+(34) 
+
+.07 
+(37) 
+
+.00 
+(38) 
+
+.03 
+(38) 
+
+.03 
+(38) 
+
+.00 
+(38) 
+
+.00 
+(36) 
+
+.00 
+(37) 
+
+.03 
+(37) 
+
+.04 
+(35) 
+
+.06 
+(37) 
+
+.00 
+(38) 
+
+.01 
+(45) 
+
+.01 
+(45) 
+
+.00 
+(43) 
+
+.00 
+(45) 
+
+.00 
+(45) 
+
+.02 
+(39) 
+
+.06 
+(38) 
+
+.03 
+(8) 
+
+.09 
+(42) 
+
+.09 
+(45) 
+
+.17 
+(44) 
+
+.04 
+(33) 
+
+.12 
+(33) 
+
+.05 
+(40) 
+
+.04 
+(32) 
+
+.09 
+(40) 
+
+.02 
+(33) 
+
+.00 
+(33) 
+
+.04 
+(11) 
+
+.02 
+(42) 
+
+.00 
+(44) 
+
+.05 
+(43) 
+
+.05 
+(45) 
+
+.00 
+(45) 
+
+.02 
+(42) 
+
+.04 
+(44) 
+
+.02 
+(43) 
+
+.00 
+(43) 
+
+.02 
+(43) 
+
+.06 
+(45) 
+
+.01 
+(44) 
+
+.01 
+(43) 
+
+.00 
+(44) 
+
+.04 
+(32) 
+
+.02 
+(32) 
+
+.01 
+(27) 
+
+.01 
+(32) 
+
+.01 
+(32) 
+
+.03 
+(28) 
+
+.04 
+(22) 
+
+.18 
+(24) 
+
+.14 
+(21) 
+
+.24 
+(30) 
+
+.20 
+(20) 
+
+.16 
+(20) 
+
+.19 
+(28) 
+
+.15 
+(29) 
+
+.11 
+(27) 
+
+.10 
+(24) 
+
+.14 
+(25) 
+
+.00 
+(28) 
+
+.09 
+(14) 
+
+.07 
+(26) 
+
+.03 
+(31) 
+
+.05 
+(30) 
+
+.02 
+(32) 
+
+.00 
+(32) 
+
+.05 
+(32) 
+
+.03 
+(31) 
+
+.01 
+(32) 
+
+.00 
+(32) 
+
+.00 
+(31) 
+
+.03 
+(31) 
+
+.04 
+(31) 
+
+.06 
+(32) 
+
+.02 
+(32) 
+
+.01 
+(246) 
+
+.01 
+(248) 
+
+.01 
+(247) 
+
+.01 
+(250) 
+
+.00 
+(249) 
+
+.01 
+(231) 
+
+.02 
+(236) 
+
+.02 
+(220) 
+
+.02 
+(243) 
+
+.01 
+(246) 
+
+.02 
+(243) 
+
+.02 
+(240) 
+
+.01 
+(248) 
+
+.08 
+(186) 
+
+.04 
+(203) 
+
+.11 
+(178) 
+
+.06 
+(188) 
+
+.05 
+(193) 
+
+.04 
+(40) 
+
+.04 
+(206) 
+
+.02 
+(246) 
+
+.04 
+(235) 
+
+.03 
+(225) 
+
+.03 
+(231) 
+
+.05 
+(213) 
+
+.11 
+(224) 
+
+.03 
+(228) 
+
+.01 
+(214) 
+
+.02 
+(217) 
+
+.06 
+(220) 
+
+.03 
+(218) 
+
+.05 
+(225) 
+
+.00 
+(250) 
+
+.02 
+(123) 
+
+.00 
+(122) 
+
+.01 
+(122) 
+
+.00 
+(123) 
+
+.00 
+(121) 
+
+.01 
+(121) 
+
+.02 
+(117) 
+
+.01 
+(98) 
+
+.01 
+(115) 
+
+.01 
+(114) 
+
+.03 
+(117) 
+
+.02 
+(118) 
+
+.02 
+(120) 
+
+.10 
+(57) 
+
+.07 
+(107) 
+
+.08 
+(90) 
+
+.04 
+(92) 
+
+.02 
+(102) 
+
+.00 
+(6) 
+
+.04 
+(76) 
+
+.03 
+(117) 
+
+.06 
+(113) 
+
+.03 
+(111) 
+
+.02 
+(118) 
+
+.04 
+(114) 
+
+.08 
+(119) 
+
+.03 
+(118) 
+
+.01 
+(115) 
+
+.01 
+(112) 
+
+.06 
+(117) 
+
+.03 
+(116) 
+
+.03 
+(116) 
+
+.00 
+(122) 
+
+.01 
+(128) 
+
+.01 
+(130) 
+
+.01 
+(128) 
+
+.01 
+(129) 
+
+.00 
+(126) 
+
+.02 
+(125) 
+
+.01 
+(125) 
+
+.02 
+(103) 
+
+.03 
+(125) 
+
+.02 
+(124) 
+
+.02 
+(122) 
+
+.02 
+(117) 
+
+.02 
+(125) 
+
+.15 
+(81) 
+
+.22 
+(114) 
+
+.07 
+(83) 
+
+.05 
+(99) 
+
+.02 
+(110) 
+
+.00 
+(5) 
+
+.03 
+(78) 
+
+.03 
+(120) 
+
+.05 
+(124) 
+
+.03 
+(125) 
+
+.03 
+(124) 
+
+.03 
+(126) 
+
+.04 
+(130) 
+
+.03 
+(125) 
+
+.01 
+(124) 
+
+.02 
+(122) 
+
+.04 
+(120) 
+
+.04 
+(124) 
+
+.03 
+(122) 
+
+.00 
+(127) 
+
+.01 
+(175) 
+
+.01 
+(175) 
+
+.01 
+(175) 
+
+.00 
+(175) 
+
+.01 
+(175) 
+
+.02 
+(168) 
+
+.01 
+(170) 
+
+.01 
+(147) 
+
+.02 
+(172) 
+
+.02 
+(159) 
+
+.02 
+(165) 
+
+.02 
+(171) 
+
+.00 
+(168) 
+
+.15 
+(102) 
+
+.06 
+(143) 
+
+.03 
+(129) 
+
+.19 
+(138) 
+
+.02 
+(136) 
+
+.00 
+(4) 
+
+.04 
+(120) 
+
+.02 
+(169) 
+
+.04 
+(169) 
+
+.00 
+(169) 
+
+.02 
+(171) 
+
+.04 
+(157) 
+
+.08 
+(171) 
+
+.09 
+(171) 
+
+.02 
+(169) 
+
+.04 
+(166) 
+
+.03 
+(166) 
+
+.03 
+(169) 
+
+.03 
+(170) 
+
+.00 
+(174) 
+
+.01 
+(152) 
+
+.01 
+(154) 
+
+.02 
+(152) 
+
+.01 
+(150) 
+
+.00 
+(152) 
+
+.02 
+(149) 
+
+.00 
+(148) 
+
+.02 
+(128) 
+
+.03 
+(145) 
+
+.03 
+(145) 
+
+.03 
+(150) 
+
+.02 
+(142) 
+
+.01 
+(147) 
+
+.15 
+(90) 
+
+.10 
+(123) 
+
+.07 
+(123) 
+
+.24 
+(116) 
+
+.02 
+(119) 
+
+.01 
+(7) 
+
+.03 
+(93) 
+
+.02 
+(147) 
+
+.03 
+(146) 
+
+.03 
+(149) 
+
+.04 
+(149) 
+
+.03 
+(143) 
+
+.07 
+(147) 
+
+.03 
+(149) 
+
+.02 
+(144) 
+
+.04 
+(146) 
+
+.03 
+(147) 
+
+.04 
+(144) 
+
+.06 
+(149) 
+
+.00 
+(154) 
+
+.00 
+(139) 
+
+.01 
+(141) 
+
+.03 
+(141) 
+
+.02 
+(141) 
+
+.01 
+(142) 
+
+.03 
+(132) 
+
+.01 
+(135) 
+
+.02 
+(113) 
+
+.03 
+(137) 
+
+.02 
+(135) 
+
+.03 
+(133) 
+
+.01 
+(130) 
+
+.00 
+(138) 
+
+.24 
+(83) 
+
+.08 
+(121) 
+
+.03 
+(122) 
+
+.08 
+(102) 
+
+.08 
+(107) 
+
+.04 
+(116) 
+
+.02 
+(135) 
+
+.01 
+(131) 
+
+.06 
+(138) 
+
+.09 
+(139) 
+
+.03 
+(134) 
+
+.06 
+(133) 
+
+.05 
+(138) 
+
+.05 
+(131) 
+
+.06 
+(136) 
+
+.04 
+(132) 
+
+.01 
+(138) 
+
+.01 
+(137) 
+
+.00 
+(138) 
+
+.01 
+(423) 
+
+.01 
+(428) 
+
+.01 
+(427) 
+
+.01 
+(425) 
+
+.01 
+(426) 
+
+.02 
+(409) 
+
+.01 
+(407) 
+
+.02 
+(335) 
+
+.03 
+(408) 
+
+.02 
+(401) 
+
+.03 
+(403) 
+
+.02 
+(397) 
+
+.02 
+(413) 
+
+.14 
+(219) 
+
+.09 
+(314) 
+
+.04 
+(306) 
+
+.11 
+(259) 
+
+.08 
+(284) 
+
+.02 
+(289) 
+
+.04 
+(327) 
+
+.02 
+(404) 
+
+.04 
+(400) 
+
+.03 
+(410) 
+
+.03 
+(414) 
+
+.04 
+(397) 
+
+.07 
+(411) 
+
+.04 
+(413) 
+
+.02 
+(399) 
+
+.03 
+(404) 
+
+.04 
+(402) 
+
+.03 
+(406) 
+
+.04 
+(406) 
+
+.00 
+(424) 
+
+.01 
+(125) 
+
+.01 
+(125) 
+
+.03 
+(122) 
+
+.01 
+(124) 
+
+.00 
+(122) 
+
+.03 
+(118) 
+
+.01 
+(120) 
+
+.01 
+(109) 
+
+.02 
+(121) 
+
+.01 
+(116) 
+
+.02 
+(119) 
+
+.02 
+(122) 
+
+.00 
+(119) 
+
+.14 
+(79) 
+
+.09 
+(78) 
+
+.05 
+(73) 
+
+.11 
+(69) 
+
+.09 
+(64) 
+
+.02 
+(99) 
+
+.03 
+(21) 
+
+.04 
+(121) 
+
+.03 
+(118) 
+
+.03 
+(120) 
+
+.03 
+(119) 
+
+.02 
+(119) 
+
+.05 
+(123) 
+
+.02 
+(122) 
+
+.03 
+(123) 
+
+.06 
+(118) 
+
+.01 
+(118) 
+
+.03 
+(119) 
+
+.04 
+(121) 
+
+.00 
+(123) 
+
+.02 
+(33) 
+
+.05 
+(33) 
+
+.00 
+(30) 
+
+.01 
+(31) 
+
+.01 
+(33) 
+
+.04 
+(32) 
+
+.07 
+(32) 
+
+.05 
+(28) 
+
+.01 
+(31) 
+
+.04 
+(33) 
+
+.03 
+(30) 
+
+.01 
+(32) 
+
+.06 
+(32) 
+
+.17 
+(27) 
+
+.18 
+(27) 
+
+.02 
+(23) 
+
+.09 
+(26) 
+
+.06 
+(26) 
+
+.00 
+(26) 
+
+.02 
+(6) 
+
+.09 
+(29) 
+
+.09 
+(31) 
+
+.06 
+(32) 
+
+.04 
+(33) 
+
+.03 
+(31) 
+
+.07 
+(33) 
+
+.03 
+(33) 
+
+.02 
+(33) 
+
+.01 
+(33) 
+
+.02 
+(32) 
+
+.03 
+(33) 
+
+.01 
+(31) 
+
+.00 
+(31) 
+
+.00 
+(39) 
+
+.01 
+(40) 
+
+.00 
+(39) 
+
+.00 
+(40) 
+
+.00 
+(40) 
+
+.01 
+(38) 
+
+.09 
+(38) 
+
+.02 
+(32) 
+
+.02 
+(38) 
+
+.01 
+(38) 
+
+.02 
+(36) 
+
+.04 
+(38) 
+
+.06 
+(38) 
+
+.21 
+(23) 
+
+.16 
+(30) 
+
+.05 
+(34) 
+
+.01 
+(33) 
+
+.02 
+(32) 
+
+.03 
+(29) 
+
+.06 
+(9) 
+
+.08 
+(33) 
+
+.08 
+(38) 
+
+.09 
+(39) 
+
+.01 
+(38) 
+
+.06 
+(37) 
+
+.11 
+(39) 
+
+.01 
+(39) 
+
+.00 
+(37) 
+
+.00 
+(39) 
+
+.04 
+(40) 
+
+.03 
+(37) 
+
+.03 
+(37) 
+
+.00 
+(40) 
+
+.03 
+(26) 
+
+.04 
+(26) 
+
+.01 
+(25) 
+
+.01 
+(26) 
+
+.00 
+(27) 
+
+.02 
+(26) 
+
+.03 
+(26) 
+
+.05 
+(24) 
+
+.03 
+(26) 
+
+.03 
+(26) 
+
+.04 
+(26) 
+
+.03 
+(27) 
+
+.02 
+(27) 
+
+.16 
+(15) 
+
+.10 
+(22) 
+
+.06 
+(20) 
+
+.09 
+(22) 
+
+.02 
+(23) 
+
+.05 
+(6) 
+
+.06 
+(22) 
+
+.02 
+(26) 
+
+.13 
+(26) 
+
+.02 
+(27) 
+
+.05 
+(24) 
+
+.10 
+(27) 
+
+.02 
+(26) 
+
+.00 
+(25) 
+
+.03 
+(26) 
+
+.05 
+(26) 
+
+.02 
+(27) 
+
+.03 
+(27) 
+
+.00 
+(27) 
+
+.00 
+(19) 
+
+.01 
+(21) 
+
+.00 
+(20) 
+
+.03 
+(21) 
+
+.01 
+(21) 
+
+.01 
+(19) 
+
+.07 
+(21) 
+
+.01 
+(20) 
+
+.04 
+(21) 
+
+.00 
+(20) 
+
+.00 
+(21) 
+
+.01 
+(21) 
+
+.00 
+(21) 
+
+.12 
+(16) 
+
+.02 
+(15) 
+
+.06 
+(16) 
+
+.04 
+(16) 
+
+.39 
+(18) 
+
+.09 
+(4) 
+
+.05 
+(15) 
+
+.00 
+(21) 
+
+.02 
+(19) 
+
+.01 
+(21) 
+
+.04 
+(20) 
+
+.05 
+(18) 
+
+.01 
+(20) 
+
+.05 
+(19) 
+
+.07 
+(21) 
+
+.04 
+(21) 
+
+.01 
+(19) 
+
+.02 
+(21) 
+
+.00 
+(21) 
+
+.00 
+(39) 
+
+.01 
+(39) 
+
+.00 
+(38) 
+
+.00 
+(39) 
+
+.00 
+(39) 
+
+.01 
+(34) 
+
+.04 
+(38) 
+
+.01 
+(35) 
+
+.01 
+(39) 
+
+.00 
+(38) 
+
+.04 
+(39) 
+
+.01 
+(36) 
+
+.01 
+(39) 
+
+.08 
+(30) 
+
+.03 
+(35) 
+
+.09 
+(20) 
+
+.02 
+(28) 
+
+.03 
+(31) 
+
+.06 
+(5) 
+
+.03 
+(33) 
+
+.01 
+(37) 
+
+.07 
+(36) 
+
+.03 
+(36) 
+
+.02 
+(38) 
+
+.43 
+(39) 
+
+.04 
+(39) 
+
+.01 
+(39) 
+
+.00 
+(39) 
+
+.06 
+(38) 
+
+.02 
+(39) 
+
+.03 
+(38) 
+
+.00 
+(39) 
+
+.01 
+(27) 
+
+.01 
+(27) 
+
+.01 
+(27) 
+
+.01 
+(28) 
+
+.02 
+(28) 
+
+.02 
+(25) 
+
+.00 
+(23) 
+
+.02 
+(26) 
+
+.04 
+(26) 
+
+.03 
+(28) 
+
+.02 
+(28) 
+
+.01 
+(27) 
+
+.01 
+(27) 
+
+.04 
+(24) 
+
+.07 
+(28) 
+
+.12 
+(23) 
+
+.01 
+(21) 
+
+.05 
+(19) 
+
+.08 
+(8) 
+
+.03 
+(26) 
+
+.02 
+(28) 
+
+.05 
+(27) 
+
+.01 
+(28) 
+
+.07 
+(25) 
+
+.23 
+(28) 
+
+.04 
+(28) 
+
+.00 
+(23) 
+
+.02 
+(27) 
+
+.08 
+(28) 
+
+.03 
+(24) 
+
+.04 
+(27) 
+
+.00 
+(28) 
+
+.01 
+(24) 
+
+.00 
+(23) 
+
+.00 
+(24) 
+
+.00 
+(24) 
+
+.01 
+(24) 
+
+.00 
+(21) 
+
+.00 
+(22) 
+
+.01 
+(20) 
+
+.01 
+(23) 
+
+.00 
+(23) 
+
+.00 
+(24) 
+
+.03 
+(22) 
+
+.00 
+(24) 
+
+.02 
+(19) 
+
+.01 
+(19) 
+
+.39 
+(19) 
+
+.03 
+(19) 
+
+.00 
+(20) 
+
+.10 
+(6) 
+
+.05 
+(21) 
+
+.07 
+(24) 
+
+.02 
+(23) 
+
+.01 
+(23) 
+
+.00 
+(23) 
+
+.01 
+(24) 
+
+.03 
+(24) 
+
+.01 
+(23) 
+
+.06 
+(21) 
+
+.03 
+(21) 
+
+.06 
+(24) 
+
+.02 
+(21) 
+
+.00 
+(24) 
+
+.01 
+(37) 
+
+.00 
+(37) 
+
+.00 
+(38) 
+
+.00 
+(38) 
+
+.00 
+(38) 
+
+.00 
+(38) 
+
+.00 
+(34) 
+
+.00 
+(31) 
+
+.00 
+(36) 
+
+.00 
+(37) 
+
+.00 
+(36) 
+
+.00 
+(36) 
+
+.00 
+(38) 
+
+.02 
+(30) 
+
+.02 
+(32) 
+
+.14 
+(31) 
+
+.02 
+(28) 
+
+.08 
+(27) 
+
+.02 
+(6) 
+
+.06 
+(36) 
+
+.01 
+(38) 
+
+.06 
+(35) 
+
+.02 
+(36) 
+
+.04 
+(36) 
+
+.02 
+(38) 
+
+.02 
+(33) 
+
+.04 
+(37) 
+
+.05 
+(36) 
+
+.06 
+(37) 
+
+.03 
+(36) 
+
+.03 
+(36) 
+
+.00 
+(38) 
+
+.01 
+(35) 
+
+.00 
+(35) 
+
+.03 
+(35) 
+
+.00 
+(35) 
+
+.00 
+(34) 
+
+.02 
+(34) 
+
+.00 
+(33) 
+
+.00 
+(29) 
+
+.01 
+(32) 
+
+.00 
+(34) 
+
+.00 
+(34) 
+
+.04 
+(33) 
+
+.00 
+(34) 
+
+.02 
+(24) 
+
+.00 
+(27) 
+
+.11 
+(25) 
+
+.16 
+(27) 
+
+.05 
+(29) 
+
+.06 
+(8) 
+
+.06 
+(28) 
+
+.04 
+(35) 
+
+.05 
+(34) 
+
+.02 
+(34) 
+
+.02 
+(35) 
+
+.03 
+(35) 
+
+.04 
+(34) 
+
+.06 
+(32) 
+
+.06 
+(33) 
+
+.05 
+(35) 
+
+.00 
+(32) 
+
+.00 
+(35) 
+
+.00 
+(34) 
+
+.00 
+(31) 
+
+.00 
+(32) 
+
+.00 
+(32) 
+
+.00 
+(32) 
+
+.00 
+(32) 
+
+.00 
+(29) 
+
+.00 
+(31) 
+
+.04 
+(30) 
+
+.01 
+(30) 
+
+.01 
+(32) 
+
+.00 
+(31) 
+
+.01 
+(32) 
+
+.01 
+(31) 
+
+.16 
+(26) 
+
+.03 
+(22) 
+
+.08 
+(22) 
+
+.07 
+(25) 
+
+.00 
+(22) 
+
+.03 
+(3) 
+
+.07 
+(25) 
+
+.03 
+(31) 
+
+.02 
+(32) 
+
+.04 
+(31) 
+
+.03 
+(32) 
+
+.08 
+(31) 
+
+.13 
+(32) 
+
+.05 
+(29) 
+
+.00 
+(31) 
+
+.01 
+(32) 
+
+.10 
+(30) 
+
+.13 
+(30) 
+
+.00 
+(32) 
+
+.02 
+(33) 
+
+.02 
+(34) 
+
+.03 
+(33) 
+
+.01 
+(33) 
+
+.00 
+(33) 
+
+.00 
+(31) 
+
+.01 
+(31) 
+
+.07 
+(31) 
+
+.03 
+(34) 
+
+.02 
+(34) 
+
+.01 
+(31) 
+
+.04 
+(33) 
+
+.01 
+(33) 
+
+.07 
+(27) 
+
+.04 
+(28) 
+
+.11 
+(27) 
+
+.04 
+(24) 
+
+.06 
+(30) 
+
+.06 
+(9) 
+
+.02 
+(28) 
+
+.01 
+(34) 
+
+.01 
+(31) 
+
+.06 
+(34) 
+
+.02 
+(32) 
+
+.10 
+(34) 
+
+.08 
+(30) 
+
+.02 
+(34) 
+
+.00 
+(32) 
+
+.01 
+(31) 
+
+.12 
+(32) 
+
+.15 
+(34) 
+
+.00 
+(33) 
+
+.02 
+(27) 
+
+.02 
+(27) 
+
+.00 
+(27) 
+
+.00 
+(27) 
+
+.00 
+(26) 
+
+.01 
+(26) 
+
+.00 
+(26) 
+
+.01 
+(23) 
+
+.02 
+(27) 
+
+.00 
+(26) 
+
+.00 
+(26) 
+
+.03 
+(25) 
+
+.00 
+(27) 
+
+.07 
+(20) 
+
+.03 
+(19) 
+
+.09 
+(21) 
+
+.10 
+(22) 
+
+.00 
+(22) 
+
+.03 
+(2) 
+
+.02 
+(23) 
+
+.03 
+(25) 
+
+.02 
+(24) 
+
+.01 
+(27) 
+
+.01 
+(27) 
+
+.02 
+(26) 
+
+.02 
+(26) 
+
+.01 
+(24) 
+
+.00 
+(25) 
+
+.01 
+(27) 
+
+.13 
+(25) 
+
+.17 
+(27) 
+
+.00 
+(27) 
+
+.01 
+(8) 
+
+.07 
+(8) 
+
+.13 
+(8) 
+
+.06 
+(8) 
+
+.01 
+(8) 
+
+.10 
+(8) 
+
+.00 
+(8) 
+
+.15 
+(6) 
+
+.07 
+(8) 
+
+.04 
+(7) 
+
+.06 
+(8) 
+
+.03 
+(7) 
+
+.00 
+(8) 
+
+.31 
+(6) 
+
+.09 
+(7) 
+
+.02 
+(5) 
+
+.11 
+(6) 
+
+.18 
+(8) 
+
+.02 
+(4) 
+
+.06 
+(1) 
+
+.18 
+(6) 
+
+.01 
+(6) 
+
+.00 
+(8) 
+
+.07 
+(8) 
+
+.09 
+(8) 
+
+.12 
+(8) 
+
+.09 
+(8) 
+
+.06 
+(8) 
+
+.14 
+(8) 
+
+.00 
+(7) 
+
+.02 
+(8) 
+
+.05 
+(7) 
+
+.11 
+(8) 
+
+figur 9: condit confus matrix for the neural network and test set of P = 500 program of 
+length T = 3 that be use to obtain the result present in tabl 1. each cell contain the averag 
+fals posit probabl (in larg font) and the number of test program from which thi averag 
+be comput (smaller font, in brackets). the color intens of each cell’ shade corespond to 
+the magnitud of the averag fals posit probability. 
+
+G analysi OF train neural network 
+
+We analyz the perform of train neural network by investig which program instruct 
+tend to get confus by the networks. To thi end, we look at a gener of confus matrix 
+to the multilabel classif setting: for each attribut in a ground truth program (rows) measur 
+how like each other attribut (columns) be predict a a fals positive. more formally, in thi 
+matrix the (i, j)-entri be the averag predict probabl of attribut j among test program that do 
+
+19 
+
+
+
+under review a a confer paper at iclr 2017 
+
+poss attribut i and do not poss attribut j. intuitively, the i-th row of thi matrix show how 
+the presenc of attribut i confus the network into incorrectli predict each other attribut j. 
+
+figur 9 show thi condit confus matrix for the neural network and P = 500 program test 
+set configur use to obtain tabl 1. We re-ord the confus matrix to tri to expos block 
+structur in the fals posit probabilities, reveal group of instruct that tend to be difficult to 
+distinguish. figur 10 show the condit confus matrix for the neural network use to obtain 
+the tabl in fig. 3a. while the result be somewhat noisy, we observ a few gener tendencies: 
+
+• there be increas confus amongst instruct that select out a singl element from an 
+array: head, last, access, minimum, maximum. 
+• filter and zipwith be predict more often regardless of the ground truth and most of 
+
+the lambda associ with them be also predict often. 
+• there be some group of lambda that be more difficult for the network to distinguish 
+
+within: (+) v (-); (+1) v (-1); (/2) v (/3) v (/4). 
+• when a program us (**2), the network often think it’ use (*), presum becaus 
+
+both can lead to larg valu in the output. 
+
+H 
+E 
+A 
+
+D 
+
+LA 
+S 
+T 
+
+A 
+C 
+
+C 
+E 
+S 
+S 
+
+M 
+IN 
+
+IM 
+U 
+
+M 
+
+M 
+A 
+
+X 
+IM 
+
+U 
+M 
+
+T 
+A 
+
+K 
+E 
+
+D 
+R 
+
+O 
+P 
+
+FI 
+LT 
+
+E 
+R 
+
+(> 
+0 
+
+) 
+
+(< 
+0 
+
+) 
+
+(% 
+2 
+
+= 
+= 
+
+1 
+) 
+
+(% 
+2 
+
+= 
+= 
+
+0 
+) 
+
+C 
+O 
+
+U 
+N 
+
+T 
+
+M 
+A 
+
+P 
+
+M 
+IN 
+
+M 
+A 
+
+X 
+
++ - * Z 
+IP 
+
+W 
+IT 
+
+H 
+
+S 
+C 
+
+A 
+N 
+
+L1 
+
+S 
+O 
+
+R 
+T 
+
+R 
+E 
+V 
+
+E 
+R 
+
+S 
+E 
+
+(* 
+-1 
+
+) 
+
+(* 
+*2 
+
+) 
+
+(+ 
+1 
+
+) 
+
+(- 
+1 
+
+) 
+
+(* 
+2 
+
+) 
+
+(* 
+3 
+
+) 
+
+(* 
+4 
+
+) 
+
+(/ 
+2 
+
+) 
+
+(/ 
+3 
+
+) 
+
+(/ 
+4 
+
+) 
+
+S 
+U 
+
+M 
+
+head 
+
+last 
+
+access 
+
+minimum 
+
+maximum 
+
+take 
+
+drop 
+
+filter 
+
+(>0) 
+
+(<0) 
+
+(%2==1) 
+
+(%2==0) 
+
+count 
+
+map 
+
+min 
+
+max 
+
++ 
+
+- 
+
+* 
+
+zipwith 
+
+scanl1 
+
+sort 
+
+revers 
+
+(*-1) 
+
+(**2) 
+
+(+1) 
+
+(-1) 
+
+(*2) 
+
+(*3) 
+
+(*4) 
+
+(/2) 
+
+(/3) 
+
+(/4) 
+
+sum 
+
+.24 
+(39) 
+
+.15 
+(33) 
+
+.12 
+(41) 
+
+.16 
+(39) 
+
+.12 
+(24) 
+
+.09 
+(19) 
+
+.12 
+(26) 
+
+.06 
+(33) 
+
+.04 
+(34) 
+
+.08 
+(38) 
+
+.09 
+(37) 
+
+.07 
+(36) 
+
+.06 
+(12) 
+
+.10 
+(30) 
+
+.09 
+(34) 
+
+.06 
+(33) 
+
+.07 
+(33) 
+
+.06 
+(37) 
+
+.18 
+(21) 
+
+.07 
+(25) 
+
+.04 
+(37) 
+
+.06 
+(39) 
+
+.04 
+(37) 
+
+.01 
+(38) 
+
+.08 
+(38) 
+
+.02 
+(36) 
+
+.04 
+(41) 
+
+.05 
+(41) 
+
+.00 
+(39) 
+
+.02 
+(32) 
+
+.06 
+(34) 
+
+.07 
+(35) 
+
+.01 
+(41) 
+
+.14 
+(44) 
+
+.29 
+(38) 
+
+.12 
+(44) 
+
+.17 
+(40) 
+
+.09 
+(24) 
+
+.10 
+(28) 
+
+.12 
+(27) 
+
+.07 
+(38) 
+
+.11 
+(38) 
+
+.12 
+(44) 
+
+.13 
+(37) 
+
+.16 
+(39) 
+
+.09 
+(16) 
+
+.12 
+(36) 
+
+.14 
+(39) 
+
+.05 
+(38) 
+
+.09 
+(40) 
+
+.00 
+(38) 
+
+.19 
+(25) 
+
+.07 
+(31) 
+
+.04 
+(42) 
+
+.05 
+(41) 
+
+.02 
+(42) 
+
+.02 
+(46) 
+
+.06 
+(39) 
+
+.02 
+(44) 
+
+.03 
+(42) 
+
+.05 
+(44) 
+
+.02 
+(42) 
+
+.02 
+(44) 
+
+.04 
+(40) 
+
+.04 
+(41) 
+
+.02 
+(45) 
+
+.14 
+(106) 
+
+.26 
+(106) 
+
+.08 
+(91) 
+
+.16 
+(96) 
+
+.14 
+(83) 
+
+.17 
+(94) 
+
+.17 
+(77) 
+
+.13 
+(84) 
+
+.11 
+(88) 
+
+.14 
+(96) 
+
+.14 
+(89) 
+
+.10 
+(55) 
+
+.10 
+(42) 
+
+.13 
+(88) 
+
+.12 
+(90) 
+
+.06 
+(92) 
+
+.08 
+(97) 
+
+.04 
+(110) 
+
+.18 
+(66) 
+
+.08 
+(74) 
+
+.05 
+(102) 
+
+.06 
+(97) 
+
+.04 
+(108) 
+
+.01 
+(104) 
+
+.05 
+(99) 
+
+.05 
+(107) 
+
+.02 
+(106) 
+
+.04 
+(108) 
+
+.01 
+(111) 
+
+.03 
+(102) 
+
+.06 
+(101) 
+
+.05 
+(106) 
+
+.03 
+(113) 
+
+.19 
+(60) 
+
+.24 
+(58) 
+
+.12 
+(37) 
+
+.15 
+(59) 
+
+.09 
+(34) 
+
+.13 
+(40) 
+
+.16 
+(39) 
+
+.06 
+(50) 
+
+.11 
+(49) 
+
+.09 
+(55) 
+
+.13 
+(52) 
+
+.10 
+(48) 
+
+.09 
+(19) 
+
+.13 
+(50) 
+
+.10 
+(50) 
+
+.06 
+(50) 
+
+.06 
+(51) 
+
+.07 
+(52) 
+
+.20 
+(36) 
+
+.10 
+(43) 
+
+.04 
+(54) 
+
+.05 
+(55) 
+
+.05 
+(56) 
+
+.04 
+(53) 
+
+.03 
+(54) 
+
+.05 
+(53) 
+
+.02 
+(58) 
+
+.10 
+(53) 
+
+.01 
+(57) 
+
+.03 
+(49) 
+
+.04 
+(49) 
+
+.06 
+(57) 
+
+.03 
+(59) 
+
+.16 
+(48) 
+
+.26 
+(44) 
+
+.18 
+(32) 
+
+.14 
+(49) 
+
+.18 
+(32) 
+
+.10 
+(27) 
+
+.10 
+(34) 
+
+.09 
+(43) 
+
+.09 
+(46) 
+
+.09 
+(46) 
+
+.08 
+(44) 
+
+.14 
+(45) 
+
+.10 
+(18) 
+
+.09 
+(34) 
+
+.12 
+(34) 
+
+.05 
+(43) 
+
+.08 
+(44) 
+
+.03 
+(41) 
+
+.10 
+(17) 
+
+.10 
+(35) 
+
+.05 
+(44) 
+
+.08 
+(48) 
+
+.03 
+(47) 
+
+.02 
+(45) 
+
+.03 
+(41) 
+
+.05 
+(50) 
+
+.02 
+(50) 
+
+.04 
+(44) 
+
+.02 
+(50) 
+
+.02 
+(43) 
+
+.04 
+(47) 
+
+.05 
+(45) 
+
+.01 
+(50) 
+
+.09 
+(128) 
+
+.11 
+(123) 
+
+.10 
+(114) 
+
+.06 
+(119) 
+
+.07 
+(127) 
+
+.17 
+(132) 
+
+.22 
+(94) 
+
+.09 
+(111) 
+
+.11 
+(108) 
+
+.08 
+(116) 
+
+.12 
+(116) 
+
+.04 
+(70) 
+
+.06 
+(43) 
+
+.14 
+(123) 
+
+.09 
+(107) 
+
+.09 
+(118) 
+
+.07 
+(120) 
+
+.05 
+(124) 
+
+.19 
+(73) 
+
+.06 
+(95) 
+
+.04 
+(126) 
+
+.07 
+(132) 
+
+.04 
+(131) 
+
+.02 
+(134) 
+
+.03 
+(126) 
+
+.05 
+(139) 
+
+.03 
+(133) 
+
+.04 
+(135) 
+
+.01 
+(138) 
+
+.03 
+(129) 
+
+.04 
+(125) 
+
+.04 
+(127) 
+
+.00 
+(143) 
+
+.05 
+(131) 
+
+.11 
+(135) 
+
+.09 
+(133) 
+
+.06 
+(133) 
+
+.05 
+(130) 
+
+.16 
+(140) 
+
+.22 
+(98) 
+
+.11 
+(109) 
+
+.14 
+(117) 
+
+.14 
+(125) 
+
+.13 
+(124) 
+
+.03 
+(69) 
+
+.07 
+(46) 
+
+.12 
+(118) 
+
+.13 
+(120) 
+
+.08 
+(112) 
+
+.11 
+(129) 
+
+.05 
+(129) 
+
+.15 
+(68) 
+
+.09 
+(99) 
+
+.05 
+(137) 
+
+.12 
+(143) 
+
+.05 
+(143) 
+
+.02 
+(139) 
+
+.04 
+(136) 
+
+.03 
+(140) 
+
+.02 
+(145) 
+
+.04 
+(138) 
+
+.01 
+(141) 
+
+.02 
+(134) 
+
+.06 
+(138) 
+
+.05 
+(136) 
+
+.01 
+(150) 
+
+.05 
+(200) 
+
+.09 
+(196) 
+
+.07 
+(178) 
+
+.05 
+(194) 
+
+.05 
+(199) 
+
+.09 
+(164) 
+
+.09 
+(160) 
+
+.08 
+(130) 
+
+.11 
+(144) 
+
+.10 
+(142) 
+
+.11 
+(147) 
+
+.07 
+(150) 
+
+.08 
+(73) 
+
+.12 
+(156) 
+
+.11 
+(155) 
+
+.08 
+(150) 
+
+.12 
+(166) 
+
+.04 
+(170) 
+
+.11 
+(69) 
+
+.07 
+(144) 
+
+.04 
+(203) 
+
+.08 
+(194) 
+
+.04 
+(197) 
+
+.03 
+(203) 
+
+.06 
+(195) 
+
+.04 
+(192) 
+
+.03 
+(204) 
+
+.03 
+(191) 
+
+.01 
+(205) 
+
+.04 
+(194) 
+
+.06 
+(192) 
+
+.04 
+(185) 
+
+.01 
+(213) 
+
+.04 
+(124) 
+
+.11 
+(124) 
+
+.06 
+(102) 
+
+.04 
+(122) 
+
+.05 
+(125) 
+
+.08 
+(98) 
+
+.08 
+(88) 
+
+.15 
+(47) 
+
+.21 
+(125) 
+
+.16 
+(111) 
+
+.15 
+(112) 
+
+.05 
+(51) 
+
+.06 
+(38) 
+
+.16 
+(102) 
+
+.14 
+(90) 
+
+.09 
+(93) 
+
+.11 
+(105) 
+
+.04 
+(113) 
+
+.15 
+(50) 
+
+.09 
+(82) 
+
+.05 
+(126) 
+
+.10 
+(120) 
+
+.05 
+(117) 
+
+.02 
+(125) 
+
+.05 
+(117) 
+
+.04 
+(116) 
+
+.02 
+(122) 
+
+.03 
+(117) 
+
+.01 
+(123) 
+
+.04 
+(120) 
+
+.06 
+(118) 
+
+.05 
+(118) 
+
+.01 
+(131) 
+
+.05 
+(101) 
+
+.07 
+(100) 
+
+.08 
+(82) 
+
+.07 
+(97) 
+
+.06 
+(104) 
+
+.09 
+(71) 
+
+.10 
+(72) 
+
+.14 
+(37) 
+
+.19 
+(101) 
+
+.10 
+(84) 
+
+.16 
+(93) 
+
+.03 
+(40) 
+
+.08 
+(40) 
+
+.16 
+(80) 
+
+.12 
+(81) 
+
+.09 
+(85) 
+
+.10 
+(88) 
+
+.03 
+(91) 
+
+.15 
+(46) 
+
+.06 
+(70) 
+
+.05 
+(95) 
+
+.08 
+(93) 
+
+.06 
+(103) 
+
+.02 
+(105) 
+
+.05 
+(93) 
+
+.06 
+(101) 
+
+.03 
+(99) 
+
+.03 
+(97) 
+
+.01 
+(104) 
+
+.04 
+(96) 
+
+.04 
+(98) 
+
+.05 
+(98) 
+
+.01 
+(106) 
+
+.03 
+(91) 
+
+.06 
+(92) 
+
+.06 
+(76) 
+
+.04 
+(89) 
+
+.04 
+(90) 
+
+.08 
+(65) 
+
+.08 
+(66) 
+
+.11 
+(21) 
+
+.14 
+(73) 
+
+.12 
+(70) 
+
+.20 
+(90) 
+
+.04 
+(37) 
+
+.06 
+(34) 
+
+.15 
+(73) 
+
+.13 
+(69) 
+
+.10 
+(56) 
+
+.14 
+(69) 
+
+.05 
+(71) 
+
+.10 
+(28) 
+
+.09 
+(63) 
+
+.05 
+(87) 
+
+.09 
+(85) 
+
+.05 
+(88) 
+
+.03 
+(82) 
+
+.04 
+(92) 
+
+.03 
+(88) 
+
+.03 
+(92) 
+
+.02 
+(88) 
+
+.00 
+(89) 
+
+.04 
+(81) 
+
+.04 
+(87) 
+
+.04 
+(81) 
+
+.02 
+(92) 
+
+.06 
+(93) 
+
+.10 
+(88) 
+
+.05 
+(72) 
+
+.03 
+(89) 
+
+.07 
+(91) 
+
+.06 
+(68) 
+
+.10 
+(68) 
+
+.13 
+(29) 
+
+.12 
+(77) 
+
+.16 
+(82) 
+
+.23 
+(93) 
+
+.07 
+(45) 
+
+.09 
+(33) 
+
+.10 
+(72) 
+
+.13 
+(71) 
+
+.09 
+(74) 
+
+.09 
+(75) 
+
+.03 
+(79) 
+
+.12 
+(35) 
+
+.05 
+(59) 
+
+.05 
+(87) 
+
+.09 
+(85) 
+
+.04 
+(91) 
+
+.02 
+(93) 
+
+.06 
+(91) 
+
+.04 
+(83) 
+
+.03 
+(92) 
+
+.03 
+(87) 
+
+.01 
+(92) 
+
+.04 
+(90) 
+
+.07 
+(83) 
+
+.04 
+(85) 
+
+.01 
+(97) 
+
+.04 
+(190) 
+
+.09 
+(188) 
+
+.07 
+(136) 
+
+.04 
+(183) 
+
+.06 
+(190) 
+
+.05 
+(120) 
+
+.08 
+(111) 
+
+.29 
+(130) 
+
+.14 
+(114) 
+
+.16 
+(127) 
+
+.17 
+(138) 
+
+.16 
+(143) 
+
+.07 
+(64) 
+
+.16 
+(154) 
+
+.15 
+(143) 
+
+.10 
+(143) 
+
+.11 
+(160) 
+
+.04 
+(167) 
+
+.16 
+(83) 
+
+.08 
+(118) 
+
+.05 
+(171) 
+
+.10 
+(170) 
+
+.06 
+(185) 
+
+.02 
+(182) 
+
+.04 
+(176) 
+
+.05 
+(181) 
+
+.02 
+(180) 
+
+.02 
+(179) 
+
+.01 
+(181) 
+
+.04 
+(175) 
+
+.05 
+(174) 
+
+.05 
+(177) 
+
+.02 
+(192) 
+
+.06 
+(345) 
+
+.08 
+(344) 
+
+.05 
+(302) 
+
+.04 
+(333) 
+
+.06 
+(342) 
+
+.06 
+(272) 
+
+.08 
+(267) 
+
+.15 
+(232) 
+
+.07 
+(280) 
+
+.10 
+(306) 
+
+.10 
+(314) 
+
+.11 
+(310) 
+
+.05 
+(243) 
+
+.13 
+(275) 
+
+.11 
+(266) 
+
+.10 
+(278) 
+
+.11 
+(295) 
+
+.07 
+(302) 
+
+.12 
+(127) 
+
+.07 
+(251) 
+
+.04 
+(340) 
+
+.08 
+(328) 
+
+.05 
+(327) 
+
+.03 
+(327) 
+
+.05 
+(310) 
+
+.05 
+(329) 
+
+.03 
+(336) 
+
+.04 
+(325) 
+
+.02 
+(337) 
+
+.05 
+(305) 
+
+.07 
+(303) 
+
+.05 
+(299) 
+
+.01 
+(368) 
+
+.05 
+(131) 
+
+.08 
+(132) 
+
+.06 
+(116) 
+
+.06 
+(132) 
+
+.04 
+(126) 
+
+.11 
+(120) 
+
+.06 
+(107) 
+
+.10 
+(83) 
+
+.07 
+(112) 
+
+.08 
+(114) 
+
+.10 
+(121) 
+
+.11 
+(117) 
+
+.08 
+(101) 
+
+.06 
+(43) 
+
+.15 
+(112) 
+
+.10 
+(103) 
+
+.11 
+(112) 
+
+.05 
+(114) 
+
+.05 
+(19) 
+
+.04 
+(58) 
+
+.05 
+(131) 
+
+.08 
+(122) 
+
+.05 
+(133) 
+
+.02 
+(131) 
+
+.05 
+(126) 
+
+.06 
+(132) 
+
+.03 
+(130) 
+
+.02 
+(131) 
+
+.01 
+(132) 
+
+.04 
+(123) 
+
+.07 
+(129) 
+
+.05 
+(117) 
+
+.01 
+(141) 
+
+.04 
+(147) 
+
+.07 
+(147) 
+
+.04 
+(130) 
+
+.02 
+(144) 
+
+.04 
+(138) 
+
+.06 
+(116) 
+
+.07 
+(121) 
+
+.15 
+(94) 
+
+.08 
+(112) 
+
+.10 
+(127) 
+
+.09 
+(129) 
+
+.10 
+(128) 
+
+.06 
+(102) 
+
+.07 
+(46) 
+
+.18 
+(124) 
+
+.09 
+(112) 
+
+.10 
+(127) 
+
+.05 
+(125) 
+
+.06 
+(28) 
+
+.04 
+(63) 
+
+.05 
+(141) 
+
+.08 
+(138) 
+
+.04 
+(139) 
+
+.03 
+(145) 
+
+.07 
+(138) 
+
+.05 
+(143) 
+
+.03 
+(142) 
+
+.02 
+(138) 
+
+.01 
+(138) 
+
+.04 
+(133) 
+
+.05 
+(132) 
+
+.05 
+(135) 
+
+.01 
+(154) 
+
+.04 
+(136) 
+
+.08 
+(136) 
+
+.03 
+(122) 
+
+.04 
+(134) 
+
+.03 
+(137) 
+
+.06 
+(117) 
+
+.05 
+(103) 
+
+.14 
+(79) 
+
+.09 
+(105) 
+
+.12 
+(121) 
+
+.09 
+(106) 
+
+.10 
+(121) 
+
+.04 
+(92) 
+
+.08 
+(48) 
+
+.11 
+(105) 
+
+.11 
+(102) 
+
+.30 
+(121) 
+
+.07 
+(124) 
+
+.04 
+(21) 
+
+.08 
+(69) 
+
+.04 
+(130) 
+
+.08 
+(132) 
+
+.02 
+(135) 
+
+.03 
+(135) 
+
+.03 
+(131) 
+
+.05 
+(134) 
+
+.05 
+(135) 
+
+.04 
+(131) 
+
+.02 
+(127) 
+
+.05 
+(129) 
+
+.06 
+(126) 
+
+.05 
+(126) 
+
+.02 
+(142) 
+
+.04 
+(104) 
+
+.10 
+(106) 
+
+.01 
+(95) 
+
+.03 
+(103) 
+
+.04 
+(106) 
+
+.03 
+(87) 
+
+.07 
+(88) 
+
+.11 
+(63) 
+
+.07 
+(85) 
+
+.08 
+(92) 
+
+.08 
+(87) 
+
+.08 
+(90) 
+
+.05 
+(77) 
+
+.06 
+(33) 
+
+.13 
+(82) 
+
+.13 
+(85) 
+
+.28 
+(89) 
+
+.07 
+(95) 
+
+.04 
+(17) 
+
+.06 
+(54) 
+
+.04 
+(98) 
+
+.07 
+(95) 
+
+.06 
+(103) 
+
+.03 
+(96) 
+
+.05 
+(95) 
+
+.04 
+(103) 
+
+.04 
+(109) 
+
+.04 
+(110) 
+
+.01 
+(109) 
+
+.04 
+(95) 
+
+.07 
+(96) 
+
+.05 
+(94) 
+
+.02 
+(111) 
+
+.03 
+(92) 
+
+.05 
+(88) 
+
+.04 
+(92) 
+
+.03 
+(88) 
+
+.04 
+(87) 
+
+.05 
+(75) 
+
+.03 
+(72) 
+
+.12 
+(51) 
+
+.08 
+(77) 
+
+.05 
+(79) 
+
+.11 
+(73) 
+
+.07 
+(78) 
+
+.03 
+(68) 
+
+.07 
+(24) 
+
+.09 
+(68) 
+
+.10 
+(67) 
+
+.10 
+(76) 
+
+.11 
+(79) 
+
+.07 
+(65) 
+
+.03 
+(90) 
+
+.08 
+(87) 
+
+.05 
+(86) 
+
+.11 
+(88) 
+
+.03 
+(87) 
+
+.04 
+(88) 
+
+.03 
+(90) 
+
+.03 
+(87) 
+
+.03 
+(90) 
+
+.04 
+(80) 
+
+.07 
+(81) 
+
+.04 
+(81) 
+
+.02 
+(96) 
+
+.05 
+(318) 
+
+.08 
+(317) 
+
+.04 
+(290) 
+
+.04 
+(314) 
+
+.04 
+(305) 
+
+.06 
+(266) 
+
+.06 
+(253) 
+
+.13 
+(192) 
+
+.08 
+(256) 
+
+.09 
+(276) 
+
+.09 
+(272) 
+
+.09 
+(276) 
+
+.05 
+(226) 
+
+.06 
+(91) 
+
+.11 
+(215) 
+
+.10 
+(212) 
+
+.11 
+(215) 
+
+.13 
+(243) 
+
+.06 
+(242) 
+
+.07 
+(219) 
+
+.03 
+(303) 
+
+.09 
+(297) 
+
+.04 
+(310) 
+
+.04 
+(305) 
+
+.05 
+(301) 
+
+.05 
+(310) 
+
+.04 
+(308) 
+
+.03 
+(304) 
+
+.01 
+(310) 
+
+.04 
+(287) 
+
+.06 
+(294) 
+
+.04 
+(283) 
+
+.01 
+(334) 
+
+.04 
+(175) 
+
+.09 
+(176) 
+
+.05 
+(151) 
+
+.05 
+(174) 
+
+.05 
+(176) 
+
+.09 
+(141) 
+
+.07 
+(137) 
+
+.15 
+(120) 
+
+.09 
+(141) 
+
+.12 
+(153) 
+
+.10 
+(160) 
+
+.11 
+(153) 
+
+.07 
+(114) 
+
+.08 
+(68) 
+
+.10 
+(107) 
+
+.10 
+(100) 
+
+.10 
+(116) 
+
+.13 
+(133) 
+
+.05 
+(160) 
+
+.13 
+(72) 
+
+.06 
+(175) 
+
+.08 
+(174) 
+
+.05 
+(173) 
+
+.02 
+(180) 
+
+.04 
+(168) 
+
+.04 
+(180) 
+
+.02 
+(180) 
+
+.03 
+(184) 
+
+.01 
+(175) 
+
+.03 
+(169) 
+
+.05 
+(168) 
+
+.05 
+(168) 
+
+.02 
+(191) 
+
+.05 
+(52) 
+
+.09 
+(52) 
+
+.06 
+(44) 
+
+.02 
+(50) 
+
+.03 
+(50) 
+
+.03 
+(37) 
+
+.09 
+(40) 
+
+.22 
+(44) 
+
+.12 
+(50) 
+
+.08 
+(43) 
+
+.16 
+(49) 
+
+.10 
+(46) 
+
+.04 
+(32) 
+
+.11 
+(22) 
+
+.14 
+(45) 
+
+.12 
+(43) 
+
+.10 
+(42) 
+
+.09 
+(42) 
+
+.07 
+(50) 
+
+.10 
+(21) 
+
+.10 
+(40) 
+
+.13 
+(51) 
+
+.07 
+(53) 
+
+.02 
+(51) 
+
+.04 
+(51) 
+
+.05 
+(54) 
+
+.03 
+(52) 
+
+.02 
+(52) 
+
+.00 
+(51) 
+
+.04 
+(51) 
+
+.05 
+(51) 
+
+.04 
+(50) 
+
+.00 
+(56) 
+
+.05 
+(62) 
+
+.07 
+(59) 
+
+.02 
+(47) 
+
+.02 
+(59) 
+
+.06 
+(62) 
+
+.05 
+(51) 
+
+.11 
+(54) 
+
+.15 
+(43) 
+
+.09 
+(52) 
+
+.06 
+(49) 
+
+.10 
+(55) 
+
+.11 
+(52) 
+
+.05 
+(39) 
+
+.08 
+(18) 
+
+.15 
+(44) 
+
+.14 
+(48) 
+
+.12 
+(52) 
+
+.08 
+(47) 
+
+.07 
+(55) 
+
+.15 
+(23) 
+
+.10 
+(47) 
+
+.10 
+(59) 
+
+.06 
+(58) 
+
+.02 
+(57) 
+
+.05 
+(57) 
+
+.10 
+(61) 
+
+.04 
+(61) 
+
+.05 
+(59) 
+
+.02 
+(60) 
+
+.07 
+(57) 
+
+.07 
+(51) 
+
+.05 
+(55) 
+
+.00 
+(64) 
+
+.05 
+(43) 
+
+.06 
+(43) 
+
+.03 
+(41) 
+
+.03 
+(43) 
+
+.05 
+(44) 
+
+.03 
+(33) 
+
+.07 
+(37) 
+
+.12 
+(29) 
+
+.06 
+(32) 
+
+.15 
+(42) 
+
+.06 
+(41) 
+
+.06 
+(41) 
+
+.04 
+(37) 
+
+.18 
+(38) 
+
+.09 
+(32) 
+
+.11 
+(38) 
+
+.11 
+(38) 
+
+.04 
+(37) 
+
+.13 
+(19) 
+
+.05 
+(29) 
+
+.06 
+(44) 
+
+.12 
+(41) 
+
+.03 
+(45) 
+
+.06 
+(45) 
+
+.03 
+(39) 
+
+.01 
+(39) 
+
+.03 
+(42) 
+
+.01 
+(43) 
+
+.05 
+(42) 
+
+.08 
+(45) 
+
+.03 
+(42) 
+
+.03 
+(47) 
+
+.07 
+(44) 
+
+.09 
+(47) 
+
+.03 
+(37) 
+
+.04 
+(40) 
+
+.04 
+(42) 
+
+.04 
+(36) 
+
+.03 
+(33) 
+
+.18 
+(35) 
+
+.09 
+(40) 
+
+.10 
+(44) 
+
+.06 
+(35) 
+
+.09 
+(43) 
+
+.03 
+(34) 
+
+.13 
+(36) 
+
+.12 
+(38) 
+
+.14 
+(38) 
+
+.07 
+(31) 
+
+.43 
+(39) 
+
+.18 
+(14) 
+
+.11 
+(36) 
+
+.02 
+(42) 
+
+.06 
+(40) 
+
+.07 
+(45) 
+
+.02 
+(40) 
+
+.05 
+(43) 
+
+.02 
+(47) 
+
+.13 
+(45) 
+
+.03 
+(46) 
+
+.03 
+(38) 
+
+.07 
+(43) 
+
+.05 
+(40) 
+
+.01 
+(46) 
+
+.05 
+(61) 
+
+.09 
+(57) 
+
+.06 
+(49) 
+
+.04 
+(58) 
+
+.06 
+(55) 
+
+.05 
+(45) 
+
+.09 
+(47) 
+
+.13 
+(44) 
+
+.05 
+(49) 
+
+.07 
+(49) 
+
+.16 
+(62) 
+
+.10 
+(58) 
+
+.07 
+(45) 
+
+.12 
+(48) 
+
+.15 
+(48) 
+
+.08 
+(51) 
+
+.06 
+(47) 
+
+.08 
+(55) 
+
+.14 
+(27) 
+
+.10 
+(41) 
+
+.06 
+(59) 
+
+.08 
+(57) 
+
+.07 
+(62) 
+
+.04 
+(57) 
+
+.10 
+(64) 
+
+.02 
+(62) 
+
+.03 
+(61) 
+
+.02 
+(58) 
+
+.04 
+(59) 
+
+.06 
+(58) 
+
+.08 
+(53) 
+
+.01 
+(62) 
+
+.07 
+(40) 
+
+.08 
+(43) 
+
+.04 
+(38) 
+
+.03 
+(38) 
+
+.08 
+(45) 
+
+.10 
+(39) 
+
+.08 
+(32) 
+
+.10 
+(22) 
+
+.04 
+(29) 
+
+.15 
+(38) 
+
+.12 
+(39) 
+
+.03 
+(31) 
+
+.06 
+(31) 
+
+.13 
+(35) 
+
+.11 
+(34) 
+
+.08 
+(35) 
+
+.11 
+(36) 
+
+.06 
+(37) 
+
+.10 
+(17) 
+
+.06 
+(34) 
+
+.06 
+(43) 
+
+.07 
+(42) 
+
+.04 
+(37) 
+
+.03 
+(41) 
+
+.16 
+(45) 
+
+.01 
+(40) 
+
+.03 
+(40) 
+
+.02 
+(44) 
+
+.09 
+(43) 
+
+.07 
+(42) 
+
+.05 
+(38) 
+
+.00 
+(45) 
+
+.03 
+(38) 
+
+.06 
+(34) 
+
+.04 
+(30) 
+
+.02 
+(36) 
+
+.05 
+(38) 
+
+.05 
+(26) 
+
+.10 
+(30) 
+
+.16 
+(27) 
+
+.04 
+(28) 
+
+.11 
+(29) 
+
+.05 
+(36) 
+
+.06 
+(33) 
+
+.01 
+(23) 
+
+.11 
+(26) 
+
+.07 
+(26) 
+
+.25 
+(29) 
+
+.19 
+(35) 
+
+.03 
+(32) 
+
+.08 
+(8) 
+
+.04 
+(27) 
+
+.03 
+(34) 
+
+.13 
+(35) 
+
+.02 
+(30) 
+
+.03 
+(38) 
+
+.07 
+(36) 
+
+.03 
+(33) 
+
+.02 
+(33) 
+
+.03 
+(36) 
+
+.07 
+(35) 
+
+.07 
+(35) 
+
+.01 
+(33) 
+
+.01 
+(37) 
+
+.04 
+(49) 
+
+.08 
+(47) 
+
+.04 
+(43) 
+
+.01 
+(42) 
+
+.04 
+(43) 
+
+.05 
+(39) 
+
+.05 
+(34) 
+
+.10 
+(25) 
+
+.04 
+(34) 
+
+.09 
+(38) 
+
+.12 
+(43) 
+
+.07 
+(39) 
+
+.03 
+(33) 
+
+.09 
+(38) 
+
+.10 
+(33) 
+
+.04 
+(36) 
+
+.11 
+(47) 
+
+.04 
+(40) 
+
+.12 
+(15) 
+
+.06 
+(42) 
+
+.04 
+(45) 
+
+.05 
+(44) 
+
+.04 
+(44) 
+
+.02 
+(47) 
+
+.04 
+(46) 
+
+.04 
+(44) 
+
+.05 
+(44) 
+
+.03 
+(48) 
+
+.05 
+(44) 
+
+.05 
+(45) 
+
+.02 
+(38) 
+
+.01 
+(49) 
+
+.04 
+(35) 
+
+.05 
+(33) 
+
+.05 
+(34) 
+
+.01 
+(34) 
+
+.03 
+(37) 
+
+.01 
+(30) 
+
+.05 
+(25) 
+
+.20 
+(27) 
+
+.05 
+(28) 
+
+.14 
+(33) 
+
+.10 
+(32) 
+
+.17 
+(32) 
+
+.03 
+(23) 
+
+.10 
+(27) 
+
+.05 
+(21) 
+
+.07 
+(20) 
+
+.15 
+(34) 
+
+.13 
+(31) 
+
+.06 
+(9) 
+
+.06 
+(21) 
+
+.03 
+(32) 
+
+.10 
+(33) 
+
+.05 
+(33) 
+
+.05 
+(36) 
+
+.04 
+(31) 
+
+.04 
+(36) 
+
+.07 
+(35) 
+
+.07 
+(36) 
+
+.04 
+(35) 
+
+.05 
+(33) 
+
+.03 
+(34) 
+
+.02 
+(37) 
+
+.04 
+(60) 
+
+.10 
+(67) 
+
+.05 
+(57) 
+
+.03 
+(58) 
+
+.06 
+(62) 
+
+.06 
+(53) 
+
+.07 
+(50) 
+
+.14 
+(48) 
+
+.09 
+(57) 
+
+.09 
+(57) 
+
+.09 
+(56) 
+
+.11 
+(62) 
+
+.08 
+(49) 
+
+.10 
+(50) 
+
+.13 
+(48) 
+
+.13 
+(54) 
+
+.11 
+(52) 
+
+.05 
+(53) 
+
+.08 
+(18) 
+
+.06 
+(47) 
+
+.04 
+(64) 
+
+.08 
+(62) 
+
+.05 
+(64) 
+
+.03 
+(60) 
+
+.04 
+(64) 
+
+.07 
+(67) 
+
+.03 
+(66) 
+
+.03 
+(64) 
+
+.02 
+(67) 
+
+.11 
+(64) 
+
+.08 
+(63) 
+
+.01 
+(69) 
+
+.05 
+(64) 
+
+.08 
+(65) 
+
+.03 
+(58) 
+
+.03 
+(60) 
+
+.05 
+(68) 
+
+.05 
+(51) 
+
+.08 
+(56) 
+
+.17 
+(48) 
+
+.09 
+(57) 
+
+.09 
+(61) 
+
+.07 
+(64) 
+
+.10 
+(57) 
+
+.08 
+(50) 
+
+.16 
+(58) 
+
+.13 
+(49) 
+
+.07 
+(53) 
+
+.13 
+(55) 
+
+.04 
+(56) 
+
+.12 
+(27) 
+
+.06 
+(48) 
+
+.04 
+(66) 
+
+.06 
+(58) 
+
+.07 
+(69) 
+
+.03 
+(67) 
+
+.05 
+(65) 
+
+.05 
+(68) 
+
+.03 
+(68) 
+
+.04 
+(67) 
+
+.02 
+(67) 
+
+.06 
+(66) 
+
+.09 
+(63) 
+
+.01 
+(70) 
+
+.05 
+(69) 
+
+.07 
+(70) 
+
+.04 
+(67) 
+
+.04 
+(72) 
+
+.03 
+(70) 
+
+.04 
+(57) 
+
+.08 
+(58) 
+
+.12 
+(45) 
+
+.06 
+(61) 
+
+.11 
+(65) 
+
+.07 
+(62) 
+
+.09 
+(63) 
+
+.03 
+(57) 
+
+.12 
+(50) 
+
+.09 
+(56) 
+
+.10 
+(57) 
+
+.14 
+(57) 
+
+.05 
+(60) 
+
+.11 
+(20) 
+
+.06 
+(52) 
+
+.03 
+(69) 
+
+.07 
+(66) 
+
+.07 
+(70) 
+
+.03 
+(68) 
+
+.07 
+(64) 
+
+.07 
+(68) 
+
+.02 
+(70) 
+
+.01 
+(64) 
+
+.00 
+(72) 
+
+.09 
+(69) 
+
+.16 
+(67) 
+
+.00 
+(74) 
+
+.07 
+(6) 
+
+.09 
+(5) 
+
+.27 
+(5) 
+
+.20 
+(5) 
+
+.14 
+(6) 
+
+.07 
+(4) 
+
+.05 
+(3) 
+
+.09 
+(4) 
+
+.06 
+(5) 
+
+.15 
+(4) 
+
+.16 
+(4) 
+
+.14 
+(6) 
+
+.14 
+(3) 
+
+.18 
+(5) 
+
+.22 
+(6) 
+
+.30 
+(4) 
+
+.28 
+(5) 
+
+.18 
+(6) 
+
+.11 
+(2) 
+
+.59 
+(6) 
+
+.03 
+(6) 
+
+.02 
+(6) 
+
+.04 
+(6) 
+
+.02 
+(5) 
+
+.01 
+(4) 
+
+.06 
+(6) 
+
+.01 
+(5) 
+
+.13 
+(6) 
+
+.00 
+(6) 
+
+.02 
+(6) 
+
+.05 
+(5) 
+
+.02 
+(5) 
+
+figur 10: condit confus matrix for the neural network and test set of P = 500 program of 
+length T = 5. the present be the same a in figur 9. 
+
+20 
+
+
+introduct 
+background on induct program synthesi 
+learn induct program synthesi (lips) 
+deepcod 
+domain specif languag and attribut 
+data gener 
+machin learn model 
+search 
+train loss function 
+
+experi 
+deepcod compar to baselin 
+gener across program length 
+altern model 
+
+relat work 
+discuss and futur work 
+exampl program 
+experiment result 
+the neural network 
+depth-first search 
+train loss function 
+domain specif languag of deepcod 
+analysi of train neural network 
+

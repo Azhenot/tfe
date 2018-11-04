@@ -1,0 +1,1820 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+mapreduce: simplifi data process on larg cluster 
+
+jeffrey dean and sanjay ghemawat 
+
+jeff@google.com, sanjay@google.com 
+
+google, inc. 
+
+abstract 
+
+mapreduc be a program model and an associ- 
+ate implement for process and gener larg 
+data sets. user specifi a map function that process a 
+key/valu pair to gener a set of intermedi key/valu 
+pairs, and a reduc function that merg all intermedi 
+valu associ with the same intermedi key. mani 
+real world task be express in thi model, a show 
+in the paper. 
+
+program write in thi function style be automati- 
+calli parallel and execut on a larg cluster of com- 
+moditi machines. the run-tim system take care of the 
+detail of partit the input data, schedul the pro- 
+gram’ execut across a set of machines, handl ma- 
+chine failures, and manag the requir inter-machin 
+communication. thi allow programm without ani 
+experi with parallel and distribut system to eas- 
+ili util the resourc of a larg distribut system. 
+
+our implement of mapreduc run on a larg 
+cluster of commod machin and be highli scalable: 
+a typic mapreduc comput process mani ter- 
+abyt of data on thousand of machines. programm 
+find the system easi to use: hundr of mapreduc pro- 
+gram have be implement and upward of one thou- 
+sand mapreduc job be execut on google’ cluster 
+everi day. 
+
+1 introduct 
+
+over the past five years, the author and mani other at 
+googl have implement hundr of special-purpos 
+comput that process larg amount of raw data, 
+such a crawl documents, web request logs, etc., to 
+comput variou kind of deriv data, such a invert 
+indices, variou represent of the graph structur 
+of web documents, summari of the number of page 
+crawl per host, the set of most frequent queri in a 
+
+give day, etc. most such comput be conceptu- 
+alli straightforward. however, the input data be usual 
+larg and the comput have to be distribut across 
+hundr or thousand of machin in order to finish in 
+a reason amount of time. the issu of how to par- 
+allel the computation, distribut the data, and handl 
+failur conspir to obscur the origin simpl compu- 
+tation with larg amount of complex code to deal with 
+these issues. 
+
+As a reaction to thi complexity, we design a new 
+abstract that allow u to express the simpl computa- 
+tion we be tri to perform but hide the messi de- 
+tail of parallelization, fault-tolerance, data distribut 
+and load balanc in a library. our abstract be in- 
+spire by the map and reduc primit present in lisp 
+and mani other function languages. We realiz that 
+most of our comput involv appli a map op- 
+erat to each logic “record” in our input in order to 
+comput a set of intermedi key/valu pairs, and then 
+appli a reduc oper to all the valu that share 
+the same key, in order to combin the deriv data ap- 
+propriately. our use of a function model with user- 
+specifi map and reduc oper allow u to paral- 
+leliz larg comput easili and to use re-execut 
+a the primari mechan for fault tolerance. 
+
+the major contribut of thi work be a simpl and 
+power interfac that enabl automat parallel 
+and distribut of large-scal computations, combin 
+with an implement of thi interfac that achiev 
+high perform on larg cluster of commod pcs. 
+
+section 2 describ the basic program model and 
+give sever examples. section 3 describ an imple- 
+mentat of the mapreduc interfac tailor toward 
+our cluster-bas comput environment. section 4 de- 
+scribe sever refin of the program model 
+that we have found useful. section 5 have perform 
+measur of our implement for a varieti of 
+tasks. section 6 explor the use of mapreduc within 
+googl includ our experi in use it a the basi 
+
+To appear in osdi 2004 1 
+
+
+
+for a rewrit of our product index system. sec- 
+tion 7 discu relat and futur work. 
+
+2 program model 
+
+the comput take a set of input key/valu pairs, and 
+produc a set of output key/valu pairs. the user of 
+the mapreduc librari express the comput a two 
+functions: map and reduce. 
+
+map, write by the user, take an input pair and pro- 
+duce a set of intermedi key/valu pairs. the mapre- 
+duce librari group togeth all intermedi valu asso- 
+ciat with the same intermedi key I and pass them 
+to the reduc function. 
+
+the reduc function, also write by the user, accept 
+an intermedi key I and a set of valu for that key. It 
+merg togeth these valu to form a possibl small 
+set of values. typic just zero or one output valu be 
+produc per reduc invocation. the intermedi val- 
+ue be suppli to the user’ reduc function via an iter- 
+ator. thi allow u to handl list of valu that be too 
+larg to fit in memory. 
+
+2.1 exampl 
+
+consid the problem of count the number of oc- 
+currenc of each word in a larg collect of docu- 
+ments. the user would write code similar to the follow- 
+ing pseudo-code: 
+
+map(str key, string value): 
+// key: document name 
+// value: document content 
+for each word w in value: 
+
+emitintermediate(w, "1"); 
+
+reduce(str key, iter values): 
+// key: a word 
+// values: a list of count 
+int result = 0; 
+for each v in values: 
+
+result += parseint(v); 
+emit(asstring(result)); 
+
+the map function emit each word plu an associ 
+count of occurr (just ‘1’ in thi simpl example). 
+the reduc function sum togeth all count emit 
+for a particular word. 
+
+In addition, the user write code to fill in a mapreduc 
+specif object with the name of the input and out- 
+put files, and option tune parameters. the user then 
+invok the mapreduc function, pass it the specifi- 
+cation object. the user’ code be link togeth with the 
+mapreduc librari (implement in c++). appendix A 
+contain the full program text for thi example. 
+
+2.2 type 
+
+even though the previou pseudo-cod be write in term 
+of string input and outputs, conceptu the map and 
+reduc function suppli by the user have associ 
+types: 
+
+map (k1,v1) → list(k2,v2) 
+reduc (k2,list(v2)) → list(v2) 
+
+i.e., the input key and valu be drawn from a differ 
+domain than the output key and values. furthermore, 
+the intermedi key and valu be from the same do- 
+main a the output key and values. 
+
+our c++ implement pass string to and from 
+the user-defin function and leaf it to the user code 
+to convert between string and appropri types. 
+
+2.3 more exampl 
+
+here be a few simpl exampl of interest program 
+that can be easili express a mapreduc computa- 
+tions. 
+
+distribut grep: the map function emit a line if it 
+match a suppli pattern. the reduc function be an 
+ident function that just copi the suppli intermedi- 
+ate data to the output. 
+
+count of url access frequency: the map func- 
+tion process log of web page request and output 
+〈url,1〉. the reduc function add togeth all valu 
+for the same url and emit a 〈url,tot count〉 
+pair. 
+
+revers web-link graph: the map function output 
+〈target,source〉 pair for each link to a target 
+url found in a page name source. the reduc 
+function concaten the list of all sourc url as- 
+sociat with a give target url and emit the pair: 
+〈target, list(source)〉 
+
+term-vector per host: A term vector summar the 
+most import word that occur in a document or a set 
+of document a a list of 〈word, frequency〉 pairs. the 
+map function emit a 〈hostname,term vector〉 
+pair for each input document (where the hostnam be 
+extract from the url of the document). the re- 
+duce function be pass all per-docu term vector 
+for a give host. It add these term vector together, 
+throw away infrequ terms, and then emit a final 
+〈hostname,term vector〉 pair. 
+
+To appear in osdi 2004 2 
+
+
+
+user 
+program 
+
+master 
+
+(1) fork 
+
+worker 
+
+(1) fork 
+
+worker 
+
+(1) fork 
+
+(2) 
+assign 
+map 
+
+(2) 
+assign 
+reduc 
+
+split 0 
+
+split 1 
+
+split 2 
+
+split 3 
+
+split 4 
+
+
+
+output 
+file 0 
+
+(6) write 
+
+worker 
+(3) read 
+
+worker 
+
+
+(4) local write 
+
+
+
+map 
+phase 
+
+intermedi file 
+(on local disks) 
+
+worker output 
+file 1 
+
+input 
+file 
+
+(5) remot read 
+
+reduc 
+phase 
+
+output 
+file 
+
+figur 1: execut overview 
+
+invert index: the map function par each docu- 
+ment, and emit a sequenc of 〈word,docu id〉 
+pairs. the reduc function accept all pair for a give 
+word, sort the correspond document id and emit a 
+〈word, list(docu id)〉 pair. the set of all output 
+pair form a simpl invert index. It be easi to augment 
+thi comput to keep track of word positions. 
+
+distribut sort: the map function extract the key 
+from each record, and emit a 〈key,record〉 pair. the 
+reduc function emit all pair unchanged. thi compu- 
+tation depend on the partit facil describ in 
+section 4.1 and the order properti describ in sec- 
+tion 4.2. 
+
+3 implement 
+
+mani differ implement of the mapreduc in- 
+terfac be possible. the right choic depend on the 
+environment. for example, one implement may be 
+suitabl for a small shared-memori machine, anoth for 
+a larg numa multi-processor, and yet anoth for an 
+even larg collect of network machines. 
+
+thi section describ an implement target 
+to the comput environ in wide use at google: 
+
+larg cluster of commod pc connect togeth with 
+switch ethernet [4]. In our environment: 
+
+(1) machin be typic dual-processor x86 processor 
+run linux, with 2-4 GB of memori per machine. 
+
+(2) commod network hardwar be use – typic 
+either 100 megabits/second or 1 gigabit/second at the 
+machin level, but averag consider less in over- 
+all bisect bandwidth. 
+
+(3) A cluster consist of hundr or thousand of ma- 
+chines, and therefor machin failur be common. 
+
+(4) storag be provid by inexpens ide disk at- 
+tach directli to individu machines. A distribut file 
+system [8] develop in-hous be use to manag the data 
+store on these disks. the file system us replic to 
+provid avail and reliabl on top of unreli 
+hardware. 
+
+(5) user submit job to a schedul system. each job 
+consist of a set of tasks, and be map by the schedul 
+to a set of avail machin within a cluster. 
+
+3.1 execut overview 
+
+the map invoc be distribut across multipl 
+machin by automat partit the input data 
+
+To appear in osdi 2004 3 
+
+
+
+into a set of M splits. the input split can be pro- 
+cess in parallel by differ machines. reduc invoca- 
+tion be distribut by partit the intermedi key 
+space into R piec use a partit function (e.g., 
+hash(key) mod r). the number of partit (r) and 
+the partit function be specifi by the user. 
+
+figur 1 show the overal flow of a mapreduc op- 
+erat in our implementation. when the user program 
+call the mapreduc function, the follow sequenc 
+of action occur (the number label in figur 1 corre- 
+spond to the number in the list below): 
+
+1. the mapreduc librari in the user program first 
+split the input file into M piec of typic 16 
+megabyt to 64 megabyt (mb) per piec (con- 
+trollabl by the user via an option parameter). It 
+then start up mani copi of the program on a clus- 
+ter of machines. 
+
+2. one of the copi of the program be special – the 
+master. the rest be worker that be assign work 
+by the master. there be M map task and R reduc 
+task to assign. the master pick idl worker and 
+assign each one a map task or a reduc task. 
+
+3. A worker who be assign a map task read the 
+content of the correspond input split. It par 
+key/valu pair out of the input data and pass each 
+pair to the user-defin map function. the interme- 
+diat key/valu pair produc by the map function 
+be buffer in memory. 
+
+4. periodically, the buffer pair be write to local 
+disk, partit into R region by the partit 
+function. the locat of these buffer pair on 
+the local disk be pass back to the master, who 
+be respons for forward these locat to the 
+reduc workers. 
+
+5. when a reduc worker be notifi by the master 
+about these locations, it us remot procedur call 
+to read the buffer data from the local disk of the 
+map workers. when a reduc worker have read all in- 
+termedi data, it sort it by the intermedi key 
+so that all occurr of the same key be group 
+together. the sort be need becaus typic 
+mani differ key map to the same reduc task. If 
+the amount of intermedi data be too larg to fit in 
+memory, an extern sort be used. 
+
+6. the reduc worker iter over the sort interme- 
+diat data and for each uniqu intermedi key en- 
+countered, it pass the key and the correspond 
+set of intermedi valu to the user’ reduc func- 
+tion. the output of the reduc function be append 
+to a final output file for thi reduc partition. 
+
+7. when all map task and reduc task have be 
+completed, the master wake up the user program. 
+At thi point, the mapreduc call in the user pro- 
+gram return back to the user code. 
+
+after success completion, the output of the mapre- 
+duce execut be avail in the R output file (one per 
+reduc task, with file name a specifi by the user). 
+typically, user do not need to combin these R output 
+file into one file – they often pa these file a input to 
+anoth mapreduc call, or use them from anoth dis- 
+tribut applic that be abl to deal with input that be 
+partit into multipl files. 
+
+3.2 master data structur 
+
+the master keep sever data structures. for each map 
+task and reduc task, it store the state (idle, in-progress, 
+or completed), and the ident of the worker machin 
+(for non-idl tasks). 
+
+the master be the conduit through which the locat 
+of intermedi file region be propag from map task 
+to reduc tasks. therefore, for each complet map task, 
+the master store the locat and size of the R inter- 
+mediat file region produc by the map task. updat 
+to thi locat and size inform be receiv a map 
+task be completed. the inform be push incre- 
+mental to worker that have in-progress reduc tasks. 
+
+3.3 fault toler 
+
+sinc the mapreduc librari be design to help process 
+veri larg amount of data use hundr or thousand 
+of machines, the librari must toler machin failur 
+gracefully. 
+
+worker failur 
+
+the master ping everi worker periodically. If no re- 
+spons be receiv from a worker in a certain amount of 
+time, the master mark the worker a failed. ani map 
+task complet by the worker be reset back to their ini- 
+tial idl state, and therefor becom elig for schedul- 
+ing on other workers. similarly, ani map task or reduc 
+task in progress on a fail worker be also reset to idl 
+and becom elig for rescheduling. 
+
+complet map task be re-execut on a failur be- 
+caus their output be store on the local disk(s) of the 
+fail machin and be therefor inaccessible. complet 
+reduc task do not need to be re-execut sinc their 
+output be store in a global file system. 
+
+when a map task be execut first by worker A and 
+then late execut by worker B (becaus A failed), all 
+
+To appear in osdi 2004 4 
+
+
+
+worker execut reduc task be notifi of the re- 
+execution. ani reduc task that have not alreadi read the 
+data from worker A will read the data from worker B. 
+
+mapreduc be resili to large-scal worker failures. 
+for example, dure one mapreduc operation, network 
+mainten on a run cluster be caus group of 
+80 machin at a time to becom unreach for sev- 
+eral minutes. the mapreduc master simpli re-execut 
+the work do by the unreach worker machines, and 
+continu to make forward progress, eventu complet- 
+ing the mapreduc operation. 
+
+master failur 
+
+It be easi to make the master write period checkpoint 
+of the master data structur describ above. If the mas- 
+ter task dies, a new copi can be start from the last 
+checkpoint state. however, give that there be onli a 
+singl master, it failur be unlikely; therefor our cur- 
+rent implement abort the mapreduc comput 
+if the master fails. client can check for thi condit 
+and retri the mapreduc oper if they desire. 
+
+semant in the presenc of failur 
+
+when the user-suppli map and reduc oper be de- 
+terminist function of their input values, our distribut 
+implement produc the same output a would have 
+be produc by a non-fault sequenti execut of 
+the entir program. 
+
+We reli on atom commit of map and reduc task 
+output to achiev thi property. each in-progress task 
+write it output to privat temporari files. A reduc task 
+produc one such file, and a map task produc R such 
+file (one per reduc task). when a map task completes, 
+the worker send a messag to the master and includ 
+the name of the R temporari file in the message. If 
+the master receiv a complet messag for an alreadi 
+complet map task, it ignor the message. otherwise, 
+it record the name of R file in a master data structure. 
+
+when a reduc task completes, the reduc worker 
+atom renam it temporari output file to the final 
+output file. If the same reduc task be execut on multi- 
+ple machines, multipl renam call will be execut for 
+the same final output file. We reli on the atom renam 
+oper provid by the underli file system to guar- 
+ante that the final file system state contain just the data 
+produc by one execut of the reduc task. 
+
+the vast major of our map and reduc oper be 
+deterministic, and the fact that our semant be equiv- 
+alent to a sequenti execut in thi case make it veri 
+
+easi for programm to reason about their program’ be- 
+havior. when the map and/or reduc oper be non- 
+deterministic, we provid weaker but still reason se- 
+mantics. In the presenc of non-determinist operators, 
+the output of a particular reduc task R1 be equival to 
+the output for R1 produc by a sequenti execut of 
+the non-determinist program. however, the output for 
+a differ reduc task R2 may correspond to the output 
+for R2 produc by a differ sequenti execut of 
+the non-determinist program. 
+
+consid map task M and reduc task R1 and r2. 
+let e(ri) be the execut of Ri that commit (there 
+be exactli one such execution). the weaker semant 
+aris becaus e(r1) may have read the output produc 
+by one execut of M and e(r2) may have read the 
+output produc by a differ execut of M . 
+
+3.4 local 
+
+network bandwidth be a rel scarc resourc in our 
+comput environment. We conserv network band- 
+width by take advantag of the fact that the input data 
+(manag by gf [8]) be store on the local disk of the 
+machin that make up our cluster. gf divid each 
+file into 64 MB blocks, and store sever copi of each 
+block (typic 3 copies) on differ machines. the 
+mapreduc master take the locat inform of the 
+input file into account and attempt to schedul a map 
+task on a machin that contain a replica of the corre- 
+spond input data. fail that, it attempt to schedul 
+a map task near a replica of that task’ input data (e.g., on 
+a worker machin that be on the same network switch a 
+the machin contain the data). when run larg 
+mapreduc oper on a signific fraction of the 
+worker in a cluster, most input data be read local and 
+consum no network bandwidth. 
+
+3.5 task granular 
+
+We subdivid the map phase into M piec and the re- 
+duce phase into R pieces, a describ above. ideally, M 
+and R should be much larg than the number of worker 
+machines. have each worker perform mani differ 
+task improv dynam load balancing, and also speed 
+up recoveri when a worker fails: the mani map task 
+it have complet can be spread out across all the other 
+worker machines. 
+
+there be practic bound on how larg M and R can 
+be in our implementation, sinc the master must make 
+o(m + R) schedul decis and keep o(m ∗ R) 
+state in memori a describ above. (the constant fac- 
+tor for memori usag be small however: the o(m ∗r) 
+piec of the state consist of approxim one byte of 
+data per map task/reduc task pair.) 
+
+To appear in osdi 2004 5 
+
+
+
+furthermore, R be often constrain by user becaus 
+the output of each reduc task end up in a separ out- 
+put file. In practice, we tend to choos M so that each 
+individu task be roughli 16 MB to 64 MB of input data 
+(so that the local optim describ abov be most 
+effective), and we make R a small multipl of the num- 
+ber of worker machin we expect to use. We often per- 
+form mapreduc comput with M = 200, 000 and 
+R = 5, 000, use 2,000 worker machines. 
+
+3.6 backup task 
+
+one of the common caus that lengthen the total time 
+take for a mapreduc oper be a “straggler”: a ma- 
+chine that take an unusu long time to complet one 
+of the last few map or reduc task in the computation. 
+straggler can aris for a whole host of reasons. for ex- 
+ample, a machin with a bad disk may experi fre- 
+quent correct error that slow it read perform 
+from 30 mb/ to 1 mb/s. the cluster schedul sys- 
+tem may have schedul other task on the machine, 
+caus it to execut the mapreduc code more slowli 
+due to competit for cpu, memory, local disk, or net- 
+work bandwidth. A recent problem we experienc be 
+a bug in machin initi code that caus proces- 
+sor cach to be disabled: comput on affect ma- 
+chine slow down by over a factor of one hundred. 
+
+We have a gener mechan to allevi the prob- 
+lem of stragglers. when a mapreduc oper be close 
+to completion, the master schedul backup execut 
+of the remain in-progress tasks. the task be mark 
+a complet whenev either the primari or the backup 
+execut completes. We have tune thi mechan so 
+that it typic increas the comput resourc 
+use by the oper by no more than a few percent. 
+We have found that thi significantli reduc the time 
+to complet larg mapreduc operations. As an exam- 
+ple, the sort program describ in section 5.3 take 44% 
+longer to complet when the backup task mechan be 
+disabled. 
+
+4 refin 
+
+although the basic function provid by simpli 
+write map and reduc function be suffici for most 
+needs, we have found a few extens useful. these be 
+describ in thi section. 
+
+4.1 partit function 
+
+the user of mapreduc specifi the number of reduc 
+tasks/output file that they desir (r). data get parti- 
+tion across these task use a partit function on 
+
+the intermedi key. A default partit function be 
+provid that us hash (e.g. “hash(key) mod r”). 
+thi tend to result in fairli well-balanc partitions. In 
+some cases, however, it be use to partit data by 
+some other function of the key. for example, sometim 
+the output key be urls, and we want all entri for a 
+singl host to end up in the same output file. To support 
+situat like this, the user of the mapreduc librari 
+can provid a special partit function. for example, 
+use “hash(hostname(urlkey)) mod R” a the par- 
+tition function caus all url from the same host to 
+end up in the same output file. 
+
+4.2 order guarante 
+
+We guarante that within a give partition, the interme- 
+diat key/valu pair be process in increas key or- 
+der. thi order guarante make it easi to gener 
+a sort output file per partition, which be use when 
+the output file format need to support effici random 
+access lookup by key, or user of the output find it con- 
+venient to have the data sorted. 
+
+4.3 combin function 
+
+In some cases, there be signific repetit in the inter- 
+mediat key produc by each map task, and the user- 
+specifi reduc function be commut and associa- 
+tive. A good exampl of thi be the word count exam- 
+ple in section 2.1. sinc word frequenc tend to follow 
+a zipf distribution, each map task will produc hundr 
+or thousand of record of the form <the, 1>. all of 
+these count will be sent over the network to a singl re- 
+duce task and then add togeth by the reduc function 
+to produc one number. We allow the user to specifi an 
+option combin function that do partial merg of 
+thi data befor it be sent over the network. 
+
+the combin function be execut on each machin 
+that perform a map task. typic the same code be use 
+to implement both the combin and the reduc func- 
+tions. the onli differ between a reduc function and 
+a combin function be how the mapreduc librari han- 
+dle the output of the function. the output of a reduc 
+function be write to the final output file. the output of 
+a combin function be write to an intermedi file that 
+will be sent to a reduc task. 
+
+partial combin significantli speed up certain 
+class of mapreduc operations. appendix A contain 
+an exampl that us a combiner. 
+
+4.4 input and output type 
+
+the mapreduc librari provid support for read in- 
+put data in sever differ formats. for example, “text” 
+
+To appear in osdi 2004 6 
+
+
+
+mode input treat each line a a key/valu pair: the key 
+be the offset in the file and the valu be the content of 
+the line. anoth common support format store a 
+sequenc of key/valu pair sort by key. each input 
+type implement know how to split itself into mean- 
+ing rang for process a separ map task (e.g. 
+text mode’ rang split ensur that rang split oc- 
+cur onli at line boundaries). user can add support for a 
+new input type by provid an implement of a sim- 
+ple reader interface, though most user just use one of a 
+small number of predefin input types. 
+
+A reader do not necessarili need to provid data 
+read from a file. for example, it be easi to defin a reader 
+that read record from a database, or from data struc- 
+ture map in memory. 
+
+In a similar fashion, we support a set of output type 
+for produc data in differ format and it be easi for 
+user code to add support for new output types. 
+
+4.5 side-effect 
+
+In some cases, user of mapreduc have found it con- 
+venient to produc auxiliari file a addit output 
+from their map and/or reduc operators. We reli on the 
+applic writer to make such side-effect atom and 
+idempotent. typic the applic write to a tempo- 
+rari file and atom renam thi file onc it have be 
+fulli generated. 
+
+We do not provid support for atom two-phas com- 
+mit of multipl output file produc by a singl task. 
+therefore, task that produc multipl output file with 
+cross-fil consist requir should be determin- 
+istic. thi restrict have never be an issu in practice. 
+
+4.6 skip bad record 
+
+sometim there be bug in user code that caus the map 
+or reduc function to crash determinist on certain 
+records. such bug prevent a mapreduc oper from 
+completing. the usual cours of action be to fix the bug, 
+but sometim thi be not feasible; perhap the bug be in 
+a third-parti librari for which sourc code be unavail- 
+able. also, sometim it be accept to ignor a few 
+records, for exampl when do statist analysi on 
+a larg data set. We provid an option mode of execu- 
+tion where the mapreduc librari detect which record 
+caus determinist crash and skip these record in or- 
+der to make forward progress. 
+
+each worker process instal a signal handler that 
+catch segment violat and bu errors. befor 
+invok a user map or reduc operation, the mapre- 
+duce librari store the sequenc number of the argument 
+in a global variable. If the user code gener a signal, 
+
+the signal handler send a “last gasp” udp packet that 
+contain the sequenc number to the mapreduc mas- 
+ter. when the master have see more than one failur on 
+a particular record, it indic that the record should be 
+skip when it issu the next re-execut of the corre- 
+spond map or reduc task. 
+
+4.7 local execut 
+
+debug problem in map or reduc function can be 
+tricky, sinc the actual comput happen in a dis- 
+tribut system, often on sever thousand machines, 
+with work assign decis make dynam by 
+the master. To help facilit debugging, profiling, and 
+small-scal testing, we have develop an altern im- 
+plement of the mapreduc librari that sequenti 
+execut all of the work for a mapreduc oper on 
+the local machine. control be provid to the user so 
+that the comput can be limit to particular map 
+tasks. user invok their program with a special flag and 
+can then easili use ani debug or test tool they 
+find use (e.g. gdb). 
+
+4.8 statu inform 
+
+the master run an intern http server and export 
+a set of statu page for human consumption. the sta- 
+tu page show the progress of the computation, such a 
+how mani task have be completed, how mani be in 
+progress, byte of input, byte of intermedi data, byte 
+of output, process rates, etc. the page also contain 
+link to the standard error and standard output file gen- 
+erat by each task. the user can use thi data to pre- 
+dict how long the comput will take, and whether or 
+not more resourc should be add to the computation. 
+these page can also be use to figur out when the com- 
+putat be much slow than expected. 
+
+In addition, the top-level statu page show which 
+worker have failed, and which map and reduc task 
+they be process when they failed. thi informa- 
+tion be use when attempt to diagnos bug in the 
+user code. 
+
+4.9 counter 
+
+the mapreduc librari provid a counter facil to 
+count occurr of variou events. for example, user 
+code may want to count total number of word process 
+or the number of german document indexed, etc. 
+
+To use thi facility, user code creat a name counter 
+object and then increment the counter appropri in 
+the map and/or reduc function. for example: 
+
+To appear in osdi 2004 7 
+
+
+
+counter* uppercase; 
+uppercas = getcounter("uppercase"); 
+
+map(str name, string contents): 
+for each word w in contents: 
+
+if (iscapitalized(w)): 
+uppercase->increment(); 
+
+emitintermediate(w, "1"); 
+
+the counter valu from individu worker machin 
+be period propag to the master (piggyback 
+on the ping response). the master aggreg the counter 
+valu from success map and reduc task and return 
+them to the user code when the mapreduc oper 
+be completed. the current counter valu be also dis- 
+play on the master statu page so that a human can 
+watch the progress of the live computation. when aggre- 
+gate counter values, the master elimin the effect of 
+duplic execut of the same map or reduc task to 
+avoid doubl counting. (duplic execut can aris 
+from our use of backup task and from re-execut of 
+task due to failures.) 
+
+some counter valu be automat maintain 
+by the mapreduc library, such a the number of in- 
+put key/valu pair process and the number of output 
+key/valu pair produced. 
+
+user have found the counter facil use for san- 
+iti check the behavior of mapreduc operations. for 
+example, in some mapreduc operations, the user code 
+may want to ensur that the number of output pair 
+produc exactli equal the number of input pair pro- 
+cessed, or that the fraction of german document pro- 
+cess be within some toler fraction of the total num- 
+ber of document processed. 
+
+5 perform 
+
+In thi section we measur the perform of mapre- 
+duce on two comput run on a larg cluster of 
+machines. one comput search through approxi- 
+mate one terabyt of data look for a particular pat- 
+tern. the other comput sort approxim one ter- 
+abyt of data. 
+
+these two program be repres of a larg sub- 
+set of the real program write by user of mapreduc – 
+one class of program shuffl data from one representa- 
+tion to another, and anoth class extract a small amount 
+of interest data from a larg data set. 
+
+5.1 cluster configur 
+all of the program be execut on a cluster that 
+consist of approxim 1800 machines. each ma- 
+chine have two 2ghz intel xeon processor with hyper- 
+thread enabled, 4gb of memory, two 160gb ide 
+
+20 40 60 80 100 
+
+second 
+
+0 
+
+10000 
+
+20000 
+
+30000 
+
+In 
+pu 
+
+t ( 
+M 
+
+B 
+/s 
+
+) 
+
+figur 2: data transfer rate over time 
+
+disks, and a gigabit ethernet link. the machin be 
+arrang in a two-level tree-shap switch network 
+with approxim 100-200 gbp of aggreg band- 
+width avail at the root. all of the machin be 
+in the same host facil and therefor the round-trip 
+time between ani pair of machin be less than a mil- 
+lisecond. 
+
+out of the 4gb of memory, approxim 1-1.5gb 
+be reserv by other task run on the cluster. the 
+program be execut on a weekend afternoon, when 
+the cpus, disks, and network be mostli idle. 
+
+5.2 grep 
+
+the grep program scan through 1010 100-byte records, 
+search for a rel rare three-charact pattern (the 
+pattern occur in 92,337 records). the input be split into 
+approxim 64mb piec (M = 15000), and the en- 
+tire output be place in one file (R = 1). 
+
+figur 2 show the progress of the comput over 
+time. the y-axi show the rate at which the input data be 
+scanned. the rate gradual pick up a more machin 
+be assign to thi mapreduc computation, and peak 
+at over 30 gb/ when 1764 worker have be assigned. 
+As the map task finish, the rate start drop and hit 
+zero about 80 second into the computation. the entir 
+comput take approxim 150 second from start 
+to finish. thi includ about a minut of startup over- 
+head. the overhead be due to the propag of the pro- 
+gram to all worker machines, and delay interact with 
+gf to open the set of 1000 input file and to get the 
+inform need for the local optimization. 
+
+5.3 sort 
+
+the sort program sort 1010 100-byte record (approxi- 
+mate 1 terabyt of data). thi program be model after 
+the terasort benchmark [10]. 
+
+the sort program consist of less than 50 line of 
+user code. A three-lin map function extract a 10-byte 
+sort key from a text line and emit the key and the 
+
+To appear in osdi 2004 8 
+
+
+
+500 1000 
+0 
+
+5000 
+
+10000 
+
+15000 
+
+20000 
+In 
+
+pu 
+t ( 
+
+M 
+B 
+
+/s 
+) 
+
+500 1000 
+0 
+
+5000 
+
+10000 
+
+15000 
+
+20000 
+
+Sh 
+uf 
+
+fle 
+(M 
+
+B 
+/s 
+
+) 
+
+500 1000 
+
+second 
+
+0 
+
+5000 
+
+10000 
+
+15000 
+
+20000 
+
+O 
+ut 
+
+pu 
+t ( 
+
+M 
+B 
+
+/s 
+) 
+
+done 
+
+(a) normal execut 
+
+500 1000 
+0 
+
+5000 
+
+10000 
+
+15000 
+
+20000 
+
+In 
+pu 
+
+t ( 
+M 
+
+B 
+/s 
+
+) 
+
+500 1000 
+0 
+
+5000 
+
+10000 
+
+15000 
+
+20000 
+
+Sh 
+uf 
+
+fle 
+(M 
+
+B 
+/s 
+
+) 
+
+500 1000 
+
+second 
+
+0 
+
+5000 
+
+10000 
+
+15000 
+
+20000 
+O 
+
+ut 
+pu 
+
+t ( 
+M 
+
+B 
+/s 
+
+) 
+
+done 
+
+(b) No backup task 
+
+500 1000 
+0 
+
+5000 
+
+10000 
+
+15000 
+
+20000 
+
+In 
+pu 
+
+t ( 
+M 
+
+B 
+/s 
+
+) 
+
+500 1000 
+0 
+
+5000 
+
+10000 
+
+15000 
+
+20000 
+
+Sh 
+uf 
+
+fle 
+(M 
+
+B 
+/s 
+
+) 
+
+500 1000 
+
+second 
+
+0 
+
+5000 
+
+10000 
+
+15000 
+
+20000 
+
+O 
+ut 
+
+pu 
+t ( 
+
+M 
+B 
+
+/s 
+) 
+
+done 
+
+(c) 200 task kill 
+
+figur 3: data transfer rate over time for differ execut of the sort program 
+
+origin text line a the intermedi key/valu pair. We 
+use a built-in ident function a the reduc operator. 
+thi function pass the intermedi key/valu pair un- 
+chang a the output key/valu pair. the final sort 
+output be write to a set of 2-way replic gf file 
+(i.e., 2 terabyt be write a the output of the program). 
+
+As before, the input data be split into 64mb piec 
+(M = 15000). We partit the sort output into 4000 
+file (R = 4000). the partit function us the ini- 
+tial byte of the key to segreg it into one of R pieces. 
+
+our partit function for thi benchmark have built- 
+in knowledg of the distribut of keys. In a gener 
+sort program, we would add a pre-pass mapreduc 
+oper that would collect a sampl of the key and 
+use the distribut of the sampl key to comput split- 
+point for the final sort pass. 
+
+figur 3 (a) show the progress of a normal execut 
+of the sort program. the top-left graph show the rate 
+at which input be read. the rate peak at about 13 gb/ 
+and dy off fairli quickli sinc all map task finish be- 
+fore 200 second have elapsed. note that the input rate 
+be less than for grep. thi be becaus the sort map task 
+spend about half their time and i/o bandwidth write in- 
+termedi output to their local disks. the correspond 
+intermedi output for grep have neglig size. 
+
+the middle-left graph show the rate at which data 
+be sent over the network from the map task to the re- 
+duce tasks. thi shuffl start a soon a the first 
+map task completes. the first hump in the graph be for 
+
+the first batch of approxim 1700 reduc task (the 
+entir mapreduc be assign about 1700 machines, 
+and each machin execut at most one reduc task at a 
+time). roughli 300 second into the computation, some 
+of these first batch of reduc task finish and we start 
+shuffl data for the remain reduc tasks. all of the 
+shuffl be do about 600 second into the computation. 
+
+the bottom-left graph show the rate at which sort 
+data be write to the final output file by the reduc tasks. 
+there be a delay between the end of the first shuffl pe- 
+riod and the start of the write period becaus the ma- 
+chine be busi sort the intermedi data. the write 
+continu at a rate of about 2-4 gb/ for a while. all of 
+the write finish about 850 second into the computation. 
+includ startup overhead, the entir comput take 
+891 seconds. thi be similar to the current best report 
+result of 1057 second for the terasort benchmark [18]. 
+
+A few thing to note: the input rate be high than the 
+shuffl rate and the output rate becaus of our local 
+optim – most data be read from a local disk and 
+bypass our rel bandwidth constrain network. 
+the shuffl rate be high than the output rate becaus 
+the output phase write two copi of the sort data (we 
+make two replica of the output for reliabl and avail- 
+abil reasons). We write two replica becaus that be 
+the mechan for reliabl and avail provid 
+by our underli file system. network bandwidth re- 
+quirement for write data would be reduc if the un- 
+derli file system use erasur cod [14] rather than 
+replication. 
+
+To appear in osdi 2004 9 
+
+
+
+5.4 effect of backup task 
+
+In figur 3 (b), we show an execut of the sort pro- 
+gram with backup task disabled. the execut flow be 
+similar to that show in figur 3 (a), except that there be 
+a veri long tail where hardli ani write activ occurs. 
+after 960 seconds, all except 5 of the reduc task be 
+completed. howev these last few straggler don’t fin- 
+ish until 300 second later. the entir comput take 
+1283 seconds, an increas of 44% in elaps time. 
+
+5.5 machin failur 
+
+In figur 3 (c), we show an execut of the sort program 
+where we intent kill 200 out of 1746 worker 
+process sever minut into the computation. the 
+underli cluster schedul immedi restart new 
+worker process on these machin (sinc onli the pro- 
+ce be killed, the machin be still function 
+properly). 
+
+the worker death show up a a neg input rate 
+sinc some previous complet map work disappear 
+(sinc the correspond map worker be killed) and 
+need to be redone. the re-execut of thi map work 
+happen rel quickly. the entir comput fin- 
+ish in 933 second includ startup overhead (just an 
+increas of 5% over the normal execut time). 
+
+6 experi 
+
+We write the first version of the mapreduc librari in 
+februari of 2003, and make signific enhanc to 
+it in august of 2003, includ the local optimization, 
+dynam load balanc of task execut across worker 
+machines, etc. sinc that time, we have be pleasantli 
+surpris at how broadli applic the mapreduc li- 
+brari have be for the kind of problem we work on. 
+It have be use across a wide rang of domain within 
+google, including: 
+
+• large-scal machin learn problems, 
+
+• cluster problem for the googl new and 
+froogl products, 
+
+• extract of data use to produc report of popular 
+queri (e.g. googl zeitgeist), 
+
+• extract of properti of web page for new exper- 
+iment and product (e.g. extract of geographi- 
+cal locat from a larg corpu of web page for 
+local search), and 
+
+• large-scal graph computations. 
+
+2003/03 
+
+2003/06 
+
+2003/09 
+
+2003/12 
+
+2004/03 
+
+2004/06 
+
+2004/09 
+
+0 
+
+200 
+
+400 
+
+600 
+
+800 
+
+1000 
+
+N 
+um 
+
+be 
+r 
+
+of 
+in 
+
+st 
+an 
+
+ce 
+s i 
+
+n 
+so 
+
+ur 
+ce 
+
+tr 
+ee 
+
+figur 4: mapreduc instanc over time 
+
+number of job 29,423 
+averag job complet time 634 sec 
+machin day use 79,186 day 
+input data read 3,288 TB 
+intermedi data produc 758 TB 
+output data write 193 TB 
+averag worker machin per job 157 
+averag worker death per job 1.2 
+averag map task per job 3,351 
+averag reduc task per job 55 
+uniqu map implement 395 
+uniqu reduc implement 269 
+uniqu map/reduc combin 426 
+
+tabl 1: mapreduc job run in august 2004 
+
+figur 4 show the signific growth in the number of 
+separ mapreduc program check into our primari 
+sourc code manag system over time, from 0 in 
+earli 2003 to almost 900 separ instanc a of late 
+septemb 2004. mapreduc have be so success be- 
+caus it make it possibl to write a simpl program and 
+run it effici on a thousand machin in the cours 
+of half an hour, greatli speed up the develop and 
+prototyp cycle. furthermore, it allow programm 
+who have no experi with distribut and/or parallel 
+system to exploit larg amount of resourc easily. 
+
+At the end of each job, the mapreduc librari log 
+statist about the comput resourc use by the 
+job. In tabl 1, we show some statist for a subset of 
+mapreduc job run at googl in august 2004. 
+
+6.1 large-scal index 
+
+one of our most signific us of mapreduc to date 
+have be a complet rewrit of the product index- 
+
+To appear in osdi 2004 10 
+
+
+
+ing system that produc the data structur use for the 
+googl web search service. the index system take 
+a input a larg set of document that have be retriev 
+by our crawl system, store a a set of gf files. the 
+raw content for these document be more than 20 ter- 
+abyt of data. the index process run a a sequenc 
+of five to ten mapreduc operations. use mapreduc 
+(instead of the ad-hoc distribut pass in the prior ver- 
+sion of the index system) have provid sever bene- 
+fits: 
+
+• the index code be simpler, smaller, and easi to 
+understand, becaus the code that deal with fault 
+tolerance, distribut and parallel be hidden 
+within the mapreduc library. for example, the 
+size of one phase of the comput drop from 
+approxim 3800 line of c++ code to approx- 
+imat 700 line when express use mapre- 
+duce. 
+
+• the perform of the mapreduc librari be good 
+enough that we can keep conceptu unrel 
+comput separate, instead of mix them to- 
+gether to avoid extra pass over the data. thi 
+make it easi to chang the index process. for 
+example, one chang that take a few month to 
+make in our old index system take onli a few 
+day to implement in the new system. 
+
+• the index process have becom much easi to 
+operate, becaus most of the problem caus by 
+machin failures, slow machines, and network 
+hiccup be dealt with automat by the mapre- 
+duce librari without oper intervention. further- 
+more, it be easi to improv the perform of the 
+index process by add new machin to the in- 
+dex cluster. 
+
+7 relat work 
+
+mani system have provid restrict program 
+model and use the restrict to parallel the com- 
+putat automatically. for example, an associ func- 
+tion can be comput over all prefix of an N element 
+array in log N time on N processor use parallel prefix 
+comput [6, 9, 13]. mapreduc can be consid 
+a simplif and distil of some of these model 
+base on our experi with larg real-world compu- 
+tations. more significantly, we provid a fault-toler 
+implement that scale to thousand of processors. 
+In contrast, most of the parallel process system have 
+onli be implement on small scale and leav the 
+detail of handl machin failur to the programmer. 
+
+bulk synchron program [17] and some mpi 
+primit [11] provid higher-level abstract that 
+
+make it easi for programm to write parallel pro- 
+grams. A key differ between these system and 
+mapreduc be that mapreduc exploit a restrict pro- 
+gram model to parallel the user program auto- 
+matic and to provid transpar fault-tolerance. 
+
+our local optim draw it inspir from 
+techniqu such a activ disk [12, 15], where compu- 
+tation be push into process element that be close 
+to local disks, to reduc the amount of data sent across 
+i/o subsystem or the network. We run on commod 
+processor to which a small number of disk be directli 
+connect instead of run directli on disk control 
+processors, but the gener approach be similar. 
+
+our backup task mechan be similar to the eager 
+schedul mechan employ in the charlott sys- 
+tem [3]. one of the shortcom of simpl eager 
+schedul be that if a give task caus repeat failures, 
+the entir comput fail to complete. We fix some in- 
+stanc of thi problem with our mechan for skip 
+bad records. 
+
+the mapreduc implement reli on an in-hous 
+cluster manag system that be respons for dis- 
+tribut and run user task on a larg collect of 
+share machines. though not the focu of thi paper, the 
+cluster manag system be similar in spirit to other 
+system such a condor [16]. 
+
+the sort facil that be a part of the mapreduc 
+librari be similar in oper to now-sort [1]. sourc 
+machin (map workers) partit the data to be sort 
+and send it to one of R reduc workers. each reduc 
+worker sort it data local (in memori if possible). Of 
+cours now-sort do not have the user-defin map 
+and reduc function that make our librari wide appli- 
+cable. 
+
+river [2] provid a program model where pro- 
+ce commun with each other by send data 
+over distribut queues. like mapreduce, the river 
+system tri to provid good averag case perform 
+even in the presenc of non-uniform introduc by 
+heterogen hardwar or system perturbations. river 
+achiev thi by care schedul of disk and network 
+transfer to achiev balanc complet times. mapre- 
+duce have a differ approach. By restrict the pro- 
+gram model, the mapreduc framework be abl 
+to partit the problem into a larg number of fine- 
+grain tasks. these task be dynam schedul 
+on avail worker so that faster worker process more 
+tasks. the restrict program model also allow 
+u to schedul redund execut of task near the 
+end of the job which greatli reduc complet time in 
+the presenc of non-uniform (such a slow or stuck 
+workers). 
+
+bad-f [5] have a veri differ program model 
+from mapreduce, and unlik mapreduce, be target to 
+
+To appear in osdi 2004 11 
+
+
+
+the execut of job across a wide-area network. how- 
+ever, there be two fundament similarities. (1) both 
+system use redund execut to recov from data 
+loss caus by failures. (2) both use locality-awar 
+schedul to reduc the amount of data sent across con- 
+gest network links. 
+
+tacc [7] be a system design to simplifi con- 
+struction of highly-avail network services. like 
+mapreduce, it reli on re-execut a a mechan for 
+implement fault-tolerance. 
+
+8 conclus 
+
+the mapreduc program model have be success- 
+fulli use at googl for mani differ purposes. We 
+attribut thi success to sever reasons. first, the model 
+be easi to use, even for programm without experi 
+with parallel and distribut systems, sinc it hide the 
+detail of parallelization, fault-tolerance, local opti- 
+mization, and load balancing. second, a larg varieti 
+of problem be easili express a mapreduc com- 
+putations. for example, mapreduc be use for the gen- 
+erat of data for google’ product web search ser- 
+vice, for sorting, for data mining, for machin learning, 
+and mani other systems. third, we have develop an 
+implement of mapreduc that scale to larg clus- 
+ter of machin compris thousand of machines. the 
+implement make effici use of these machin re- 
+sourc and therefor be suitabl for use on mani of the 
+larg comput problem encount at google. 
+
+We have learn sever thing from thi work. first, 
+restrict the program model make it easi to par- 
+allel and distribut comput and to make such 
+comput fault-tolerant. second, network bandwidth 
+be a scarc resource. A number of optim in our 
+system be therefor target at reduc the amount of 
+data sent across the network: the local optim al- 
+low u to read data from local disks, and write a singl 
+copi of the intermedi data to local disk save network 
+bandwidth. third, redund execut can be use to 
+reduc the impact of slow machines, and to handl ma- 
+chine failur and data loss. 
+
+acknowledg 
+
+josh levenberg have be instrument in revis and 
+extend the user-level mapreduc api with a num- 
+ber of new featur base on hi experi with use 
+mapreduc and other people’ suggest for enhance- 
+ments. mapreduc read it input from and write it 
+output to the googl file system [8]. We would like to 
+thank mohit aron, howard gobioff, marku gutschke, 
+
+david kramer, shun-tak leung, and josh redston for 
+their work in develop gfs. We would also like to 
+thank perci liang and olcan sercinoglu for their work 
+in develop the cluster manag system use by 
+mapreduce. mike burrows, wilson hsieh, josh leven- 
+berg, sharon perl, rob pike, and debbi wallach pro- 
+vide help comment on earli draft of thi pa- 
+per. the anonym osdi reviewers, and our shepherd, 
+eric brewer, provid mani use suggest of area 
+where the paper could be improved. finally, we thank all 
+the user of mapreduc within google’ engin or- 
+ganiz for provid help feedback, suggestions, 
+and bug reports. 
+
+refer 
+
+[1] andrea C. arpaci-dusseau, remzi H. arpaci-dusseau, 
+david E. culler, joseph M. hellerstein, and david A. pat- 
+terson. high-perform sort on network of work- 
+stations. In proceed of the 1997 acm sigmod in- 
+ternat confer on manag of data, tucson, 
+arizona, may 1997. 
+
+[2] remzi H. arpaci-dusseau, eric anderson, noah 
+treuhaft, david E. culler, joseph M. hellerstein, david 
+patterson, and kathi yelick. cluster i/o with river: 
+make the fast case common. In proceed of the sixth 
+workshop on input/output in parallel and distribut 
+system (iopad ’99), page 10–22, atlanta, georgia, 
+may 1999. 
+
+[3] arash baratloo, mehmet karaul, zvi kedem, and peter 
+wyckoff. charlotte: metacomput on the web. In pro- 
+ceed of the 9th intern confer on parallel 
+and distribut comput systems, 1996. 
+
+[4] luiz A. barroso, jeffrey dean, and ur hölzle. web 
+search for a planet: the googl cluster architecture. ieee 
+micro, 23(2):22–28, april 2003. 
+
+[5] john bent, dougla thain, andrea c.arpaci-dusseau, 
+remzi H. arpaci-dusseau, and miron livny. explicit 
+control in a batch-awar distribut file system. In pro- 
+ceed of the 1st usenix symposium on network 
+system design and implement nsdi, march 2004. 
+
+[6] guy E. blelloch. scan a primit parallel operations. 
+ieee transact on computers, c-38(11), novemb 
+1989. 
+
+[7] armando fox, steven D. gribble, yatin chawathe, 
+eric A. brewer, and paul gauthier. cluster-bas scal- 
+abl network services. In proceed of the 16th acm 
+symposium on oper system principles, page 78– 
+91, saint-malo, france, 1997. 
+
+[8] sanjay ghemawat, howard gobioff, and shun-tak le- 
+ung. the googl file system. In 19th symposium on op- 
+erat system principles, page 29–43, lake george, 
+new york, 2003. 
+
+To appear in osdi 2004 12 
+
+
+
+[9] S. gorlatch. systemat effici parallel of scan 
+and other list homomorphisms. In L. bouge, P. fraigni- 
+aud, A. mignotte, and Y. robert, editors, euro-par’96. 
+parallel processing, lectur note in comput scienc 
+1124, page 401–408. springer-verlag, 1996. 
+
+[10] jim gray. sort benchmark home page. 
+http://research.microsoft.com/barc/sortbenchmark/. 
+
+[11] william gropp, ewe lusk, and anthoni skjellum. 
+use mpi: portabl parallel program with the 
+message-pass interface. mit press, cambridge, ma, 
+1999. 
+
+[12] L. huston, R. sukthankar, R. wickremesinghe, M. satya- 
+narayanan, G. R. ganger, E. riedel, and A. ailamaki. di- 
+amond: A storag architectur for earli discard in inter- 
+activ search. In proceed of the 2004 usenix file 
+and storag technolog fast conference, april 2004. 
+
+[13] richard E. ladner and michael J. fischer. parallel prefix 
+computation. journal of the acm, 27(4):831–838, 1980. 
+
+[14] michael O. rabin. effici dispers of inform for 
+security, load balanc and fault tolerance. journal of 
+the acm, 36(2):335–348, 1989. 
+
+[15] erik riedel, christo faloutsos, garth A. gibson, and 
+david nagle. activ disk for large-scal data process- 
+ing. ieee computer, page 68–74, june 2001. 
+
+[16] dougla thain, todd tannenbaum, and miron livny. 
+distribut comput in practice: the condor experi- 
+ence. concurr and computation: practic and ex- 
+perience, 2004. 
+
+[17] L. G. valiant. A bridg model for parallel computation. 
+commun of the acm, 33(8):103–111, 1997. 
+
+[18] jim wyllie. spsort: how to sort a terabyt quickly. 
+http://alme1.almaden.ibm.com/cs/spsort.pdf. 
+
+A word frequenc 
+
+thi section contain a program that count the number 
+of occurr of each uniqu word in a set of input file 
+specifi on the command line. 
+
+#includ "mapreduce/mapreduce.h" 
+
+// user’ map function 
+class wordcount : public mapper { 
+public: 
+virtual void map(const mapinput& input) { 
+const string& text = input.value(); 
+const int n = text.size(); 
+for (int i = 0; i < n; ) { 
+
+// skip past lead whitespac 
+while ((i < n) && isspace(text[i])) 
+
+i++; 
+
+// find word end 
+int start = i; 
+while ((i < n) && !isspace(text[i])) 
+
+i++; 
+
+if (start < i) 
+emit(text.substr(start,i-start),"1"); 
+
+} 
+} 
+
+}; 
+register_mapper(wordcounter); 
+
+// user’ reduc function 
+class adder : public reduc { 
+
+virtual void reduce(reduceinput* input) { 
+// iter over all entri with the 
+// same key and add the valu 
+int64 valu = 0; 
+while (!input->done()) { 
+
+valu += stringtoint(input->value()); 
+input->nextvalue(); 
+
+} 
+
+// emit sum for input->key() 
+emit(inttostring(value)); 
+
+} 
+}; 
+register_reducer(adder); 
+
+int main(int argc, char** argv) { 
+parsecommandlineflags(argc, argv); 
+
+mapreducespecif spec; 
+
+// store list of input file into "spec" 
+for (int i = 1; i < argc; i++) { 
+mapreduceinput* input = spec.add_input(); 
+input->set_format("text"); 
+input->set_filepattern(argv[i]); 
+input->set_mapper_class("wordcounter"); 
+
+} 
+
+// specifi the output files: 
+// /gfs/test/freq-00000-of-00100 
+// /gfs/test/freq-00001-of-00100 
+// ... 
+mapreduceoutput* out = spec.output(); 
+out->set_filebase("/gfs/test/freq"); 
+out->set_num_tasks(100); 
+out->set_format("text"); 
+out->set_reducer_class("adder"); 
+
+// optional: do partial sum within map 
+// task to save network bandwidth 
+out->set_combiner_class("adder"); 
+
+// tune parameters: use at most 2000 
+// machin and 100 MB of memori per task 
+spec.set_machines(2000); 
+spec.set_map_megabytes(100); 
+spec.set_reduce_megabytes(100); 
+
+// now run it 
+mapreduceresult result; 
+if (!mapreduce(spec, &result)) abort(); 
+
+// done: ’result’ structur contain info 
+// about counters, time taken, number of 
+// machin used, etc. 
+
+return 0; 
+} 
+
+To appear in osdi 2004 13 
+
+

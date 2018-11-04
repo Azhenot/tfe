@@ -1,0 +1,1820 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+MapReduce: Simplified Data Processing on Large Clusters 
+
+Jeffrey Dean and Sanjay Ghemawat 
+
+jeff@google.com, sanjay@google.com 
+
+Google, Inc. 
+
+Abstract 
+
+MapReduce be a program model and an associ- 
+ated implementation for processing and generate large 
+data sets. Users specify a map function that process a 
+key/value pair to generate a set of intermediate key/value 
+pairs, and a reduce function that merges all intermediate 
+value associate with the same intermediate key. Many 
+real world task be expressible in this model, a show 
+in the paper. 
+
+Programs write in this functional style be automati- 
+cally parallelize and execute on a large cluster of com- 
+modity machines. The run-time system take care of the 
+detail of partition the input data, schedule the pro- 
+gram’s execution across a set of machines, handle ma- 
+chine failures, and manage the require inter-machine 
+communication. This allows programmer without any 
+experience with parallel and distribute system to eas- 
+ily utilize the resource of a large distribute system. 
+
+Our implementation of MapReduce run on a large 
+cluster of commodity machine and be highly scalable: 
+a typical MapReduce computation process many ter- 
+abytes of data on thousand of machines. Programmers 
+find the system easy to use: hundred of MapReduce pro- 
+gram have be implement and upwards of one thou- 
+sand MapReduce job be execute on Google’s cluster 
+every day. 
+
+1 Introduction 
+
+Over the past five years, the author and many others at 
+Google have implement hundred of special-purpose 
+computation that process large amount of raw data, 
+such a crawl documents, web request logs, etc., to 
+compute various kind of derive data, such a invert 
+indices, various representation of the graph structure 
+of web documents, summary of the number of page 
+crawl per host, the set of most frequent query in a 
+
+give day, etc. Most such computation be conceptu- 
+ally straightforward. However, the input data be usually 
+large and the computation have to be distribute across 
+hundred or thousand of machine in order to finish in 
+a reasonable amount of time. The issue of how to par- 
+allelize the computation, distribute the data, and handle 
+failure conspire to obscure the original simple compu- 
+tation with large amount of complex code to deal with 
+these issues. 
+
+As a reaction to this complexity, we design a new 
+abstraction that allows u to express the simple computa- 
+tions we be try to perform but hide the messy de- 
+tail of parallelization, fault-tolerance, data distribution 
+and load balance in a library. Our abstraction be in- 
+spired by the map and reduce primitive present in Lisp 
+and many other functional languages. We realize that 
+most of our computation involve apply a map op- 
+eration to each logical “record” in our input in order to 
+compute a set of intermediate key/value pairs, and then 
+apply a reduce operation to all the value that share 
+the same key, in order to combine the derive data ap- 
+propriately. Our use of a functional model with user- 
+specify map and reduce operation allows u to paral- 
+lelize large computation easily and to use re-execution 
+a the primary mechanism for fault tolerance. 
+
+The major contribution of this work be a simple and 
+powerful interface that enables automatic parallelization 
+and distribution of large-scale computations, combine 
+with an implementation of this interface that achieves 
+high performance on large cluster of commodity PCs. 
+
+Section 2 describes the basic program model and 
+give several examples. Section 3 describes an imple- 
+mentation of the MapReduce interface tailor towards 
+our cluster-based compute environment. Section 4 de- 
+scribe several refinement of the program model 
+that we have found useful. Section 5 have performance 
+measurement of our implementation for a variety of 
+tasks. Section 6 explores the use of MapReduce within 
+Google include our experience in use it a the basis 
+
+To appear in OSDI 2004 1 
+
+
+
+for a rewrite of our production index system. Sec- 
+tion 7 discus related and future work. 
+
+2 Programming Model 
+
+The computation take a set of input key/value pairs, and 
+produce a set of output key/value pairs. The user of 
+the MapReduce library express the computation a two 
+functions: Map and Reduce. 
+
+Map, write by the user, take an input pair and pro- 
+duce a set of intermediate key/value pairs. The MapRe- 
+duce library group together all intermediate value asso- 
+ciated with the same intermediate key I and pass them 
+to the Reduce function. 
+
+The Reduce function, also write by the user, accepts 
+an intermediate key I and a set of value for that key. It 
+merges together these value to form a possibly small 
+set of values. Typically just zero or one output value be 
+produce per Reduce invocation. The intermediate val- 
+ues be supply to the user’s reduce function via an iter- 
+ator. This allows u to handle list of value that be too 
+large to fit in memory. 
+
+2.1 Example 
+
+Consider the problem of counting the number of oc- 
+currences of each word in a large collection of docu- 
+ments. The user would write code similar to the follow- 
+ing pseudo-code: 
+
+map(String key, String value): 
+// key: document name 
+// value: document content 
+for each word w in value: 
+
+EmitIntermediate(w, "1"); 
+
+reduce(String key, Iterator values): 
+// key: a word 
+// values: a list of count 
+int result = 0; 
+for each v in values: 
+
+result += ParseInt(v); 
+Emit(AsString(result)); 
+
+The map function emits each word plus an associate 
+count of occurrence (just ‘1’ in this simple example). 
+The reduce function sum together all count emit 
+for a particular word. 
+
+In addition, the user writes code to fill in a mapreduce 
+specification object with the name of the input and out- 
+put files, and optional tune parameters. The user then 
+invokes the MapReduce function, passing it the specifi- 
+cation object. The user’s code be link together with the 
+MapReduce library (implemented in C++). Appendix A 
+contains the full program text for this example. 
+
+2.2 Types 
+
+Even though the previous pseudo-code be write in term 
+of string input and outputs, conceptually the map and 
+reduce function supply by the user have associate 
+types: 
+
+map (k1,v1) → list(k2,v2) 
+reduce (k2,list(v2)) → list(v2) 
+
+I.e., the input key and value be drawn from a different 
+domain than the output key and values. Furthermore, 
+the intermediate key and value be from the same do- 
+main a the output key and values. 
+
+Our C++ implementation pass string to and from 
+the user-defined function and leaf it to the user code 
+to convert between string and appropriate types. 
+
+2.3 More Examples 
+
+Here be a few simple example of interest program 
+that can be easily express a MapReduce computa- 
+tions. 
+
+Distributed Grep: The map function emits a line if it 
+match a supply pattern. The reduce function be an 
+identity function that just copy the supply intermedi- 
+ate data to the output. 
+
+Count of URL Access Frequency: The map func- 
+tion process log of web page request and output 
+〈URL,1〉. The reduce function add together all value 
+for the same URL and emits a 〈URL,total count〉 
+pair. 
+
+Reverse Web-Link Graph: The map function output 
+〈target,source〉 pair for each link to a target 
+URL found in a page name source. The reduce 
+function concatenates the list of all source URLs as- 
+sociated with a give target URL and emits the pair: 
+〈target, list(source)〉 
+
+Term-Vector per Host: A term vector summarizes the 
+most important word that occur in a document or a set 
+of document a a list of 〈word, frequency〉 pairs. The 
+map function emits a 〈hostname,term vector〉 
+pair for each input document (where the hostname be 
+extract from the URL of the document). The re- 
+duce function be pass all per-document term vector 
+for a give host. It add these term vector together, 
+throw away infrequent terms, and then emits a final 
+〈hostname,term vector〉 pair. 
+
+To appear in OSDI 2004 2 
+
+
+
+User 
+Program 
+
+Master 
+
+(1) fork 
+
+worker 
+
+(1) fork 
+
+worker 
+
+(1) fork 
+
+(2) 
+assign 
+map 
+
+(2) 
+assign 
+reduce 
+
+split 0 
+
+split 1 
+
+split 2 
+
+split 3 
+
+split 4 
+
+
+
+output 
+file 0 
+
+(6) write 
+
+worker 
+(3) read 
+
+worker 
+
+
+(4) local write 
+
+
+
+Map 
+phase 
+
+Intermediate file 
+(on local disks) 
+
+worker output 
+file 1 
+
+Input 
+file 
+
+(5) remote read 
+
+Reduce 
+phase 
+
+Output 
+file 
+
+Figure 1: Execution overview 
+
+Inverted Index: The map function par each docu- 
+ment, and emits a sequence of 〈word,document ID〉 
+pairs. The reduce function accepts all pair for a give 
+word, sort the correspond document IDs and emits a 
+〈word, list(document ID)〉 pair. The set of all output 
+pair form a simple invert index. It be easy to augment 
+this computation to keep track of word positions. 
+
+Distributed Sort: The map function extract the key 
+from each record, and emits a 〈key,record〉 pair. The 
+reduce function emits all pair unchanged. This compu- 
+tation depends on the partition facility described in 
+Section 4.1 and the order property described in Sec- 
+tion 4.2. 
+
+3 Implementation 
+
+Many different implementation of the MapReduce in- 
+terface be possible. The right choice depends on the 
+environment. For example, one implementation may be 
+suitable for a small shared-memory machine, another for 
+a large NUMA multi-processor, and yet another for an 
+even large collection of networked machines. 
+
+This section describes an implementation target 
+to the compute environment in wide use at Google: 
+
+large cluster of commodity PCs connect together with 
+switch Ethernet [4]. In our environment: 
+
+(1) Machines be typically dual-processor x86 processor 
+run Linux, with 2-4 GB of memory per machine. 
+
+(2) Commodity networking hardware be use – typically 
+either 100 megabits/second or 1 gigabit/second at the 
+machine level, but average considerably less in over- 
+all bisection bandwidth. 
+
+(3) A cluster consists of hundred or thousand of ma- 
+chines, and therefore machine failure be common. 
+
+(4) Storage be provide by inexpensive IDE disk at- 
+tached directly to individual machines. A distribute file 
+system [8] developed in-house be use to manage the data 
+store on these disks. The file system us replication to 
+provide availability and reliability on top of unreliable 
+hardware. 
+
+(5) Users submit job to a schedule system. Each job 
+consists of a set of tasks, and be mapped by the scheduler 
+to a set of available machine within a cluster. 
+
+3.1 Execution Overview 
+
+The Map invocation be distribute across multiple 
+machine by automatically partition the input data 
+
+To appear in OSDI 2004 3 
+
+
+
+into a set of M splits. The input split can be pro- 
+cessed in parallel by different machines. Reduce invoca- 
+tions be distribute by partition the intermediate key 
+space into R piece use a partition function (e.g., 
+hash(key) mod R). The number of partition (R) and 
+the partition function be specify by the user. 
+
+Figure 1 show the overall flow of a MapReduce op- 
+eration in our implementation. When the user program 
+call the MapReduce function, the follow sequence 
+of action occurs (the numbered label in Figure 1 corre- 
+spond to the number in the list below): 
+
+1. The MapReduce library in the user program first 
+split the input file into M piece of typically 16 
+megabyte to 64 megabyte (MB) per piece (con- 
+trollable by the user via an optional parameter). It 
+then start up many copy of the program on a clus- 
+ter of machines. 
+
+2. One of the copy of the program be special – the 
+master. The rest be worker that be assign work 
+by the master. There be M map task and R reduce 
+task to assign. The master pick idle worker and 
+assigns each one a map task or a reduce task. 
+
+3. A worker who be assign a map task read the 
+content of the correspond input split. It par 
+key/value pair out of the input data and pass each 
+pair to the user-defined Map function. The interme- 
+diate key/value pair produce by the Map function 
+be buffer in memory. 
+
+4. Periodically, the buffer pair be write to local 
+disk, partition into R region by the partition 
+function. The location of these buffer pair on 
+the local disk be pass back to the master, who 
+be responsible for forward these location to the 
+reduce workers. 
+
+5. When a reduce worker be notify by the master 
+about these locations, it us remote procedure call 
+to read the buffer data from the local disk of the 
+map workers. When a reduce worker have read all in- 
+termediate data, it sort it by the intermediate key 
+so that all occurrence of the same key be grouped 
+together. The sort be need because typically 
+many different key map to the same reduce task. If 
+the amount of intermediate data be too large to fit in 
+memory, an external sort be used. 
+
+6. The reduce worker iterates over the sort interme- 
+diate data and for each unique intermediate key en- 
+countered, it pass the key and the correspond 
+set of intermediate value to the user’s Reduce func- 
+tion. The output of the Reduce function be append 
+to a final output file for this reduce partition. 
+
+7. When all map task and reduce task have be 
+completed, the master wake up the user program. 
+At this point, the MapReduce call in the user pro- 
+gram return back to the user code. 
+
+After successful completion, the output of the mapre- 
+duce execution be available in the R output file (one per 
+reduce task, with file name a specify by the user). 
+Typically, user do not need to combine these R output 
+file into one file – they often pas these file a input to 
+another MapReduce call, or use them from another dis- 
+tributed application that be able to deal with input that be 
+partition into multiple files. 
+
+3.2 Master Data Structures 
+
+The master keep several data structures. For each map 
+task and reduce task, it store the state (idle, in-progress, 
+or completed), and the identity of the worker machine 
+(for non-idle tasks). 
+
+The master be the conduit through which the location 
+of intermediate file region be propagate from map task 
+to reduce tasks. Therefore, for each complete map task, 
+the master store the location and size of the R inter- 
+mediate file region produce by the map task. Updates 
+to this location and size information be receive a map 
+task be completed. The information be push incre- 
+mentally to worker that have in-progress reduce tasks. 
+
+3.3 Fault Tolerance 
+
+Since the MapReduce library be design to help process 
+very large amount of data use hundred or thousand 
+of machines, the library must tolerate machine failure 
+gracefully. 
+
+Worker Failure 
+
+The master ping every worker periodically. If no re- 
+sponse be receive from a worker in a certain amount of 
+time, the master mark the worker a failed. Any map 
+task complete by the worker be reset back to their ini- 
+tial idle state, and therefore become eligible for schedul- 
+ing on other workers. Similarly, any map task or reduce 
+task in progress on a fail worker be also reset to idle 
+and becomes eligible for rescheduling. 
+
+Completed map task be re-executed on a failure be- 
+cause their output be store on the local disk(s) of the 
+fail machine and be therefore inaccessible. Completed 
+reduce task do not need to be re-executed since their 
+output be store in a global file system. 
+
+When a map task be execute first by worker A and 
+then late execute by worker B (because A failed), all 
+
+To appear in OSDI 2004 4 
+
+
+
+worker execute reduce task be notify of the re- 
+execution. Any reduce task that have not already read the 
+data from worker A will read the data from worker B. 
+
+MapReduce be resilient to large-scale worker failures. 
+For example, during one MapReduce operation, network 
+maintenance on a run cluster be cause group of 
+80 machine at a time to become unreachable for sev- 
+eral minutes. The MapReduce master simply re-executed 
+the work do by the unreachable worker machines, and 
+continued to make forward progress, eventually complet- 
+ing the MapReduce operation. 
+
+Master Failure 
+
+It be easy to make the master write periodic checkpoint 
+of the master data structure described above. If the mas- 
+ter task dies, a new copy can be start from the last 
+checkpointed state. However, give that there be only a 
+single master, it failure be unlikely; therefore our cur- 
+rent implementation abort the MapReduce computation 
+if the master fails. Clients can check for this condition 
+and retry the MapReduce operation if they desire. 
+
+Semantics in the Presence of Failures 
+
+When the user-supplied map and reduce operator be de- 
+terministic function of their input values, our distribute 
+implementation produce the same output a would have 
+be produce by a non-faulting sequential execution of 
+the entire program. 
+
+We rely on atomic commits of map and reduce task 
+output to achieve this property. Each in-progress task 
+writes it output to private temporary files. A reduce task 
+produce one such file, and a map task produce R such 
+file (one per reduce task). When a map task completes, 
+the worker sends a message to the master and include 
+the name of the R temporary file in the message. If 
+the master receives a completion message for an already 
+complete map task, it ignores the message. Otherwise, 
+it record the name of R file in a master data structure. 
+
+When a reduce task completes, the reduce worker 
+atomically renames it temporary output file to the final 
+output file. If the same reduce task be execute on multi- 
+ple machines, multiple rename call will be execute for 
+the same final output file. We rely on the atomic rename 
+operation provide by the underlie file system to guar- 
+antee that the final file system state contains just the data 
+produce by one execution of the reduce task. 
+
+The vast majority of our map and reduce operator be 
+deterministic, and the fact that our semantics be equiv- 
+alent to a sequential execution in this case make it very 
+
+easy for programmer to reason about their program’s be- 
+havior. When the map and/or reduce operator be non- 
+deterministic, we provide weaker but still reasonable se- 
+mantics. In the presence of non-deterministic operators, 
+the output of a particular reduce task R1 be equivalent to 
+the output for R1 produce by a sequential execution of 
+the non-deterministic program. However, the output for 
+a different reduce task R2 may correspond to the output 
+for R2 produce by a different sequential execution of 
+the non-deterministic program. 
+
+Consider map task M and reduce task R1 and R2. 
+Let e(Ri) be the execution of Ri that commit (there 
+be exactly one such execution). The weaker semantics 
+arise because e(R1) may have read the output produce 
+by one execution of M and e(R2) may have read the 
+output produce by a different execution of M . 
+
+3.4 Locality 
+
+Network bandwidth be a relatively scarce resource in our 
+compute environment. We conserve network band- 
+width by take advantage of the fact that the input data 
+(managed by GFS [8]) be store on the local disk of the 
+machine that make up our cluster. GFS divide each 
+file into 64 MB blocks, and store several copy of each 
+block (typically 3 copies) on different machines. The 
+MapReduce master take the location information of the 
+input file into account and attempt to schedule a map 
+task on a machine that contains a replica of the corre- 
+sponding input data. Failing that, it attempt to schedule 
+a map task near a replica of that task’s input data (e.g., on 
+a worker machine that be on the same network switch a 
+the machine contain the data). When run large 
+MapReduce operation on a significant fraction of the 
+worker in a cluster, most input data be read locally and 
+consumes no network bandwidth. 
+
+3.5 Task Granularity 
+
+We subdivide the map phase into M piece and the re- 
+duce phase into R pieces, a described above. Ideally, M 
+and R should be much large than the number of worker 
+machines. Having each worker perform many different 
+task improves dynamic load balancing, and also speed 
+up recovery when a worker fails: the many map task 
+it have complete can be spread out across all the other 
+worker machines. 
+
+There be practical bound on how large M and R can 
+be in our implementation, since the master must make 
+O(M + R) schedule decision and keep O(M ∗ R) 
+state in memory a described above. (The constant fac- 
+tor for memory usage be small however: the O(M ∗R) 
+piece of the state consists of approximately one byte of 
+data per map task/reduce task pair.) 
+
+To appear in OSDI 2004 5 
+
+
+
+Furthermore, R be often constrain by user because 
+the output of each reduce task end up in a separate out- 
+put file. In practice, we tend to choose M so that each 
+individual task be roughly 16 MB to 64 MB of input data 
+(so that the locality optimization described above be most 
+effective), and we make R a small multiple of the num- 
+ber of worker machine we expect to use. We often per- 
+form MapReduce computation with M = 200, 000 and 
+R = 5, 000, use 2,000 worker machines. 
+
+3.6 Backup Tasks 
+
+One of the common cause that lengthens the total time 
+take for a MapReduce operation be a “straggler”: a ma- 
+chine that take an unusually long time to complete one 
+of the last few map or reduce task in the computation. 
+Stragglers can arise for a whole host of reasons. For ex- 
+ample, a machine with a bad disk may experience fre- 
+quent correctable error that slow it read performance 
+from 30 MB/s to 1 MB/s. The cluster schedule sys- 
+tem may have schedule other task on the machine, 
+cause it to execute the MapReduce code more slowly 
+due to competition for CPU, memory, local disk, or net- 
+work bandwidth. A recent problem we experienced be 
+a bug in machine initialization code that cause proces- 
+sor cache to be disabled: computation on affected ma- 
+chine slow down by over a factor of one hundred. 
+
+We have a general mechanism to alleviate the prob- 
+lem of stragglers. When a MapReduce operation be close 
+to completion, the master schedule backup execution 
+of the remain in-progress tasks. The task be marked 
+a complete whenever either the primary or the backup 
+execution completes. We have tune this mechanism so 
+that it typically increase the computational resource 
+use by the operation by no more than a few percent. 
+We have found that this significantly reduces the time 
+to complete large MapReduce operations. As an exam- 
+ple, the sort program described in Section 5.3 take 44% 
+longer to complete when the backup task mechanism be 
+disabled. 
+
+4 Refinements 
+
+Although the basic functionality provide by simply 
+write Map and Reduce function be sufficient for most 
+needs, we have found a few extension useful. These be 
+described in this section. 
+
+4.1 Partitioning Function 
+
+The user of MapReduce specify the number of reduce 
+tasks/output file that they desire (R). Data get parti- 
+tioned across these task use a partition function on 
+
+the intermediate key. A default partition function be 
+provide that us hash (e.g. “hash(key) mod R”). 
+This tends to result in fairly well-balanced partitions. In 
+some cases, however, it be useful to partition data by 
+some other function of the key. For example, sometimes 
+the output key be URLs, and we want all entry for a 
+single host to end up in the same output file. To support 
+situation like this, the user of the MapReduce library 
+can provide a special partition function. For example, 
+use “hash(Hostname(urlkey)) mod R” a the par- 
+titioning function cause all URLs from the same host to 
+end up in the same output file. 
+
+4.2 Ordering Guarantees 
+
+We guarantee that within a give partition, the interme- 
+diate key/value pair be process in increase key or- 
+der. This order guarantee make it easy to generate 
+a sort output file per partition, which be useful when 
+the output file format need to support efficient random 
+access lookup by key, or user of the output find it con- 
+venient to have the data sorted. 
+
+4.3 Combiner Function 
+
+In some cases, there be significant repetition in the inter- 
+mediate key produce by each map task, and the user- 
+specify Reduce function be commutative and associa- 
+tive. A good example of this be the word counting exam- 
+ple in Section 2.1. Since word frequency tend to follow 
+a Zipf distribution, each map task will produce hundred 
+or thousand of record of the form <the, 1>. All of 
+these count will be sent over the network to a single re- 
+duce task and then add together by the Reduce function 
+to produce one number. We allow the user to specify an 
+optional Combiner function that do partial merge of 
+this data before it be sent over the network. 
+
+The Combiner function be execute on each machine 
+that performs a map task. Typically the same code be use 
+to implement both the combiner and the reduce func- 
+tions. The only difference between a reduce function and 
+a combiner function be how the MapReduce library han- 
+dle the output of the function. The output of a reduce 
+function be write to the final output file. The output of 
+a combiner function be write to an intermediate file that 
+will be sent to a reduce task. 
+
+Partial combine significantly speed up certain 
+class of MapReduce operations. Appendix A contains 
+an example that us a combiner. 
+
+4.4 Input and Output Types 
+
+The MapReduce library provide support for reading in- 
+put data in several different formats. For example, “text” 
+
+To appear in OSDI 2004 6 
+
+
+
+mode input treat each line a a key/value pair: the key 
+be the offset in the file and the value be the content of 
+the line. Another common support format store a 
+sequence of key/value pair sort by key. Each input 
+type implementation know how to split itself into mean- 
+ingful range for processing a separate map task (e.g. 
+text mode’s range splitting ensures that range split oc- 
+cur only at line boundaries). Users can add support for a 
+new input type by provide an implementation of a sim- 
+ple reader interface, though most user just use one of a 
+small number of predefined input types. 
+
+A reader do not necessarily need to provide data 
+read from a file. For example, it be easy to define a reader 
+that read record from a database, or from data struc- 
+tures mapped in memory. 
+
+In a similar fashion, we support a set of output type 
+for produce data in different format and it be easy for 
+user code to add support for new output types. 
+
+4.5 Side-effects 
+
+In some cases, user of MapReduce have found it con- 
+venient to produce auxiliary file a additional output 
+from their map and/or reduce operators. We rely on the 
+application writer to make such side-effects atomic and 
+idempotent. Typically the application writes to a tempo- 
+rary file and atomically renames this file once it have be 
+fully generated. 
+
+We do not provide support for atomic two-phase com- 
+mit of multiple output file produce by a single task. 
+Therefore, task that produce multiple output file with 
+cross-file consistency requirement should be determin- 
+istic. This restriction have never be an issue in practice. 
+
+4.6 Skipping Bad Records 
+
+Sometimes there be bug in user code that cause the Map 
+or Reduce function to crash deterministically on certain 
+records. Such bug prevent a MapReduce operation from 
+completing. The usual course of action be to fix the bug, 
+but sometimes this be not feasible; perhaps the bug be in 
+a third-party library for which source code be unavail- 
+able. Also, sometimes it be acceptable to ignore a few 
+records, for example when do statistical analysis on 
+a large data set. We provide an optional mode of execu- 
+tion where the MapReduce library detects which record 
+cause deterministic crash and skip these record in or- 
+der to make forward progress. 
+
+Each worker process installs a signal handler that 
+catch segmentation violation and bus errors. Before 
+invoke a user Map or Reduce operation, the MapRe- 
+duce library store the sequence number of the argument 
+in a global variable. If the user code generates a signal, 
+
+the signal handler sends a “last gasp” UDP packet that 
+contains the sequence number to the MapReduce mas- 
+ter. When the master have see more than one failure on 
+a particular record, it indicates that the record should be 
+skip when it issue the next re-execution of the corre- 
+sponding Map or Reduce task. 
+
+4.7 Local Execution 
+
+Debugging problem in Map or Reduce function can be 
+tricky, since the actual computation happens in a dis- 
+tributed system, often on several thousand machines, 
+with work assignment decision make dynamically by 
+the master. To help facilitate debugging, profiling, and 
+small-scale testing, we have developed an alternative im- 
+plementation of the MapReduce library that sequentially 
+executes all of the work for a MapReduce operation on 
+the local machine. Controls be provide to the user so 
+that the computation can be limited to particular map 
+tasks. Users invoke their program with a special flag and 
+can then easily use any debug or test tool they 
+find useful (e.g. gdb). 
+
+4.8 Status Information 
+
+The master run an internal HTTP server and export 
+a set of status page for human consumption. The sta- 
+tus page show the progress of the computation, such a 
+how many task have be completed, how many be in 
+progress, byte of input, byte of intermediate data, byte 
+of output, processing rates, etc. The page also contain 
+link to the standard error and standard output file gen- 
+erated by each task. The user can use this data to pre- 
+dict how long the computation will take, and whether or 
+not more resource should be add to the computation. 
+These page can also be use to figure out when the com- 
+putation be much slow than expected. 
+
+In addition, the top-level status page show which 
+worker have failed, and which map and reduce task 
+they be processing when they failed. This informa- 
+tion be useful when attempt to diagnose bug in the 
+user code. 
+
+4.9 Counters 
+
+The MapReduce library provide a counter facility to 
+count occurrence of various events. For example, user 
+code may want to count total number of word process 
+or the number of German document indexed, etc. 
+
+To use this facility, user code creates a name counter 
+object and then increment the counter appropriately in 
+the Map and/or Reduce function. For example: 
+
+To appear in OSDI 2004 7 
+
+
+
+Counter* uppercase; 
+uppercase = GetCounter("uppercase"); 
+
+map(String name, String contents): 
+for each word w in contents: 
+
+if (IsCapitalized(w)): 
+uppercase->Increment(); 
+
+EmitIntermediate(w, "1"); 
+
+The counter value from individual worker machine 
+be periodically propagate to the master (piggybacked 
+on the ping response). The master aggregate the counter 
+value from successful map and reduce task and return 
+them to the user code when the MapReduce operation 
+be completed. The current counter value be also dis- 
+played on the master status page so that a human can 
+watch the progress of the live computation. When aggre- 
+gate counter values, the master eliminates the effect of 
+duplicate execution of the same map or reduce task to 
+avoid double counting. (Duplicate execution can arise 
+from our use of backup task and from re-execution of 
+task due to failures.) 
+
+Some counter value be automatically maintain 
+by the MapReduce library, such a the number of in- 
+put key/value pair process and the number of output 
+key/value pair produced. 
+
+Users have found the counter facility useful for san- 
+ity check the behavior of MapReduce operations. For 
+example, in some MapReduce operations, the user code 
+may want to ensure that the number of output pair 
+produce exactly equal the number of input pair pro- 
+cessed, or that the fraction of German document pro- 
+cessed be within some tolerable fraction of the total num- 
+ber of document processed. 
+
+5 Performance 
+
+In this section we measure the performance of MapRe- 
+duce on two computation run on a large cluster of 
+machines. One computation search through approxi- 
+mately one terabyte of data look for a particular pat- 
+tern. The other computation sort approximately one ter- 
+abyte of data. 
+
+These two program be representative of a large sub- 
+set of the real program write by user of MapReduce – 
+one class of program shuffle data from one representa- 
+tion to another, and another class extract a small amount 
+of interest data from a large data set. 
+
+5.1 Cluster Configuration 
+All of the program be execute on a cluster that 
+consist of approximately 1800 machines. Each ma- 
+chine have two 2GHz Intel Xeon processor with Hyper- 
+Threading enabled, 4GB of memory, two 160GB IDE 
+
+20 40 60 80 100 
+
+Seconds 
+
+0 
+
+10000 
+
+20000 
+
+30000 
+
+In 
+pu 
+
+t ( 
+M 
+
+B 
+/s 
+
+) 
+
+Figure 2: Data transfer rate over time 
+
+disks, and a gigabit Ethernet link. The machine be 
+arrange in a two-level tree-shaped switch network 
+with approximately 100-200 Gbps of aggregate band- 
+width available at the root. All of the machine be 
+in the same host facility and therefore the round-trip 
+time between any pair of machine be less than a mil- 
+lisecond. 
+
+Out of the 4GB of memory, approximately 1-1.5GB 
+be reserve by other task run on the cluster. The 
+program be execute on a weekend afternoon, when 
+the CPUs, disks, and network be mostly idle. 
+
+5.2 Grep 
+
+The grep program scan through 1010 100-byte records, 
+search for a relatively rare three-character pattern (the 
+pattern occurs in 92,337 records). The input be split into 
+approximately 64MB piece (M = 15000), and the en- 
+tire output be place in one file (R = 1). 
+
+Figure 2 show the progress of the computation over 
+time. The Y-axis show the rate at which the input data be 
+scanned. The rate gradually pick up a more machine 
+be assign to this MapReduce computation, and peak 
+at over 30 GB/s when 1764 worker have be assigned. 
+As the map task finish, the rate start drop and hit 
+zero about 80 second into the computation. The entire 
+computation take approximately 150 second from start 
+to finish. This include about a minute of startup over- 
+head. The overhead be due to the propagation of the pro- 
+gram to all worker machines, and delay interact with 
+GFS to open the set of 1000 input file and to get the 
+information need for the locality optimization. 
+
+5.3 Sort 
+
+The sort program sort 1010 100-byte record (approxi- 
+mately 1 terabyte of data). This program be model after 
+the TeraSort benchmark [10]. 
+
+The sort program consists of less than 50 line of 
+user code. A three-line Map function extract a 10-byte 
+sort key from a text line and emits the key and the 
+
+To appear in OSDI 2004 8 
+
+
+
+500 1000 
+0 
+
+5000 
+
+10000 
+
+15000 
+
+20000 
+In 
+
+pu 
+t ( 
+
+M 
+B 
+
+/s 
+) 
+
+500 1000 
+0 
+
+5000 
+
+10000 
+
+15000 
+
+20000 
+
+Sh 
+uf 
+
+fle 
+(M 
+
+B 
+/s 
+
+) 
+
+500 1000 
+
+Seconds 
+
+0 
+
+5000 
+
+10000 
+
+15000 
+
+20000 
+
+O 
+ut 
+
+pu 
+t ( 
+
+M 
+B 
+
+/s 
+) 
+
+Done 
+
+(a) Normal execution 
+
+500 1000 
+0 
+
+5000 
+
+10000 
+
+15000 
+
+20000 
+
+In 
+pu 
+
+t ( 
+M 
+
+B 
+/s 
+
+) 
+
+500 1000 
+0 
+
+5000 
+
+10000 
+
+15000 
+
+20000 
+
+Sh 
+uf 
+
+fle 
+(M 
+
+B 
+/s 
+
+) 
+
+500 1000 
+
+Seconds 
+
+0 
+
+5000 
+
+10000 
+
+15000 
+
+20000 
+O 
+
+ut 
+pu 
+
+t ( 
+M 
+
+B 
+/s 
+
+) 
+
+Done 
+
+(b) No backup task 
+
+500 1000 
+0 
+
+5000 
+
+10000 
+
+15000 
+
+20000 
+
+In 
+pu 
+
+t ( 
+M 
+
+B 
+/s 
+
+) 
+
+500 1000 
+0 
+
+5000 
+
+10000 
+
+15000 
+
+20000 
+
+Sh 
+uf 
+
+fle 
+(M 
+
+B 
+/s 
+
+) 
+
+500 1000 
+
+Seconds 
+
+0 
+
+5000 
+
+10000 
+
+15000 
+
+20000 
+
+O 
+ut 
+
+pu 
+t ( 
+
+M 
+B 
+
+/s 
+) 
+
+Done 
+
+(c) 200 task kill 
+
+Figure 3: Data transfer rate over time for different execution of the sort program 
+
+original text line a the intermediate key/value pair. We 
+use a built-in Identity function a the Reduce operator. 
+This function pass the intermediate key/value pair un- 
+change a the output key/value pair. The final sort 
+output be write to a set of 2-way replicate GFS file 
+(i.e., 2 terabyte be write a the output of the program). 
+
+As before, the input data be split into 64MB piece 
+(M = 15000). We partition the sort output into 4000 
+file (R = 4000). The partition function us the ini- 
+tial byte of the key to segregate it into one of R pieces. 
+
+Our partition function for this benchmark have built- 
+in knowledge of the distribution of keys. In a general 
+sort program, we would add a pre-pass MapReduce 
+operation that would collect a sample of the key and 
+use the distribution of the sample key to compute split- 
+point for the final sort pass. 
+
+Figure 3 (a) show the progress of a normal execution 
+of the sort program. The top-left graph show the rate 
+at which input be read. The rate peak at about 13 GB/s 
+and dy off fairly quickly since all map task finish be- 
+fore 200 second have elapsed. Note that the input rate 
+be less than for grep. This be because the sort map task 
+spend about half their time and I/O bandwidth write in- 
+termediate output to their local disks. The correspond 
+intermediate output for grep have negligible size. 
+
+The middle-left graph show the rate at which data 
+be sent over the network from the map task to the re- 
+duce tasks. This shuffle start a soon a the first 
+map task completes. The first hump in the graph be for 
+
+the first batch of approximately 1700 reduce task (the 
+entire MapReduce be assign about 1700 machines, 
+and each machine executes at most one reduce task at a 
+time). Roughly 300 second into the computation, some 
+of these first batch of reduce task finish and we start 
+shuffle data for the remain reduce tasks. All of the 
+shuffle be do about 600 second into the computation. 
+
+The bottom-left graph show the rate at which sort 
+data be write to the final output file by the reduce tasks. 
+There be a delay between the end of the first shuffle pe- 
+riod and the start of the write period because the ma- 
+chine be busy sort the intermediate data. The writes 
+continue at a rate of about 2-4 GB/s for a while. All of 
+the writes finish about 850 second into the computation. 
+Including startup overhead, the entire computation take 
+891 seconds. This be similar to the current best report 
+result of 1057 second for the TeraSort benchmark [18]. 
+
+A few thing to note: the input rate be high than the 
+shuffle rate and the output rate because of our locality 
+optimization – most data be read from a local disk and 
+bypass our relatively bandwidth constrain network. 
+The shuffle rate be high than the output rate because 
+the output phase writes two copy of the sort data (we 
+make two replica of the output for reliability and avail- 
+ability reasons). We write two replica because that be 
+the mechanism for reliability and availability provide 
+by our underlie file system. Network bandwidth re- 
+quirements for write data would be reduce if the un- 
+derlying file system use erasure cod [14] rather than 
+replication. 
+
+To appear in OSDI 2004 9 
+
+
+
+5.4 Effect of Backup Tasks 
+
+In Figure 3 (b), we show an execution of the sort pro- 
+gram with backup task disabled. The execution flow be 
+similar to that show in Figure 3 (a), except that there be 
+a very long tail where hardly any write activity occurs. 
+After 960 seconds, all except 5 of the reduce task be 
+completed. However these last few straggler don’t fin- 
+ish until 300 second later. The entire computation take 
+1283 seconds, an increase of 44% in elapse time. 
+
+5.5 Machine Failures 
+
+In Figure 3 (c), we show an execution of the sort program 
+where we intentionally kill 200 out of 1746 worker 
+process several minute into the computation. The 
+underlie cluster scheduler immediately restart new 
+worker process on these machine (since only the pro- 
+ce be killed, the machine be still function 
+properly). 
+
+The worker death show up a a negative input rate 
+since some previously complete map work disappears 
+(since the correspond map worker be killed) and 
+need to be redone. The re-execution of this map work 
+happens relatively quickly. The entire computation fin- 
+ishes in 933 second include startup overhead (just an 
+increase of 5% over the normal execution time). 
+
+6 Experience 
+
+We write the first version of the MapReduce library in 
+February of 2003, and make significant enhancement to 
+it in August of 2003, include the locality optimization, 
+dynamic load balance of task execution across worker 
+machines, etc. Since that time, we have be pleasantly 
+surprised at how broadly applicable the MapReduce li- 
+brary have be for the kind of problem we work on. 
+It have be use across a wide range of domain within 
+Google, including: 
+
+• large-scale machine learn problems, 
+
+• cluster problem for the Google News and 
+Froogle products, 
+
+• extraction of data use to produce report of popular 
+query (e.g. Google Zeitgeist), 
+
+• extraction of property of web page for new exper- 
+iments and product (e.g. extraction of geographi- 
+cal location from a large corpus of web page for 
+localize search), and 
+
+• large-scale graph computations. 
+
+2003/03 
+
+2003/06 
+
+2003/09 
+
+2003/12 
+
+2004/03 
+
+2004/06 
+
+2004/09 
+
+0 
+
+200 
+
+400 
+
+600 
+
+800 
+
+1000 
+
+N 
+um 
+
+be 
+r 
+
+of 
+in 
+
+st 
+an 
+
+ce 
+s i 
+
+n 
+so 
+
+ur 
+ce 
+
+tr 
+ee 
+
+Figure 4: MapReduce instance over time 
+
+Number of job 29,423 
+Average job completion time 634 sec 
+Machine day use 79,186 day 
+Input data read 3,288 TB 
+Intermediate data produce 758 TB 
+Output data write 193 TB 
+Average worker machine per job 157 
+Average worker death per job 1.2 
+Average map task per job 3,351 
+Average reduce task per job 55 
+Unique map implementation 395 
+Unique reduce implementation 269 
+Unique map/reduce combination 426 
+
+Table 1: MapReduce job run in August 2004 
+
+Figure 4 show the significant growth in the number of 
+separate MapReduce program checked into our primary 
+source code management system over time, from 0 in 
+early 2003 to almost 900 separate instance a of late 
+September 2004. MapReduce have be so successful be- 
+cause it make it possible to write a simple program and 
+run it efficiently on a thousand machine in the course 
+of half an hour, greatly speed up the development and 
+prototyping cycle. Furthermore, it allows programmer 
+who have no experience with distribute and/or parallel 
+system to exploit large amount of resource easily. 
+
+At the end of each job, the MapReduce library log 
+statistic about the computational resource use by the 
+job. In Table 1, we show some statistic for a subset of 
+MapReduce job run at Google in August 2004. 
+
+6.1 Large-Scale Indexing 
+
+One of our most significant us of MapReduce to date 
+have be a complete rewrite of the production index- 
+
+To appear in OSDI 2004 10 
+
+
+
+ing system that produce the data structure use for the 
+Google web search service. The index system take 
+a input a large set of document that have be retrieve 
+by our crawl system, store a a set of GFS files. The 
+raw content for these document be more than 20 ter- 
+abytes of data. The index process run a a sequence 
+of five to ten MapReduce operations. Using MapReduce 
+(instead of the ad-hoc distribute pass in the prior ver- 
+sion of the index system) have provide several bene- 
+fits: 
+
+• The index code be simpler, smaller, and easy to 
+understand, because the code that deal with fault 
+tolerance, distribution and parallelization be hidden 
+within the MapReduce library. For example, the 
+size of one phase of the computation drop from 
+approximately 3800 line of C++ code to approx- 
+imately 700 line when express use MapRe- 
+duce. 
+
+• The performance of the MapReduce library be good 
+enough that we can keep conceptually unrelated 
+computation separate, instead of mix them to- 
+gether to avoid extra pass over the data. This 
+make it easy to change the index process. For 
+example, one change that take a few month to 
+make in our old index system take only a few 
+day to implement in the new system. 
+
+• The index process have become much easy to 
+operate, because most of the problem cause by 
+machine failures, slow machines, and networking 
+hiccup be dealt with automatically by the MapRe- 
+duce library without operator intervention. Further- 
+more, it be easy to improve the performance of the 
+index process by add new machine to the in- 
+dexing cluster. 
+
+7 Related Work 
+
+Many system have provide restrict program 
+model and use the restriction to parallelize the com- 
+putation automatically. For example, an associative func- 
+tion can be compute over all prefix of an N element 
+array in log N time on N processor use parallel prefix 
+computation [6, 9, 13]. MapReduce can be consider 
+a simplification and distillation of some of these model 
+base on our experience with large real-world compu- 
+tations. More significantly, we provide a fault-tolerant 
+implementation that scale to thousand of processors. 
+In contrast, most of the parallel processing system have 
+only be implement on small scale and leave the 
+detail of handle machine failure to the programmer. 
+
+Bulk Synchronous Programming [17] and some MPI 
+primitive [11] provide higher-level abstraction that 
+
+make it easy for programmer to write parallel pro- 
+grams. A key difference between these system and 
+MapReduce be that MapReduce exploit a restrict pro- 
+gramming model to parallelize the user program auto- 
+matically and to provide transparent fault-tolerance. 
+
+Our locality optimization draw it inspiration from 
+technique such a active disk [12, 15], where compu- 
+tation be push into processing element that be close 
+to local disks, to reduce the amount of data sent across 
+I/O subsystem or the network. We run on commodity 
+processor to which a small number of disk be directly 
+connect instead of run directly on disk controller 
+processors, but the general approach be similar. 
+
+Our backup task mechanism be similar to the eager 
+schedule mechanism employ in the Charlotte Sys- 
+tem [3]. One of the shortcoming of simple eager 
+schedule be that if a give task cause repeat failures, 
+the entire computation fails to complete. We fix some in- 
+stance of this problem with our mechanism for skip 
+bad records. 
+
+The MapReduce implementation relies on an in-house 
+cluster management system that be responsible for dis- 
+tributing and run user task on a large collection of 
+share machines. Though not the focus of this paper, the 
+cluster management system be similar in spirit to other 
+system such a Condor [16]. 
+
+The sort facility that be a part of the MapReduce 
+library be similar in operation to NOW-Sort [1]. Source 
+machine (map workers) partition the data to be sort 
+and send it to one of R reduce workers. Each reduce 
+worker sort it data locally (in memory if possible). Of 
+course NOW-Sort do not have the user-definable Map 
+and Reduce function that make our library widely appli- 
+cable. 
+
+River [2] provide a program model where pro- 
+ce communicate with each other by send data 
+over distribute queues. Like MapReduce, the River 
+system try to provide good average case performance 
+even in the presence of non-uniformities introduce by 
+heterogeneous hardware or system perturbations. River 
+achieves this by careful schedule of disk and network 
+transfer to achieve balance completion times. MapRe- 
+duce have a different approach. By restrict the pro- 
+gramming model, the MapReduce framework be able 
+to partition the problem into a large number of fine- 
+grain tasks. These task be dynamically schedule 
+on available worker so that faster worker process more 
+tasks. The restrict program model also allows 
+u to schedule redundant execution of task near the 
+end of the job which greatly reduces completion time in 
+the presence of non-uniformities (such a slow or stuck 
+workers). 
+
+BAD-FS [5] have a very different program model 
+from MapReduce, and unlike MapReduce, be target to 
+
+To appear in OSDI 2004 11 
+
+
+
+the execution of job across a wide-area network. How- 
+ever, there be two fundamental similarities. (1) Both 
+system use redundant execution to recover from data 
+loss cause by failures. (2) Both use locality-aware 
+schedule to reduce the amount of data sent across con- 
+gested network links. 
+
+TACC [7] be a system design to simplify con- 
+struction of highly-available networked services. Like 
+MapReduce, it relies on re-execution a a mechanism for 
+implement fault-tolerance. 
+
+8 Conclusions 
+
+The MapReduce program model have be success- 
+fully use at Google for many different purposes. We 
+attribute this success to several reasons. First, the model 
+be easy to use, even for programmer without experience 
+with parallel and distribute systems, since it hide the 
+detail of parallelization, fault-tolerance, locality opti- 
+mization, and load balancing. Second, a large variety 
+of problem be easily expressible a MapReduce com- 
+putations. For example, MapReduce be use for the gen- 
+eration of data for Google’s production web search ser- 
+vice, for sorting, for data mining, for machine learning, 
+and many other systems. Third, we have developed an 
+implementation of MapReduce that scale to large clus- 
+ters of machine comprise thousand of machines. The 
+implementation make efficient use of these machine re- 
+source and therefore be suitable for use on many of the 
+large computational problem encounter at Google. 
+
+We have learn several thing from this work. First, 
+restrict the program model make it easy to par- 
+allelize and distribute computation and to make such 
+computation fault-tolerant. Second, network bandwidth 
+be a scarce resource. A number of optimization in our 
+system be therefore target at reduce the amount of 
+data sent across the network: the locality optimization al- 
+low u to read data from local disks, and write a single 
+copy of the intermediate data to local disk save network 
+bandwidth. Third, redundant execution can be use to 
+reduce the impact of slow machines, and to handle ma- 
+chine failure and data loss. 
+
+Acknowledgements 
+
+Josh Levenberg have be instrumental in revise and 
+extend the user-level MapReduce API with a num- 
+ber of new feature base on his experience with use 
+MapReduce and other people’s suggestion for enhance- 
+ments. MapReduce read it input from and writes it 
+output to the Google File System [8]. We would like to 
+thank Mohit Aron, Howard Gobioff, Markus Gutschke, 
+
+David Kramer, Shun-Tak Leung, and Josh Redstone for 
+their work in develop GFS. We would also like to 
+thank Percy Liang and Olcan Sercinoglu for their work 
+in develop the cluster management system use by 
+MapReduce. Mike Burrows, Wilson Hsieh, Josh Leven- 
+berg, Sharon Perl, Rob Pike, and Debby Wallach pro- 
+vided helpful comment on early draft of this pa- 
+per. The anonymous OSDI reviewers, and our shepherd, 
+Eric Brewer, provide many useful suggestion of area 
+where the paper could be improved. Finally, we thank all 
+the user of MapReduce within Google’s engineering or- 
+ganization for provide helpful feedback, suggestions, 
+and bug reports. 
+
+References 
+
+[1] Andrea C. Arpaci-Dusseau, Remzi H. Arpaci-Dusseau, 
+David E. Culler, Joseph M. Hellerstein, and David A. Pat- 
+terson. High-performance sort on network of work- 
+stations. In Proceedings of the 1997 ACM SIGMOD In- 
+ternational Conference on Management of Data, Tucson, 
+Arizona, May 1997. 
+
+[2] Remzi H. Arpaci-Dusseau, Eric Anderson, Noah 
+Treuhaft, David E. Culler, Joseph M. Hellerstein, David 
+Patterson, and Kathy Yelick. Cluster I/O with River: 
+Making the fast case common. In Proceedings of the Sixth 
+Workshop on Input/Output in Parallel and Distributed 
+Systems (IOPADS ’99), page 10–22, Atlanta, Georgia, 
+May 1999. 
+
+[3] Arash Baratloo, Mehmet Karaul, Zvi Kedem, and Peter 
+Wyckoff. Charlotte: Metacomputing on the web. In Pro- 
+ceedings of the 9th International Conference on Parallel 
+and Distributed Computing Systems, 1996. 
+
+[4] Luiz A. Barroso, Jeffrey Dean, and Urs Hölzle. Web 
+search for a planet: The Google cluster architecture. IEEE 
+Micro, 23(2):22–28, April 2003. 
+
+[5] John Bent, Douglas Thain, Andrea C.Arpaci-Dusseau, 
+Remzi H. Arpaci-Dusseau, and Miron Livny. Explicit 
+control in a batch-aware distribute file system. In Pro- 
+ceedings of the 1st USENIX Symposium on Networked 
+Systems Design and Implementation NSDI, March 2004. 
+
+[6] Guy E. Blelloch. Scans a primitive parallel operations. 
+IEEE Transactions on Computers, C-38(11), November 
+1989. 
+
+[7] Armando Fox, Steven D. Gribble, Yatin Chawathe, 
+Eric A. Brewer, and Paul Gauthier. Cluster-based scal- 
+able network services. In Proceedings of the 16th ACM 
+Symposium on Operating System Principles, page 78– 
+91, Saint-Malo, France, 1997. 
+
+[8] Sanjay Ghemawat, Howard Gobioff, and Shun-Tak Le- 
+ung. The Google file system. In 19th Symposium on Op- 
+erating Systems Principles, page 29–43, Lake George, 
+New York, 2003. 
+
+To appear in OSDI 2004 12 
+
+
+
+[9] S. Gorlatch. Systematic efficient parallelization of scan 
+and other list homomorphisms. In L. Bouge, P. Fraigni- 
+aud, A. Mignotte, and Y. Robert, editors, Euro-Par’96. 
+Parallel Processing, Lecture Notes in Computer Science 
+1124, page 401–408. Springer-Verlag, 1996. 
+
+[10] Jim Gray. Sort benchmark home page. 
+http://research.microsoft.com/barc/SortBenchmark/. 
+
+[11] William Gropp, Ewing Lusk, and Anthony Skjellum. 
+Using MPI: Portable Parallel Programming with the 
+Message-Passing Interface. MIT Press, Cambridge, MA, 
+1999. 
+
+[12] L. Huston, R. Sukthankar, R. Wickremesinghe, M. Satya- 
+narayanan, G. R. Ganger, E. Riedel, and A. Ailamaki. Di- 
+amond: A storage architecture for early discard in inter- 
+active search. In Proceedings of the 2004 USENIX File 
+and Storage Technologies FAST Conference, April 2004. 
+
+[13] Richard E. Ladner and Michael J. Fischer. Parallel prefix 
+computation. Journal of the ACM, 27(4):831–838, 1980. 
+
+[14] Michael O. Rabin. Efficient dispersal of information for 
+security, load balance and fault tolerance. Journal of 
+the ACM, 36(2):335–348, 1989. 
+
+[15] Erik Riedel, Christos Faloutsos, Garth A. Gibson, and 
+David Nagle. Active disk for large-scale data process- 
+ing. IEEE Computer, page 68–74, June 2001. 
+
+[16] Douglas Thain, Todd Tannenbaum, and Miron Livny. 
+Distributed compute in practice: The Condor experi- 
+ence. Concurrency and Computation: Practice and Ex- 
+perience, 2004. 
+
+[17] L. G. Valiant. A bridging model for parallel computation. 
+Communications of the ACM, 33(8):103–111, 1997. 
+
+[18] Jim Wyllie. Spsort: How to sort a terabyte quickly. 
+http://alme1.almaden.ibm.com/cs/spsort.pdf. 
+
+A Word Frequency 
+
+This section contains a program that count the number 
+of occurrence of each unique word in a set of input file 
+specify on the command line. 
+
+#include "mapreduce/mapreduce.h" 
+
+// User’s map function 
+class WordCounter : public Mapper { 
+public: 
+virtual void Map(const MapInput& input) { 
+const string& text = input.value(); 
+const int n = text.size(); 
+for (int i = 0; i < n; ) { 
+
+// Skip past lead whitespace 
+while ((i < n) && isspace(text[i])) 
+
+i++; 
+
+// Find word end 
+int start = i; 
+while ((i < n) && !isspace(text[i])) 
+
+i++; 
+
+if (start < i) 
+Emit(text.substr(start,i-start),"1"); 
+
+} 
+} 
+
+}; 
+REGISTER_MAPPER(WordCounter); 
+
+// User’s reduce function 
+class Adder : public Reducer { 
+
+virtual void Reduce(ReduceInput* input) { 
+// Iterate over all entry with the 
+// same key and add the value 
+int64 value = 0; 
+while (!input->done()) { 
+
+value += StringToInt(input->value()); 
+input->NextValue(); 
+
+} 
+
+// Emit sum for input->key() 
+Emit(IntToString(value)); 
+
+} 
+}; 
+REGISTER_REDUCER(Adder); 
+
+int main(int argc, char** argv) { 
+ParseCommandLineFlags(argc, argv); 
+
+MapReduceSpecification spec; 
+
+// Store list of input file into "spec" 
+for (int i = 1; i < argc; i++) { 
+MapReduceInput* input = spec.add_input(); 
+input->set_format("text"); 
+input->set_filepattern(argv[i]); 
+input->set_mapper_class("WordCounter"); 
+
+} 
+
+// Specify the output files: 
+// /gfs/test/freq-00000-of-00100 
+// /gfs/test/freq-00001-of-00100 
+// ... 
+MapReduceOutput* out = spec.output(); 
+out->set_filebase("/gfs/test/freq"); 
+out->set_num_tasks(100); 
+out->set_format("text"); 
+out->set_reducer_class("Adder"); 
+
+// Optional: do partial sum within map 
+// task to save network bandwidth 
+out->set_combiner_class("Adder"); 
+
+// Tuning parameters: use at most 2000 
+// machine and 100 MB of memory per task 
+spec.set_machines(2000); 
+spec.set_map_megabytes(100); 
+spec.set_reduce_megabytes(100); 
+
+// Now run it 
+MapReduceResult result; 
+if (!MapReduce(spec, &result)) abort(); 
+
+// Done: ’result’ structure contains info 
+// about counters, time taken, number of 
+// machine used, etc. 
+
+return 0; 
+} 
+
+To appear in OSDI 2004 13 
+
+

@@ -1,0 +1,1280 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+LEARNING TO REINFORCEMENT LEARN 
+
+JX Wang1, Z Kurth-Nelson1, D Tirumala1, H Soyer1, JZ Leibo1, 
+R Munos1, C Blundell1, D Kumaran1,3, M Botvinick1,2 
+1DeepMind, London, UK 
+2Gatsby Computational Neuroscience Unit, UCL, London, UK 
+3Institute of Cognitive Neuroscience, UCL, London, UK 
+
+{wangjane, zebk, dhruvat, soyer, jzl, munos, cblundell, 
+
+dkumaran, botvinick} @google.com 
+
+ABSTRACT 
+
+In recent year deep reinforcement learn (RL) system have attain superhuman 
+performance in a number of challenge task domains. However, a major limitation 
+of such application be their demand for massive amount of training data. A critical 
+present objective be thus to develop deep RL method that can adapt rapidly to new 
+tasks. In the present work we introduce a novel approach to this challenge, which 
+we refer to a deep meta-reinforcement learning. Previous work have show that 
+recurrent network can support meta-learning in a fully supervise context. We 
+extend this approach to the RL setting. What emerges be a system that be train 
+use one RL algorithm, but whose recurrent dynamic implement a second, quite 
+separate RL procedure. This second, learn RL algorithm can differ from the 
+original one in arbitrary ways. Importantly, because it be learned, it be configure 
+to exploit structure in the training domain. We unpack these point in a series of 
+seven proof-of-concept experiments, each of which examines a key aspect of deep 
+meta-RL. We consider prospect for extend and scale up the approach, and 
+also point out some potentially important implication for neuroscience. 
+
+1 INTRODUCTION 
+
+Recent advance have allow long-standing method for reinforcement learn (RL) to be newly 
+extend to such complex and large-scale task environment a Atari (Mnih et al., 2015) and Go 
+(Silver et al., 2016). The key enable breakthrough have be the development of technique allow 
+the stable integration of RL with non-linear function approximation through deep learn (LeCun 
+et al., 2015; Mnih et al., 2015). The result deep RL method be attain human- and often 
+superhuman-level performance in an expand list of domain (Jaderberg et al., 2016; Mnih et al., 
+2015; Silver et al., 2016). However, there be at least two aspect of human performance that they 
+starkly lack. First, deep RL typically require a massive volume of training data, whereas human 
+learner can attain reasonable performance on any of a wide range of task with comparatively little 
+experience. Second, deep RL system typically specialize on one restrict task domain, whereas 
+human learner can flexibly adapt to change task conditions. Recent critique (e.g., Lake et al., 
+2016) have invoked these difference a pose a direct challenge to current deep RL research. 
+
+In the present work, we outline a framework for meeting these challenges, which we refer to a 
+deep meta-reinforcement learning, a label that be intend to both link it with and distinguish it 
+from previous work employ the term “meta-reinforcement learning” (e.g. Schmidhuber et al., 
+1996; Schweighofer and Doya, 2003, discuss later). The key concept be to use standard deep RL 
+technique to train a recurrent neural network in such a way that the recurrent network come to 
+implement it own, free-standing RL procedure. As we shall illustrate, under the right circumstances, 
+the secondary learn RL procedure can display an adaptiveness and sample efficiency that the 
+original RL procedure lacks. 
+
+The follow section review previous work employ recurrent neural network in the context of 
+meta-learning and describe the general approach for extend such method to the RL setting. We 
+
+1 
+
+ar 
+X 
+
+iv 
+:1 
+
+61 
+1. 
+
+05 
+76 
+
+3v 
+3 
+
+[ 
+c 
+
+.L 
+G 
+
+] 
+2 
+
+3 
+Ja 
+
+n 
+20 
+
+17 
+
+
+
+then present seven proof-of-concept experiments, each of which highlight an important ramification 
+of the deep meta-RL setup by characterize agent performance in light of this framework. We close 
+with a discussion of key challenge for next-step research, a well a some potential implication for 
+neuroscience. 
+
+2 METHODS 
+
+2.1 BACKGROUND: META-LEARNING IN RECURRENT NEURAL NETWORKS 
+
+Flexible, data-efficient learn naturally require the operation of prior biases. In general terms, 
+such bias can derive from two sources; they can either be engineer into the learn system (as, 
+for example, in convolutional networks), or they can themselves be acquire through learning. The 
+second case have be explore in the machine learn literature under the rubric of meta-learning 
+(Schmidhuber et al., 1996; Thrun and Pratt, 1998). 
+
+In one standard setup, the learn agent be confront with a series of task that differ from one 
+another but also share some underlie set of regularities. Meta-learning be then define a an 
+effect whereby the agent improves it performance in each new task more rapidly, on average, than 
+in past task (Thrun and Pratt, 1998). At an architectural level, meta-learning have generally be 
+conceptualize a involve two learn systems: one lower-level system that learns relatively 
+quickly, and which be primarily responsible for adapt to each new task; and a slow higher-level 
+system that work across task to tune and improve the lower-level system. 
+
+A variety of method have be pursue to implement this basic meta-learning setup, both within 
+the deep learn community and beyond (Thrun and Pratt, 1998). Of particular relevance here be 
+an approach introduce by Hochreiter and colleague (Hochreiter et al., 2001), in which a recurrent 
+neural network be train on a series of interrelate task use standard backpropagation. A critical 
+aspect of their setup be that the network receives, on each step within a task, an auxiliary input 
+indicate the target output for the precede step. For example, in a regression task, on each step 
+the network receives a input an x value for which it be desire to output the correspond y, but the 
+network also receives an input disclose the target y value for the precede step (see Hochreiter 
+et al., 2001; Santoro et al., 2016). In this scenario, a different function be use to generate the data 
+in each training episode, but if the function be all drawn from a single parametric family, then the 
+system gradually tune into this consistent structure, converge on accurate output more and more 
+rapidly across episodes. 
+
+One interest aspect of Hochreiter’s method be that the process that underlies learn within each 
+new task inheres entirely in the dynamic of the recurrent network, rather than in the backpropagation 
+procedure use to tune that network’s weights. Indeed, after an initial training period, the network 
+can improve it performance on new task even if the weight be held constant (see also Cotter 
+and Conwell, 1990; Prokhorov et al., 2002; Younger et al., 1999). A second important aspect of the 
+approach be that the learn procedure implement in the recurrent network be fit to the structure 
+that span the family of task on which the network be trained, embed bias that allow it to learn 
+efficiently when deal with task from that family. 
+
+2.2 DEEP META-RL: DEFINITION AND KEY FEATURES 
+
+Importantly, Hochreiter’s original work (Hochreiter et al., 2001), a well a it subsequent extension 
+(Cotter and Conwell, 1990; Prokhorov et al., 2002; Santoro et al., 2016; Younger et al., 1999) only 
+address supervise learn (i.e. the auxiliary input provide on each step explicitly indicate the 
+target output on the previous step, and the network be train use explicit targets). In the present 
+work we consider the implication of apply the same approach in the context of reinforcement 
+learning. Here, the task that make up the training series be interrelate RL problems, for example, 
+a series of bandit problem vary only in their parameterization. Rather than present target 
+output a auxiliary inputs, the agent receives input indicate the action output on the previous step 
+and, critically, the quantity of reward result from that action. The same reward information be fed 
+in parallel to a deep RL procedure, which tune the weight of the recurrent network. 
+
+It be this setup, a well a it result, that we refer to a deep meta-RL (although from here on, for 
+brevity, we will often simply call it meta-RL, with apology to author who have use that term 
+
+2 
+
+
+
+previously). As in the supervise case, when the approach be successful, the dynamic of the recurrent 
+network come to implement a learn algorithm entirely separate from the one use to train the 
+network weights. Once again, after sufficient training, learn can occur within each task even if the 
+weight be held constant. However, here the procedure the recurrent network implement be itself a 
+full-fledged reinforcement learn algorithm, which negotiates the exploration-exploitation tradeoff 
+and improves the agent’s policy base on reward outcomes. A key point, which we will emphasize in 
+what follows, be that this learn RL procedure can differ starkly from the algorithm use to train the 
+network’s weights. In particular, it policy update procedure (including feature such a the effective 
+learn rate of that procedure), can differ dramatically from those involve in tune the network 
+weights, and the learn RL procedure can implement it own approach to exploration. Critically, a 
+in the supervise case, the learn RL procedure will be fit to the statistic span the multi-task 
+environment, allow it to adapt rapidly to new task instances. 
+
+2.3 FORMALISM 
+
+Let u write a D a distribution (the prior) over Markov Decision Processes (MDPs). We want to 
+demonstrate that meta-RL be able to learn a prior-dependent RL algorithm, in the sense that it will 
+perform well on average on MDPs drawn from D or slight modification of D. An appropriately 
+structure agent, embed a recurrent neural network, be train by interact with a sequence of 
+MDP environment (also call tasks) through episodes. At the start of a new episode, a new MDP 
+task m ∼ D and an initial state for this task be sampled, and the internal state of the agent (i.e., the 
+pattern of activation over it recurrent units) be reset. The agent then executes it action-selection 
+strategy in this environment for a certain number of discrete time-steps. At each step t an action 
+at ∈ A be execute a a function of the whole history Ht = {x0, a0, r0, . . . , xt−1, at−1, rt−1, xt} 
+of the agent interact in the MDP m during the current episode (set of state {xs}0≤s≤t, action 
+{as}0≤s<t, and reward {rs}0≤s<t observe since the begin of the episode, when the recurrent 
+unit be reset). The network weight be train to maximize the sum of observe reward over all 
+step and episodes. 
+
+After training, the agent’s policy be fix (i.e. the weight be frozen, but the activation be change 
+due to input from the environment and the hidden state of the recurrent layer), and it be evaluate 
+on a set of MDPs that be drawn either from the same distribution D or slight modification of that 
+distribution (to test the generalization capacity of the agent). The internal state be reset at the begin 
+of the evaluation of any new episode. Since the policy learn by the agent be history-dependent (as it 
+make us of a recurrent network), when expose to any new MDP environment, it be able to adapt 
+and deploy a strategy that optimizes reward for that task. 
+
+3 EXPERIMENTS 
+
+In order to evaluate the approach to learn that we have just described, we conduct a series of 
+six proof-of-concept experiments, which we present here along with a seventh experiment originally 
+report in a related paper (Mirowski et al., 2016). One particular point of interest in these experiment 
+be to see whether meta-RL could be use to learn an adaptive balance between exploration and 
+exploitation, a demand of any fully-fledged RL procedure. A second and still more important 
+focus be on the question of whether meta-RL can give rise to learn that gain efficiency by 
+capitalize on task structure. 
+
+In order to examine these questions, we perform four experiment focus on bandit task and two 
+additional experiment focus on Markov decision problems. All of our experiment (as well a the 
+additional experiment we report) employ a common set of methods, with minor implementational 
+variations. In all experiments, the agent architecture center on a recurrent neural network (LSTM; 
+Hochreiter and Schmidhuber, 1997) feed into a soft-max output represent discrete actions. 
+As detailed below, the parameter of this network core, a well a some other architectural details, 
+varied across experiment (see Figure 1 and Table 1). However, it be important to emphasize that 
+comparison between specific architecture be outside the scope of this paper. Our main aim be to 
+illustrate and validate the meta-RL framework in a more general way. To this end, all experiment 
+use the high-level task setup previously described: Both training and test be organize into 
+fixed-length episodes, each involve a task randomly sample from a predetermine task distribution, 
+with the LSTM hidden state initialize at the begin of each episode. Task-specific input and 
+
+3 
+
+
+
+Parameter Exps. 1 & 2 Exp. 3 Exp. 4 Exp. 5 Exp. 6 
+No. thread 1 1 1 1 32 
+No. LSTMs 1 1 1 1 2 
+No. hiddens 48 48 48 48 256/64 
+Steps unrolled 100 5 150 20 100 
+βe anneal anneal anneal 0.05 0.001 
+βv 0.05 0.05 0.05 0.05 0.4 
+Learning rate tune 0.001 0.001 tune tune 
+Discount factor tune 0.8 0.8 tune tune 
+Input a, r, t a, r, t a, r, t a, r, t, x a, r, x 
+Observation n/a n/a n/a 1-hot RGB (84x84) 
+No. trials/episode 100 5 150 10 10 
+Episode length 100 5 150 20 ≤3600 
+
+Table 1: List of hyperparameters. βe = coefficient of entropy regularization loss; in Exps. 1-4, βe be anneal 
+from 1.0 to 0.0 over the course of training. βv = coefficient of value function loss (Mirowski et al., 2016). r = 
+reward, a = last action, t = current time step, x = current observation. Exp. 1: Bandits with independent arm 
+(Section 3.1.1); Exp. 2: Bandits with dependent arm I (Section 3.1.2); Exp. 3: Bandits with dependent arm II 
+(Section 3.1.3); Exp. 4: Restless bandit (Section 3.1.4); Exp. 5: The “Two-Step Task” (Section 3.2.1); Exp. 6: 
+Learning abstract task structure (Section 3.2.2). 
+
+action output be described in conjunction with individual experiments. In all experiment except 
+where specified, the input include a scalar indicate the reward receive on the precede time-step 
+a well a a one-hot representation of the action sample on that time-step. 
+
+All reinforcement learn be conduct use the Advantage Actor-Critic algorithm, a detailed 
+in Mnih et al. (2016) and Mirowski et al. (2016) (see also Figure 1). Details of training, include 
+the use of entropy regularization and a combine policy and value estimate loss, closely follow the 
+method detailed in Mirowski et al. (2016), with the exception that our experiment use a single 
+thread unless otherwise noted. For a full listing of parameter refer to Table 1. 
+
+Figure 1: Advantage actor-critic with recurrence. In all architectures, reward and last action be additional input 
+to the LSTM. For non-bandit environments, observation be also fed into the LSTM either a a one-hot or pass 
+through an encoder model [3-layer encoder: two convolutional layer (first layer: 16 8x8 filter apply with 
+stride 4, second layer: 32 4x4 filter with stride 2) follow by a fully connect layer with 256 unit and then a 
+ReLU non-linearity. See for detail Mirowski et al. (2016)]. For bandit experiments, current time step be also 
+fed in a input. π = policy; v = value function. A3C be the distribute multi-threaded asynchronous version 
+of the advantage actor-critic algorithm (Mnih et al., 2016); A2C be single threaded. (a) Architecture use in 
+experiment 1-5. (b) Convolutional-LSTM architecture use in experiment 6. (c) Stacked LSTM architecture 
+with convolutional encoder use in experiment 6 and 7. 
+
+4 
+
+
+
+3.1 BANDIT PROBLEMS 
+
+As an initial set for evaluate meta-RL, we study a series of bandit problems. Except for a very 
+limited set of bandit environments, it be intractable to compute the (prior-dependent) Bayesian-optimal 
+strategy. Here we demonstrate that a recurrent system train on a set of bandit environment drawn 
+i.i.d. from a give distribution of environment produce a bandit algorithm which performs well on 
+problem drawn from that distribution, and to a certain extent generalizes to related distributions. 
+Thus, meta-RL learns a prior-dependent bandit algorithm. 
+
+The specific bandit instantiation of the general meta-RL procedure described in Section 2.3 be define 
+a follows. Let D be a training distribution over bandit environments. The meta-RL system be train 
+on a sequence of bandit environment through episodes. At the start of a new episode, it LSTM state 
+be reset and a bandit task b ∼ D be sampled. A bandit task be define a a set of distribution – one for 
+each arm – from which reward be sampled. The agent play in this bandit environment for a certain 
+number of trial and be train to maximize observe rewards. After training, the agent’s policy be 
+evaluate on a set of bandit task that be drawn from a test distribution D′, which can either be the 
+same a D or a slight modification of it. 
+We evaluate the result performance of the learn bandit algorithm by the cumulative regret, 
+a measure of the loss (in expect rewards) suffer when play sub-optimal arms. Writing 
+µa(b) the expect reward of arm a in bandit environment b, and µ∗(b) = maxa µa(b) = µa∗(b)(b) 
+(where a∗(b) be one optimal arm) the optimal expect reward, we define the cumulative regret (in 
+environment b) a RT (b) = 
+
+∑T 
+t=1 µ 
+
+∗(b)− µat(b), where at be the arm (action) chosen at time t. In 
+experiment 4 (Restless bandits; Section 3.1.4), µ∗ also depends on t. We report the performance 
+(average over bandit environment drawn from the test distribution) either in term of the cumulative 
+regret: Eb∼D′ [RT (b)] or in term of number of sub-optimal pulls: Eb∼D′ [ 
+
+∑T 
+t=1 I{at 6= a∗(b)}]. 
+
+3.1.1 BANDITS WITH INDEPENDENT ARMS 
+
+We first consider a simple two-armed bandit task to examine the behavior of meta-RL under condition 
+where theoretical guarantee exist and general purpose algorithm apply. The arm distribution be 
+independent Bernoulli distribution (rewards be 1 with probability p and 0 with probability 1− p), 
+where the parameter of each arm (p1 and p2) be sample independently and uniformly over [0, 1]. 
+We denote by Di the correspond distribution over these independent bandit environment (where 
+the subscript i stand for independent arms). 
+
+At the begin of each episode, a new bandit task be sample and held constant for 100 trials. 
+Training last for 20,000 episodes. The network be give a input the last reward, last action taken, 
+and the trial number t, subsequently produce the action for the next trial t+ 1 (Figure 1). After 
+training, we evaluate on 300 new episode with the learn rate set to zero (the learn policy be 
+fixed). 
+
+Across model instances, we randomly sample learn rate and discount, follow Mnih et al. (2016). 
+For all figures, we plot the average of the top 5 run of 100 randomly sample hyperparameter 
+settings, where the top agent be select from the first half of the 300 evaluation episode and 
+performance be plot for the second half. We measure the cumulative expect regret across the 
+episode, compare with several algorithm tailor for this independent bandit setting: Gittins index 
+(Gittins, 1979) (which be Bayesian optimal in the finite-horizon case), UCB (Auer et al., 2002) (which 
+come with theoretical finite-time regret guarantees), and Thompson sample (Thompson, 1933) 
+(which be asymptotically optimal in this setting: see Kaufmann et al., 2012b). Model simulation 
+be conduct with the PymaBandits toolbox from (Kaufmann et al., 2012a) and custom Matlab 
+scripts. 
+
+As show in Figure 2a (green line; “Independent”), meta-RL outperforms both Thompson sample 
+(gray dash line) and UCB (light gray dash line), although it performs less well compare to 
+Gittins (black dash line). To verify the critical importance of provide reward information to the 
+LSTM, we remove this input, leave all other input a before. As expected, performance be at 
+chance level on all bandit tasks. 
+
+5 
+
+
+
+Ep 
+be 
+
+od 
+e 
+
+300 
+
+0 
+
+Sub-optimal arm pull 
+
+0 100 
+
+(a) 
+
+Tr 
+ai 
+
+ni 
+ng 
+
+C 
+on 
+
+di 
+tio 
+
+n 
+
+Testing Condition 
+
+Cumulative regret 
+
+Indep. 
+
+Unif. 
+
+Easy 
+
+Med. 
+
+Hard 
+
+Indep. Unif. Easy Med. Hard 
+
+(b) 
+
+(c) (d) 
+
+(e) 
+
+Trial # 
+
+(f ) 
+
+Trial # 
+20 40 60 80 100 
+
+1 
+
+2 
+
+3 
+
+0 
+
+Testing: Dependent Uniform 
+
+Cu 
+m 
+
+ul 
+at 
+
+iv 
+e 
+
+Re 
+gr 
+
+et 
+
+UCB 
+
+LSTM A2C “Dependent Uniform” 
+
+Thompson 
+Gittins 
+
+Trial # 
+20 40 60 80 100 
+
+1 
+
+2 
+
+3 
+
+0 
+
+Testing: Independent 
+
+Cu 
+m 
+
+ul 
+at 
+
+iv 
+e 
+
+Re 
+gr 
+
+et 
+
+UCB 
+
+LSTM A2C “Independent” 
+
+Thompson 
+Gittins 
+
+Trial # 
+20 40 60 80 100 
+
+1 
+
+2 
+
+3 
+
+0 
+
+Testing: Hard 
+
+Cu 
+m 
+
+ul 
+at 
+
+iv 
+e 
+
+Re 
+gr 
+
+et 
+
+4 
+
+UCB 
+
+LSTM A2C “Medium” 
+
+Thompson 
+Gittins 
+
+Trial # 
+20 40 60 80 100 
+
+1 
+
+2 
+
+3 
+
+0 
+
+Testing: Easy 
+
+Cu 
+m 
+
+ul 
+at 
+
+iv 
+e 
+
+Re 
+gr 
+
+et 
+
+UCB 
+
+LSTM A2C “Medium” 
+
+Thompson 
+Gittins 
+
+Figure 2: Performance on independent- and correlated-arm bandits. We report performance a the cumulative 
+expect regret RT for 150 test episodes, average over the top 5 hyperparameters for each agent-task con- 
+figuration, where the top 5 be determine base on performance on a separate set of 150 test episodes. (a) 
+LSTM A2C train and evaluate on bandit with independent arm (distribution Di; see text), and compare 
+with theoretically optimal models. (b) A single agent play the medium difficulty task with distribution Dm. 
+Suboptimal arm pull over trial be depict for 300 episodes. (c) LSTM A2C train and evaluate on bandit 
+with dependent uniform arm (distribution Du), (d) train on medium bandit task (Dm) and test on easy 
+(De), and (e) train on medium (Dm) and test on hard task (Dh). (f) Cumulative regret for all possible 
+combination of training and test environment (Di, Du, De, Dm, Dh). 
+
+3.1.2 BANDITS WITH DEPENDENT ARMS (I) 
+
+As we have emphasized, a key property of meta-RL be that it give rise to a learn RL algorithm that 
+exploit consistent structure in the training distribution. In order to garner empirical evidence for this 
+point, we test the agent from our first experiment in a more structure bandit task. Specifically, 
+we train the system on two-arm bandit in which arm reward distribution be correlated. In 
+this setting, unlike the one study in the previous section, experience with either arm provide 
+information about the other. Standard bandit algorithms, include UCB and Thompson sampling, 
+perform suboptimally in this setting, a they be not design to exploit such correlations. In some 
+case it be possible to tailor algorithm for specific arm structure (see for example Lattimore and 
+Munos, 2014), but extensive problem-specific analysis be typically required. Our approach aim to 
+learn a structure-dependent bandit algorithm directly from experience with the target bandit domain. 
+
+We consider Bernoulli distribution where the parameter (p1, p2) of the two arm be correlate 
+in the sense that p1 = 1 − p2. We consider several training and test distributions. The uniform 
+mean that p1 ∼ U([0, 1]) (uniform distribution over the unit interval). The easy mean that 
+p1 ∼ U({0.1, 0.9}) (uniform distribution over those two possible values), and similarly we call 
+medium when p1 ∼ U({0.25, 0.75}) and hard when p1 ∼ U({0.4, 0.6}). We denote by Du, 
+De, Dm, and Dh the correspond induced distribution over bandit environments. In addition 
+
+6 
+
+
+
+we also consider the independent uniform distribution (as in the previous section, Di) where 
+p1, p2 ∼ U([0, 1]) independently. Agents be both train and test on those five distribution over 
+bandit environment (among which four correspond to correlate distributions: Du, De, Dm and Dh; 
+and one to the independent case: Di). As a validation of the name give to the task distribution 
+(De, Dm, Dh), result show that the easy task be easy to learn than the medium which itself be easy 
+than the hard one (Figure 2f). This be compatible with the general notion that the hardness of a bandit 
+problem be inversely proportional to the difference between the expect reward of the optimal and 
+sub-optimal arms. We again note that withholding the reward input to the LSTM result in chance 
+performance on even the easy bandit task, a should be expected. 
+
+Figure 2f report the result of all possible training-testing regimes. From observe the cumulative 
+expect regrets, we make the follow observations: i) agent train in structure environment 
+(Du,De,Dm, andDh) develop prior knowledge that can be use effectively when test on structure 
+distribution – perform comparably to Gittins (Figure 2c-f), and superiorly compare to agent 
+train on independent arm (Di) in all structure task at test (Figure 2f). This be because an agent 
+train on independent reward (Di) have not learn to exploit the reward correlation that be useful 
+in those structure tasks. ii) Conversely, previous training on any structure distribution (Du, De, 
+Dm, or Dh) hurt performance when agent be test on an independent distribution (Di; Figure 2f). 
+This make sense, a training on correlate arm may produce a policy that relies on specific reward 
+structure, thereby impact performance in problem where no such structure exists. iii) Whilst 
+the previous result emphasize the point that meta-RL give rise to a separate learnt RL algorithm 
+that implement prior-dependent bandit strategies, result also provide evidence that there be some 
+generalization beyond the exact training distribution encounter (Figure 2f). For example, agent 
+train on the distribution De and Dm perform well when test over a much wider structure 
+distribution (i.e. Du). Further, our evidence suggests that there be generalization from training 
+on the easy task (De,Dm) to test on the hardest task (Dh; Figure 2e), with similar or even 
+marginally superior performance a compare to training on the hard distribution Dh itself(Figure 
+2f). In contrast, training on the hard distribution Dh result in relatively poor generalization to other 
+structure distribution (Du, De, Dm), suggest that training purely on hard instance may result in 
+a learn RL algorithm that be more constrain by prior knowledge, perhaps due to the difficulty of 
+solve the original problem. 
+
+3.1.3 BANDITS WITH DEPENDENT ARMS (II) 
+
+In the previous experiment, the agent could outperform standard bandit algorithm by make use 
+of learn dependency between arms. However, it could do this while always choose what it 
+believe to be the highest-paying arm. We next examine a problem where information can be gain 
+by pay a short-term reward cost. Similar problem have be examine before a provide a 
+challenge to standard bandit algorithm (see e.g. Russo and Van Roy, 2014). In contrast, human and 
+animal make decision that sacrifice immediate reward for information gain (e.g. Bromberg-Martin 
+and Hikosaka, 2009). 
+
+In this experiment, the agent be train on 11-armed bandit with strong dependency between 
+arms. All arm have deterministic payouts. Nine “non-target” arm have reward = 1, and one “target” 
+arm have reward = 5. Meanwhile, arm a11 be always “informative”, in that the target arm be 
+indexed by 10 time a11’s reward (e.g. a reward of 0.2 on a11 indicate that a2 be the target arm). 
+Thus, a11’s payouts range from 0.1 to 1. In each episode, the index of the target arm be randomly 
+assigned. On the first trial of each episode, the agent could not know which arm be the target, so the 
+informative arm return expect reward 0.55 and every target arm return expect reward 1.4. 
+Choosing the informative arm thus meant forego immediate reward, but with the compensation 
+of valuable information. Episodes be five step long. Again, the reward on the previous trial be 
+provide a an additional observation to the agent. To facilitate learning, this be encode in 1-hot 
+format. 
+
+Results be show in Figure 3. The agent learn the optimal long-run strategy of sample the 
+informative arm once, despite the short-term cost, and then use the result information to exploit 
+the high-value target arm. Thompson sampling, if supply the true prior, search potential target 
+arm and exploit the target if found. UCB perform bad because it sample every arm once 
+even if the target arm be found early. 
+
+7 
+
+
+
+Figure 3: Learned RL procedure pay immediate cost to gain information to improve long-run returns. In this task, 
+one arm be lower-paying but provide perfect information about which of the other ten arm be highest-paying. 
+The remain nine arm be intermediate in reward. The index of the informative arm be fix between episodes, 
+but the index of the highest-paying arm be randomize between episodes. On the first trial, the train agent 
+sample the informative arm. On subsequent trials, the agent us the information it gain to deterministically 
+exploit the highest-paying arm. Thompson sample and UCB be not able to take advantage of the dependency 
+between arms. 
+
+3.1.4 RESTLESS BANDITS 
+
+In previous experiment we consider stationary problem where the agent’s action yield in- 
+formation about task parameter that remain fix throughout each episode. Next, we consider a 
+bandit problem in which reward probability change over the course of an episode, with different 
+rate of change (volatilities) in different episodes. To perform well, the agent must not only track 
+the best arm, but also infer the volatility of the episode and adjust it own learn rate accordingly. 
+In such an environment, learn rate should be high when the environment be change rapidly, 
+because past information becomes irrelevant more quickly (Behrens et al., 2007; Sutton and Barto, 
+1998). 
+
+We test whether meta-RL would learn such a flexible RL policy use a two-armed Bernoulli bandit 
+task with reward probability p1 and 1-p1. The value of p1 change slowly in “low vol” episode 
+and quickly in “high vol” episodes. The agent have no way of know which type of episode it 
+be in, except for it reward history within the episode. Figure 4a show example “low vol” and 
+“high vol” episodes. Reward magnitude be fix at 1, and episode be 100 step long. UCB and 
+
+Thompson sample be again implement for comparison. The confidence bound term 
+√ 
+
+χ logn 
+ni 
+
+in UCB have parameter χ which be set to 1, select empirically for good performance on our data 
+set. Thompson sampling’s posterior update include knowledge of the Gaussian random walk, but 
+with a fix volatility for all episodes. 
+
+As in the previous experiment, meta-RL achieve low regret in test than Thompson sampling, 
+UCB, or the Rescorla-Wagner (R-W) learn rule (Figure 4b; Rescorla et al., 1972) with the best 
+fix learn rate (α=0.5). To test whether the agent adjust it effective learn rate to match 
+environment with different volatility levels, we fit R-W model to the agent’s behavior, concatenate 
+episode into block of 10, where each block consist of only “low vol” or only “high vol” episodes. 
+We consider four different model encompass different combination of three parameters: 
+learn rate α, softmax inverse temperature β, and a lapse rate � to account for unexplained choice 
+variance not related to estimate value Economides et al. (2015). Model “b” include only β, “ab” 
+include α and β, “be” include β and �, and “abe” include all three. All parameter be estimate 
+separately on each block of 10 episodes. In model where � and α be not free, they be fix 
+to 0 and 0.5, respectively. Model comparison by Bayesian Information Criterion (BIC) indicate 
+that meta-RL’s behavior be good described by a model with different learn rate for each block 
+than a model with a fix learn rate across blocks. As a control, we perform the same model 
+comparison on the behavior produce by the best R-W agent, find no benefit of allow different 
+learn rate across episode (models “abe” and “ab” v “be” and “b”; Figure 4c-d). In these models, 
+the parameter estimate for meta-RL’s behavior be strongly related to the volatility of the episodes, 
+indicate that meta-RL adjust it learn rate to the volatility of the episode, whereas model 
+fitting the R-W behavior simply recover the fix parameter (Figure 4e-f). 
+
+8 
+
+
+
+Figure 4: Learned RL procedure adapts it own learn rate to the environment. (a) Agents be train on 
+two-armed bandit with perfectly anti-correlated Bernoulli reward probabilities, p1 and 1-p1. Two example 
+episode be shown. p1 change within an episode (solid black line), with a fast Poisson jump rate in “high vol” 
+episode and a slow rate in “low vol” episodes. (b) The train LSTM agent outperform UCB, Thompson 
+sampling, and a Rescorla-Wagner (R-W) learner with fix learn rate α=0.5 (selected for be optimal on 
+average in this distribution of environments). (c,d) We fit R-W model by maximum likelihood both to the 
+behavior of R-W (as a control) and to the behavior of LSTM. Models include a learn rate that could vary 
+between episode (“ab” and “abe”) outperform model without these free parameter on LSTM’s data, but not 
+on R-W’s data. Addition of a lapse parameter further improve model fit on LSTM’s data (“be” and “abe”), 
+suggest that the algorithm implement by LSTM be not exactly Rescorla-Wagner. (e,f) The LSTM’s, but not 
+R-W’s, estimate learn rate be high in volatile episodes. Small jitter add to visualize overlap points. 
+
+3.2 MARKOV DECISION PROBLEMS 
+
+The forego experiment focus on bandit task in which action do not affect the task’s underlie 
+state. We turn now to MDPs where action do influence state. We begin with a task derive from the 
+neuroscience literature and then turn to a task, originally study in the context of animal learning, 
+which require learn of abstract task structure. As in the previous experiments, our focus be 
+on examine how meta-RL adapts to invariance in task structure. We wrap up by review an 
+experiment recently report in a related paper (Mirowski et al., 2016), which demonstrates how 
+meta-RL can scale to large-scale navigation task with rich visual inputs. 
+
+3.2.1 THE “TWO-STEP TASK” 
+
+Here we examine meta-RL in a set that have be widely use in the neuroscience literature to 
+distinguish the contribution of different system view to support decision make (Daw et al., 
+2005). Specifically, this paradigm – know a the “two-step task” (Daw et al., 2011) – be developed 
+to dissociate a model-free system that cache value of action in state (e.g. TD(1) Q-learning; 
+see Sutton and Barto, 1998), from a model-based system which learns an internal model of the 
+environment and evaluates the value of action at the time of decision-making through look-ahead 
+planning (Daw et al., 2005). Our interest be in whether meta-RL would give rise to behavior 
+emulate a model-based strategy, despite the use of a model-free algorithm (in this case A2C) to 
+train the system weights. 
+
+9 
+
+
+
+We use a modify version of the two-step task, design to bolster the utility of model-based over 
+model-free control (see Kool et al., 2016). The task’s structure be diagram in Figure 5a. From the 
+first-stage state S1, action a1 lead to second-stage state S2 and S3 with probability 0.75 and 0.25, 
+respectively, while action a2 lead to S2 and S3 with probability 0.25 and 0.75. One second-stage 
+state yield a reward of 1.0 with probability 0.9 (and otherwise zero); the other yield the same 
+reward with probability 0.1. The identity of the higher-valued state be assign randomly for each 
+episode. Thus, the expect value for the two first-stage action be either ra = 0.9 and rb = 0.1, or 
+ra = 0.1 and rb = 0.9. All three state be represent by one-hot vectors, with the transition model 
+held constant across episodes: i.e. only the expect value of the second stage state change from 
+episode to episode. 
+
+We apply the conventional analysis use in the neuroscience literature to dissociate model-free 
+from model-based control (Daw et al., 2011). This focus on the “stay probability,” that is, the 
+probability with which a first-stage action be select at trial t+ 1 follow a second-stage reward 
+at trial t, a a function of whether trial t involve a common transition (e.g. action a1 at state S1 
+lead to S2) or rare transition (action a2 at state S1 lead to S3). Under the standard interpretation (see 
+Daw et al., 2011), model-free control – à la TD(1) – predicts that there should be a main effect of 
+reward: First-stage action will tend to be repeat if follow by reward, regardless of transition 
+type, and such action will tend not to be repeat (choice switch) if follow by non-reward (Figure 
+5b). In contrast, model-based control predicts an interaction between the reward and transition type, 
+reflect a more goal-directed strategy, which take the transition structure into account. Intuitively, 
+if you receive a second-stage reward (e.g. at S2) follow a rare transition (i.e. have take action 
+a2 at state S1), to maximize your chance of get to this reward on the next trial base on your 
+knowledge of the transition structure, the optimal first stage action be a1 (i.e. switch). 
+
+The result of the stay-probability analysis perform on the agent’s choice show a pattern conven- 
+tionally interpret a imply the operation of model-based control (Figure 5c). As in previous 
+experiments, when reward information be withheld at the level of network input, performance be 
+at chance levels. 
+
+If interpret follow standard practice in neuroscience, the behavior of the model in this experiment 
+reflect a surprising effect: training with model-free RL give rise to behavior reflect model-based 
+control. We hasten to note that different interpretation of the observe pattern of behavior be 
+available (Akam et al., 2015), a point to which we will return below. However, notwithstanding this 
+caveat, the result of the present experiment provide a further illustration of the point that the learn 
+procedure that emerges from meta-RL can differ starkly from the original RL algorithm use to train 
+the network weights, and take a form that exploit consistent task structure. 
+
+3.2.2 LEARNING ABSTRACT TASK STRUCTURE 
+
+In the final experiment we conducted, we take a step towards examine the scalabilty of meta-RL, by 
+study a task that involves rich visual inputs, longer time horizon and sparse rewards. Additionally, 
+in this experiment we study a meta-learning task that require the system to tune into an abstract 
+task structure, in which a series of object play define role which the system must infer. 
+
+The task be adapt from a classic study of animal behavior, conduct by Harlow (1949). On each 
+trial in the original task, Harlow present a monkey with two visually contrast objects. One of 
+these cover a small well contain a morsel of food; the other cover an empty well. The animal 
+chose freely between the two object and could retrieve the food reward if present. The stage be 
+then hidden and the left-right position of the object be randomly reset. A new trial then began, 
+with the animal again choose freely. This process continued for a set number of trial use the 
+same two objects. At completion of this set of trials, two entirely new and unfamiliar object be 
+substitute for the original two, and the process begin again. Importantly, within each block of trials, 
+one object be chosen to be consistently reward (regardless of it left-right position), with the other 
+be consistently unrewarded. What Harlow (Harlow, 1949) observe be that, after substantial 
+practice, monkey displayed behavior that reflect an understand of the task’s rules. When two 
+new object be presented, the monkey’s first choice between them be necessarily arbitrary. But 
+after observe the outcome of this first choice, the monkey be at ceiling thereafter, always choose 
+the reward object. 
+
+10 
+
+
+
+(a) Two-step task (b) Model prediction 
+
+(c) LSTM A2C with reward input 
+
+Figure 5: Three-state MDP model after the “two-step task” from Daw et al. (2011). (a) MDP with 3 state and 
+2 actions. All trial start in state S1, with transition probability after take action a1 or a2 depict in the 
+graph. S2 and S3 result in expect reward ra and rb (see text). (b) Predictions of choice probability give 
+either a model-based strategy or a model-free strategy (Daw et al., 2011). Specifically, model-based strategy 
+take into account transition probability and would predict an interaction between the amount of reward receive 
+on the last trial and the transition (common or uncommon) observed. (c) Agent display a perfectly model-based 
+profile when give the reward a input. 
+
+We anticipate that meta-RL should give rise to the same pattern of abstract one-shot learning. In 
+order to test this, we adapt Harlow’s paradigm into a visual fixation task, a follows. A 84x84 pixel 
+input represent a simulated computer screen (see Figure 6a-c). At the begin of each trial, this 
+display be blank except for a small central fixation cross (red crosshairs). The agent select discrete 
+left-right action which shift it view approximately 4.4 degree in the correspond direction, 
+with a small momentum effect (alternatively, a no-op action could be selected). The completion of a 
+trial require perform two tasks: saccading to the central fixation cross, follow by saccading 
+to the correct image. If the agent held the fixation cross in the center of the field of view (within a 
+tolerance of 3.5 degree visual angle) for a minimum of four time steps, it receive a reward of 0.2. 
+The fixation cross then disappear and two image – drawn randomly from the ImageNet dataset 
+(Deng et al., 2009) and resize to 34x34 – appear on the left and right side of the display (Figure 
+6b). The agent’s task be then to “select” one of the image by rotate until the center of the image 
+align with the center of the visual field of view (within a tolerance of 7 degree visual angle). 
+Once one of the image be selected, both image disappear and, after an intertrial interval of 10 
+time-steps, the fixation cross reappeared, initiate the next trial. Each episode contain a maximum 
+of 10 trial or 3600 steps. Following Mirowski et al. (2016), we implement an action repeat of 4, 
+meaning that select an image take a minimum of three independent decision (twelve primitive 
+actions) after have complete the fixation. It should be noted, however, that the rotational position 
+of the agent be not limited; that is, 360 degree rotation could occur, while the simulated computer 
+screen only subtend 65 degrees. 
+
+Although new ImageNet image be chosen at the begin of each episode (sampled with 
+replacement from a set of 1000 images), the same image be re-used across all trial within 
+an episode, though in randomly vary left-right placement, similar to the object in Harlow’s 
+experiment. And a in that experiment, one image be arbitrarily chosen to be the “rewarded” image 
+throughout the episode. Selection of this image yield a reward of 1.0, while the other image yield 
+a reward of -1.0. During test, the A3C learn rate be set to zero and ImageNet image be drawn 
+from a separate held-out set of 1000, never present during training. 
+
+A grid search be conduct for optimal hyperparameters. At perfect performance, agent can 
+complete one trial per 20-30 step and achieve a maximum expect reward of 9 per 10 trials. Given 
+
+11 
+
+
+
+(a) Fixation (b) Image display (c) Right saccade and selection 
+
+(d) Training performance (e) Robustness over random seed (f) One-shot learn 
+
+Figure 6: Learning abstract task structure in visually rich 3D environment. a-c) Example of a single trial, 
+begin with a central fixation, follow by two image with random left-right placement. d) Average 
+performance (measured in average reward per trial) of top 40 out of 100 seed during training. Maximum 
+expect performance be indicate with black dash line. e) Performance at episode 100,000 for 100 random 
+seeds, in decrease order of performance. f) Probability of select the reward image, a a function of trial 
+number for a single A3C stack LSTM agent for a range of training duration (episodes per thread, 32 threads). 
+
+the nature of the task – which require one-shot image-reward memory together with maintenance of 
+this information over a relatively long timescale (i.e. over fixation-cross selection and across trials) – 
+we assess the performance of not only a convolutional-LSTM architecture which receives reward 
+and action a additional input (see Figure 1b and Table 1), but also a convolutional-stacked LSTM 
+architecture use in a navigation task discuss below (see Figure 1c). 
+
+Agent performance be illustrate in Figure 6d-f. Whilst the single LSTM agent be relatively 
+successful at solve the task, the stacked-LSTM variant exhibit much good robustness. That is, 
+43% of random seed of the best hyperparameter set perform at ceiling (Figure 6e), compare to 
+26% of the single LSTM. 
+
+Like the monkey in Harlow’s experiment (Harlow, 1949), the network converge on an optimal 
+policy: Not only do the agent successfully fixate to begin each trial, but start on the second trial 
+of each episode it invariably selects the reward image, regardless of which image it select on the 
+first trial(Figure 6f). This reflect an impressive form of one-shot learning, which reflect an implicit 
+understand of the task structure: After observe one trial outcome, the agent bind a complex, 
+unfamiliar image to a specific task role. 
+
+Further experiments, report elsewhere (Wang et al., 2017), confirm that the same recurrent 
+A3C system be also able to solve a substantially more difficult version of the task. In this task, only 
+one image – which be randomly designate to be either the reward item to be selected, or the 
+unrewarding item to be avoid – be present on every trial during an episode, with the other 
+image present be novel on every trial. 
+
+3.2.3 ONE-SHOT NAVIGATION 
+
+The experiment use the Harlow task demonstrate the capacity of meta-RL to operate effectively 
+within a visually rich environment, with relatively long time horizons. Here we consider related 
+experiment recently report within the navigation domain (Mirowski et al., 2016) (see also Jaderberg 
+et al., 2016), and discus how these can be recast a example of meta-RL – attest to the scaleability 
+of this principle to more typical MDP setting that pose challenge RL problem due to dynamically 
+change sparse rewards. 
+
+12 
+
+
+
+(a) Labryinth I-maze (b) Illustrative Episode 
+
+(c) Performance (d) Value Function 
+
+Figure 7: a) view of I-maze show goal object in one of the 4 alcove b) follow initial exploration 
+(light trajectories), agent repeatedly go to goal (blue trajectories) c) Performance of stack LSTM (termed 
+“Nav A3C”) and feedforward (“FF A3C”) architectures, per episode (goal = 10 points) average across top 5 
+hyperparameters. e) follow initial goal discovery (goal hit marked in red), value function occurs well in 
+advance of the agent see the goal which be hidden in an alcove. Figure use with permission from Mirowski 
+et al. (2016). 
+
+Specifically, we consider a set where the environment layout be fix but the goal change location 
+randomly each episode (Figure 7; Mirowski et al., 2016). Although the layout be relatively simple, 
+the Labyrinth environment (see for detail Mirowski et al., 2016) be richer and more finely discretized 
+(cf VizDoom), result in long time horizons; a train agent take approximately 100 step (10 
+seconds) to reach the goal for the first time in a give episode. Results show that a stack LSTM 
+architecture (Figure 1c), that receives reward and action a additional input equivalent to that use 
+in our Harlow experiment achieves near-optimal behavior – show one-shot memory for the goal 
+location after an initial exploratory period, follow by repeat exploitation (see Figure 7c). This be 
+evidence by a substantial decrease in latency to reach the goal for the first time (~100 timesteps) 
+compare to subsequent visit (~30 timesteps). Notably, a feedforward network (see Figure 7c), 
+that receives only a single image a observation, be unable to solve the task (i.e. no decrease in 
+latency between successive goal rewards). Whilst not interpret a such in Mirowski et al. (2016), 
+this provide a clear demonstration of the effectiveness of meta-RL: a separate RL algorithm with 
+the capability of one-shot learn emerges through training with a fix and more incremental RL 
+algorithm (i.e. policy gradient). Meta-RL can be view a allow the agent to infer the optimal 
+value function follow initial exploration (see Figure 7d) – with the additional LSTM provide 
+information about the currently relevant goal location to the LSTM that output the policy over the 
+extend timeframe of the episode. Taken together, meta-RL allows a base model-free RL algorithm 
+to solve a challenge RL problem that might otherwise require fundamentally different approach 
+(e.g. base on successor representation or fully model-based RL). 
+
+4 RELATED WORK 
+
+We have already touch on the relationship between deep meta-RL and pioneer work by Hochre- 
+iter et al. (2001) use recurrent network to perform meta-learning in the set of full supervision 
+
+13 
+
+
+
+(see also Cotter and Conwell, 1990; Prokhorov et al., 2002; Younger et al., 1999). That approach be 
+recently extend in Santoro et al. (2016), which demonstrate the utility of leverage an external 
+memory structure. The idea of cross meta-learning with reinforcement learn have be previ- 
+ously discuss by Schmidhuber et al. (1996). That work, which appear to have introduce the term 
+“meta-RL,” differs from ours in that it do not involve a neural network implementation. More recently, 
+however, there have be a surge of interest in use neural network to learn optimization procedures, 
+use a range of innovative meta-learning technique (Andrychowicz et al., 2016; Chen et al., 2016; 
+Li and Malik, 2016; Zoph and Le, 2016). Recent work by Chen et al. (2016) be particularly close in 
+spirit to the work we have present here, and can be view a treat the case of “infinite bandits” 
+use a meta-learning strategy broadly analogous to the one we have pursued. 
+
+The present research also bear a close relationship with a different body of recent work that have not 
+be frame in term of meta-learning. A number of study have use deep RL to train recurrent 
+neural network on navigation tasks, where the structure of the task (e.g., goal location or maze 
+configuration) varies across episode (Jaderberg et al., 2016; Mirowski et al., 2016). The final 
+experiment that we present above, drawn from (Mirowski et al., 2016), be one example. To the 
+extent that such experiment involve the key ingredient of deep meta-RL – a neural network with 
+memory, train through RL on a series of interrelate task – they be almost certain to involve the 
+kind of meta-learning we have described in the present work. This related work provide an indication 
+that meta-RL can be fruitfully apply to large scale problem than the one we have study in our 
+own experiments. Importantly, it indicates that a key ingredient in scale the approach may be to 
+incorporate memory mechanism beyond those inherent in unstructured recurrent neural network 
+(see Graves et al., 2016; Mirowski et al., 2016; Santoro et al., 2016; Weston et al., 2014). Our work, 
+for it part, suggests that there be untapped potential in deep recurrent RL agent to meta-learn quite 
+abstract aspect of task structure, and to discover strategy that exploit such structure toward rapid, 
+flexible adaptation. 
+
+During completion of the present research, closely related work be report by Duan et al. (2016). 
+Like us, Duan and colleague use deep RL to train a recurrent network on a series of interrelate tasks, 
+with the result that the network dynamic learn a second RL procedure which operates on a faster 
+time-scale than the original algorithm. They compare the performance of these learn procedure 
+against conventional RL algorithm in a number of domains, include bandit and navigation. 
+An important difference between this parallel work and our own be the former’s primary focus on 
+relatively unstructured task distribution (e.g., uniformly distribute bandit problem and random 
+MDPs); our main interest, in contrast, have be in structure task distribution (e.g., dependent 
+bandit and the task introduce by Harlow, 1949), because it be in this set where the system can 
+learn a bias – and therefore efficient – RL procedure that exploit regular task structure. The two 
+perspective are, in this regard, nicely complementary. 
+
+5 CONCLUSION 
+
+A current challenge in artificial intelligence be to design agent that can adapt rapidly to new task by 
+leverage knowledge acquire through previous experience with related activities. In the present 
+work we have report initial exploration of what we believe be one promising avenue toward this 
+goal. Deep meta-RL involves a combination of three ingredients: (1) Use of a deep RL algorithm 
+to train a recurrent neural network, (2) a training set that include a series of interrelate tasks, (3) 
+network input that include the action select and reward receive in the previous time interval. 
+The key result, which emerges naturally from the setup rather than be specially engineered, be 
+that the recurrent network dynamic learn to implement a second RL procedure, independent from 
+and potentially very different from the algorithm use to train the network weights. Critically, this 
+learn RL algorithm be tune to the share structure of the training tasks. In this sense, the learn 
+algorithm build in domain-appropriate biases, which can allow it to operate with great efficiency 
+than a general-purpose algorithm. This bias effect be particularly evident in the result of our 
+experiment involve dependent bandit (sections 3.1.2 and 3.1.3), where the system learn to 
+take advantage of the task’s covariance structure; and in our study of Harlow’s animal learn task 
+(section 3.2.2), where the recurrent network learn to exploit the task’s structure in order to display 
+one-shot learn with complex novel stimuli. 
+
+14 
+
+
+
+One of our experiment (section 3.2.1) illustrate the point that a system train use a model-free 
+RL algorithm can develop behavior that emulates model-based control. A few further comment on 
+this result be warranted. As note in our presentation of the simulation results, the pattern of choice 
+behavior displayed by the network have be consider in the cognitive and neuroscience literature 
+a reflect model-based control or tree search. However, a have be remark in very recent work, 
+the same pattern can arise from a model-free system with an appropriate state representation (Akam 
+et al., 2015). Indeed, we suspect this may be how our network in fact operates. However, other 
+finding suggest that a more explicitly model-based control mechanism can emerge when a similar 
+system be train on a more diverse set of tasks. In particular, Ilin et al. (2007) show that recurrent 
+network train on random maze can approximate dynamic program procedure (see also 
+Silver et al., 2017; Tamar et al., 2016). At the same time, a we have stressed, we consider it an 
+important aspect of deep meta-RL that it yield a learn RL algorithm that capitalizes on invariance 
+in task structure. As a result, when face with widely vary but still structure environments, deep 
+meta-RL seem likely to generate RL procedure that occupy a grey area between model-free and 
+model-based RL. 
+
+The two-step decision problem study in Section 3.2.1 be derive from neuroscience, and we 
+believe deep meta-RL may have important implication in that arena (Wang et al., 2017). The notion 
+of meta-RL have be discuss previously in neuroscience but only in a narrow sense, accord 
+to which meta-learning adjusts scalar hyperparameters such a the learn rate or softmax inverse 
+temperature (Khamassi et al., 2011; 2013; Kobayashi et al., 2009; Lee and Wang, 2009; Schweighofer 
+and Doya, 2003; Soltani et al., 2006). In recent work (Wang et al., 2017) we have show that 
+deep meta-RL can account for a wider range of experimental observations, provide an integrative 
+framework for understand the respective role of dopamine and the prefrontal cortex in biological 
+reinforcement learning. 
+
+ACKNOWLEDGEMENTS 
+
+We would like the thank the follow colleague for useful discussion and feedback: Nando de 
+Freitas, David Silver, Koray Kavukcuoglu, Daan Wierstra, Demis Hassabis, Matt Hoffman, Piotr 
+Mirowski, Andrea Banino, Sam Ritter, Neil Rabinowitz, Peter Dayan, Peter Battaglia, Alex Lerchner, 
+Tim Lillicrap and Greg Wayne. 
+
+REFERENCES 
+Thomas Akam, Rui Costa, and Peter Dayan. Simple plan or sophisticated habits? state, transition and learn 
+
+interaction in the two-step task. PLoS Comput Biol, 11(12):e1004648, 2015. 
+
+Marcin Andrychowicz, Misha Denil, Sergio Gomez, Matthew W Hoffman, David Pfau, Tom Schaul, and Nando 
+de Freitas. Learning to learn by gradient descent by gradient descent. arXiv preprint arXiv:1606.04474, 2016. 
+
+Peter Auer, Nicolo Cesa-Bianchi, and Paul Fischer. Finite-time analysis of the multiarmed bandit problem. 
+Machine learning, 47(2-3):235–256, 2002. 
+
+Timothy EJ Behrens, Mark W Woolrich, Mark E Walton, and Matthew FS Rushworth. Learning the value of 
+information in an uncertain world. Nature neuroscience, 10(9):1214–1221, 2007. 
+
+Ethan S Bromberg-Martin and Okihide Hikosaka. Midbrain dopamine neuron signal preference for advance 
+information about upcoming rewards. Neuron, 63(1):119–126, 2009. 
+
+Yutian Chen, Matthew W Hoffman, Sergio Gomez, Misha Denil, Timothy P Lillicrap, and Nando de Freitas. 
+Learning to learn for global optimization of black box functions. arXiv preprint arXiv:1611.03824, 2016. 
+
+NE Cotter and PR Conwell. Fixed-weight network can learn. In 1990 IJCNN International Joint Conference on 
+Neural Networks, page 553–559, 1990. 
+
+Nathaniel D Daw, Yael Niv, and Peter Dayan. Uncertainty-based competition between prefrontal and dorsolateral 
+striatal system for behavioral control. Nature neuroscience, 8(12):1704–1711, 2005. 
+
+Nathaniel D Daw, Samuel J Gershman, Ben Seymour, Peter Dayan, and Raymond J Dolan. Model-based 
+influence on humans’ choice and striatal prediction errors. Neuron, 69(6):1204–1215, 2011. 
+
+Jia Deng, Wei Dong, Richard Socher, Li-Jia Li, Kai Li, and Li Fei-Fei. Imagenet: A large-scale hierarchical 
+image database. In Computer Vision and Pattern Recognition, 2009. CVPR 2009. IEEE Conference on, page 
+248–255. IEEE, 2009. 
+
+Yan Duan, John Schulman, Xi Chen, Peter L. Bartlett, Ilya Sutskever, and Pieter Abbeel. Rl2: Fast reinforcement 
+learn via slow reinforcement learning. arXiv preprint arXiv:1611.02779, 2016. URL http://arxiv. 
+
+15 
+
+http://arxiv.org/abs/1611.02779 
+http://arxiv.org/abs/1611.02779 
+http://arxiv.org/abs/1611.02779 
+
+
+org/abs/1611.02779. 
+
+Marcos Economides, Zeb Kurth-Nelson, Annika Lübbert, Marc Guitart-Masip, and Raymond Dolan. Model- 
+base reason in human becomes automatic with training. PLoS Computational Biology, 11(9):e1004463, 
+2015. 
+
+John C Gittins. Bandit process and dynamic allocation indices. Journal of the Royal Statistical Society. Series 
+B (Methodological), page 148–177, 1979. 
+
+Alex Graves, Greg Wayne, Malcolm Reynolds, Tim Harley, Ivo Danihelka, Agnieszka Grabska-Barwińska, 
+Sergio Gómez Colmenarejo, Edward Grefenstette, Tiago Ramalho, John Agapiou, et al. Hybrid compute 
+use a neural network with dynamic external memory. Nature, 2016. 
+
+Harry F Harlow. The formation of learn sets. Psychological review, 56(1):51, 1949. 
+
+Sepp Hochreiter and Jürgen Schmidhuber. Long short-term memory. Neural computation, 9(8):1735–1780, 
+1997. 
+
+Sepp Hochreiter, A Steven Younger, and Peter R Conwell. Learning to learn use gradient descent. In 
+International Conference on Artificial Neural Networks, page 87–94. Springer, 2001. 
+
+Roman Ilin, Robert Kozma, and Paul J Werbos. Efficient learn in cellular simultaneous recurrent neural 
+networks-the case of maze navigation problem. In 2007 IEEE International Symposium on Approximate 
+Dynamic Programming and Reinforcement Learning, page 324–329. IEEE, 2007. 
+
+Max Jaderberg, Volodymir Mnih, Wojciech Czarnecki, Tom Schaul, Joel Z. Leibo, David Silver, and Koray 
+Kavukcuoglu. Reinforcement learn with unsupervised auxiliary tasks. arXiv preprint arXiv:1611.05397, 
+2016. URL http://arxiv.org/abs/1611.05397. 
+
+Emilie Kaufmann, Olivier Cappé, and Aurélien Garivier. On bayesian upper confidence bound for bandit 
+problems. In Proc. of Int’l Conf. on Artificial Intelligence and Statistics, AISTATS, 2012a. 
+
+Emilie Kaufmann, Nathaniel Korda, and Rémi Munos. Thompson sampling: An asymptotically optimal 
+finite-time analysis. In Algorithmic Learning Theory - 23rd International Conference, page 199–213, 2012b. 
+
+Mehdi Khamassi, Stéphane Lallée, Pierre Enel, Emmanuel Procyk, and Peter F Dominey. Robot cognitive 
+control with a neurophysiologically inspire reinforcement learn model. Frontiers in neurorobotics, 5:1, 
+2011. 
+
+Mehdi Khamassi, Pierre Enel, Peter Ford Dominey, and Emmanuel Procyk. Medial prefrontal cortex and the 
+adaptive regulation of reinforcement learn parameters. Prog Brain Res, 202:441–464, 2013. 
+
+Kunikazu Kobayashi, Hiroyuki Mizoue, Takashi Kuremoto, and Masanao Obayashi. A meta-learning method 
+base on temporal difference error. In International Conference on Neural Information Processing, page 
+530–537. Springer, 2009. 
+
+Wouter Kool, Fiery A Cushman, and Samuel J Gershman. When do model-based control pay off? PLoS 
+Comput Biol, 12(8):e1005090, 2016. 
+
+Brenden M Lake, Tomer D Ullman, Joshua B Tenenbaum, and Samuel J Gershman. Building machine that 
+learn and think like people. arXiv preprint arXiv:1604.00289, 2016. 
+
+Tor Lattimore and Rémi Munos. Bounded regret for finite-armed structure bandits. In Advances in Neural 
+Information Processing Systems 27, page 550–558, 2014. 
+
+Yann LeCun, Yoshua Bengio, and Geoffrey Hinton. Deep learning. Nature, 521(7553):436–444, 2015. 
+
+Daeyeol Lee and Xiao-Jing Wang. Mechanisms for stochastic decision make in the primate frontal cortex: 
+Single-neuron record and circuit modeling. Neuroeconomics: Decision make and the brain, page 
+481–501, 2009. 
+
+Ke Li and Jitendra Malik. Learning to optimize. arXiv preprint arXiv:1606.01885, 2016. 
+
+Piotr Mirowski, Razvan Pascanu, Fabio Viola, Hubert Soyer, Andy Ballard, Andrea Banino, Misha Denil, Ross 
+Goroshin, Laurent Sifre, Koray Kavukcuoglu, Dharshan Kumaran, and Raia Hadsell. Learning to navigate in 
+complex environments. arXiv preprint arXiv:1611.03673, 2016. URL http://arxiv.org/abs/1611. 
+03673. 
+
+Volodymyr Mnih, Koray Kavukcuoglu, David Silver, Andrei A. Rusu, Joel Veness, et al. Human-level control 
+through deep reinforcement learning. Nature, 518:529–533, 2015. 
+
+Volodymyr Mnih, Adrià Puigdomènech Badia, Mehdi Mirza, Alex Graves, Timothy P. Lillicrap, Tim Harley, 
+David Silver, and Koray Kavukcuoglu. Asynchronous method for deep reinforcement learning. In Proc. of 
+Int’l Conf. on Machine Learning, ICML, 2016. 
+
+16 
+
+http://arxiv.org/abs/1611.02779 
+http://arxiv.org/abs/1611.02779 
+http://arxiv.org/abs/1611.02779 
+http://arxiv.org/abs/1611.05397 
+http://arxiv.org/abs/1611.03673 
+http://arxiv.org/abs/1611.03673 
+
+
+Danil V Prokhorov, Lee A Feldkamp, and Ivan Yu Tyukin. Adaptive behavior with fix weight in rnn: an 
+overview. In Proceedings of the IEEE International Joint Conference on Neural Networks (IJCNN), page 
+2018–2023, 2002. 
+
+Robert A Rescorla, Allan R Wagner, et al. A theory of pavlovian conditioning: Variations in the effectiveness of 
+reinforcement and nonreinforcement. Classical conditioning II: Current research and theory, 2:64–99, 1972. 
+
+Dan Russo and Benjamin Van Roy. Learning to optimize via information-directed sampling. In Advances in 
+Neural Information Processing Systems 27, page 1583–1591, 2014. 
+
+Adam Santoro, Sergey Bartunov, Matthew Botvinick, Daan Wierstra, and Timothy Lillicrap. Meta-learning 
+with memory-augmented neural networks. In Proceedings of The 33rd International Conference on Machine 
+Learning, page 1842–1850, 2016. 
+
+Jurgen Schmidhuber, Jieyu Zhao, and Marco Wiering. Simple principle of metalearning. Technical report, SEE, 
+1996. 
+
+Nicolas Schweighofer and Kenji Doya. Meta-learning in reinforcement learning. Neural Networks, 16(1):5–9, 
+2003. 
+
+David Silver, Aja Huang, Chris J Maddison, Arthur Guez, Laurent Sifre, George Van Den Driessche, Julian 
+Schrittwieser, et al. Mastering the game of go with deep neural network and tree search. Nature, 529(7587): 
+484–489, 2016. 
+
+David Silver, Hado van Hasselt, Matteo Hessel, Tom Schaul, Arthur Guez, Tim Harley, Gabriel Dulac-Arnold, 
+David Reichert, Neil Rabinowitz, Andre Barreto, and Thomas Degris. The predictron: End-to-end learn 
+and planning. Submitted to Int’l Conference on Learning Representations, ICLR, 2017. 
+
+Alireza Soltani, Daeyeol Lee, and Xiao-Jing Wang. Neural mechanism for stochastic behaviour during a 
+competitive game. Neural Networks, 19(8):1075–1090, 2006. 
+
+Richard S Sutton and Andrew G Barto. Reinforcement learning: An introduction, volume 1. MIT press 
+Cambridge, 1998. 
+
+Aviv Tamar, Yi Wu, Garrett Thomas, Sergey Levine, and Pieter Abbeel. Value iteration networks. arXiv preprint 
+arXiv:1602.02867v2, 2016. 
+
+William R Thompson. On the likelihood that one unknown probability exceeds another in view of the evidence 
+of two samples. Biometrika, 25:285–294, 1933. 
+
+Sebastian Thrun and Lorien Pratt. Learning to learn: Introduction and overview. In Learning to learn, page 
+3–17. Springer, 1998. 
+
+Jane X Wang, Zeb Kurth-Nelson, Dhruva Tirumala, Joel Leibo, Hubert Soyer, Dharshan Kumaran, and Matthew 
+Botvinick. Meta-reinforcement learning: a bridge between prefrontal and dopaminergic function. In Cosyne 
+Abstracts, 2017. 
+
+Jason Weston, Sumit Chopra, and Antoine Bordes. Memory networks. arXiv preprint arXiv:1410.3916, 2014. 
+
+A Steven Younger, Peter R Conwell, and Neil E Cotter. Fixed-weight on-line learning. IEEE Transactions on 
+Neural Networks, 10(2):272–283, 1999. 
+
+Barret Zoph and Quoc V Le. Neural architecture search with reinforcement learning. arXiv preprint 
+arXiv:1611.01578, 2016. 
+
+17 
+
+
+1 Introduction 
+2 Methods 
+2.1 Background: Meta-learning in recurrent neural network 
+2.2 Deep meta-RL: Definition and key feature 
+2.3 Formalism 
+
+3 Experiments 
+3.1 Bandit problem 
+3.1.1 Bandits with independent arm 
+3.1.2 Bandits with dependent arm (I) 
+3.1.3 Bandits with dependent arm (II) 
+3.1.4 Restless bandit 
+
+3.2 Markov decision problem 
+3.2.1 The ``two-step task'' 
+3.2.2 Learning abstract task structure 
+3.2.3 One-shot navigation 
+
+
+4 Related work 
+5 Conclusion 
+

@@ -1,0 +1,1634 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Improving Exploration in Evolution Strategies for Deep Reinforcement Learning via a Population of Novelty-Seeking Agents 
+
+
+Improving Exploration in Evolution Strategies for Deep Reinforcement 
+Learning via a Population of Novelty-Seeking Agents 
+
+Edoardo Conti* Vashisht Madhavan* Felipe Petroski Such Joel Lehman Kenneth O. Stanley Jeff Clune 
+
+Uber AI Labs 
+{edoardo, vashisht, jeffclune}@uber.com 
+
+Abstract 
+
+Evolution strategy (ES) be a family of black- 
+box optimization algorithm able to train deep 
+neural network roughly a well a Q-learning 
+and policy gradient method on challenge deep 
+reinforcement learn (RL) problems, but be 
+much faster (e.g. hour vs. days) because they 
+parallelize better. However, many RL problem 
+require direct exploration because they have 
+reward function that be sparse or deceptive (i.e. 
+contain local optima), and it be not know how 
+to encourage such exploration with ES. Here we 
+show that algorithm that have be invent 
+to promote direct exploration in small-scale 
+evolve neural network via population of ex- 
+ploring agents, specifically novelty search (NS) 
+and quality diversity (QD) algorithms, can be hy- 
+bridized with ES to improve it performance on 
+sparse or deceptive deep RL tasks, while retain- 
+ing scalability. Our experiment confirm that the 
+resultant new algorithms, NS-ES and a version 
+of QD we call NSR-ES, avoid local optimum en- 
+counter by ES to achieve high performance 
+on task range from play Atari to simulated 
+robot learn to walk around a deceptive trap. 
+This paper thus introduces a family of fast, scal- 
+able algorithm for reinforcement learn that 
+be capable of direct exploration. It also add 
+this new family of exploration algorithm to the 
+RL toolbox and raise the interest possibility 
+that analogous algorithm with multiple simulta- 
+neous path of exploration might also combine 
+well with exist RL algorithm outside ES. 
+
+*Both author contribute equally to this work. 
+
+1. Introduction 
+In RL, an agent try to learn to perform a sequence of 
+action in an environment that maximizes some notion of 
+cumulative reward (Sutton & Barto, 1998). However, re- 
+ward function be often deceptive, and solely optimize 
+for reward without some mechanism to encourage intelli- 
+gent exploration can lead to get stuck in local optimum 
+and the agent fail to properly learn (Liepins & Vose, 
+1990; Lehman & Stanley, 2011a; Sutton & Barto, 1998). 
+Unlike in supervise learn with deep neural network 
+(DNNs), wherein local optimum be not thought to be a prob- 
+lem (Kawaguchi, 2016; Dauphin et al., 2014), the training 
+data in RL be determine by the action an agent takes. If 
+the agent greedily take action that maximize reward, the 
+training data for the algorithm will be limited and it may 
+not discover alternate strategy with large payoff (i.e. 
+it can get stuck in local optima) (Liepins & Vose, 1990; 
+Lehman & Stanley, 2011a; Sutton & Barto, 1998). Sparse 
+reward signal can also be a problem for algorithm that 
+only maximize reward, because at time there may be no 
+reward gradient to follow. The possibility of deceptiveness 
+and or sparsity in the reward signal motivates the need for 
+efficient and direct exploration, in which an agent be mo- 
+tivated to visit unexplored state in order to learn to accu- 
+mulate high rewards. Although deep RL algorithm have 
+perform amaze feat in recent year (Mnih et al., 2015; 
+2016; Schulman et al., 2015), they have mostly do so 
+despite rely on simple, undirected (aka dithering) ex- 
+ploration strategies, in which an agent hope to explore 
+new area of it environment by take random action (e.g. 
+epsilon-greedy exploration) (Sutton & Barto, 1998). 
+
+A number of method have be propose to promote di- 
+rected exploration in RL (Schmidhuber, 2010; Oudeyer & 
+Kaplan, 2009), include recent method that handle high- 
+dimensional state space with deep neural networks. A 
+common idea be to encourage an agent to visit state it have 
+rarely or never visit (or take novel action in those states). 
+Methods propose to track how often state or state-action 
+pair have be visit include (1) approximate state vis- 
+itation count base on either auto-encoded latent code of 
+
+ar 
+X 
+
+iv 
+:1 
+
+71 
+2. 
+
+06 
+56 
+
+0v 
+1 
+
+[ 
+c 
+
+.A 
+I] 
+
+1 
+8 
+
+D 
+ec 
+
+2 
+01 
+
+7 
+
+
+
+state (Tang et al., 2017) or pseudo-counts from state-space 
+density model (Bellemare et al., 2016; Ostrovski et al., 
+2017), (2) learn a dynamic model that predicts future 
+state (assuming prediction will be bad for rarely vis- 
+ited states/state-action pairs) (Stadie et al., 2015; Houthooft 
+et al., 2016; Pathak et al., 2017), and (3) method base on 
+compression (novel state should be harder to compress) 
+(Schmidhuber, 2010). 
+
+Those method all count each state separately. A different 
+approach to be to hand-design (or learn) an abstract, holistic 
+description of the overall behavior of an agent throughout 
+it lifetime, and then encourage the agent to exhibit dif- 
+ferent behavior from those it have previously performed. 
+That be the approach of novelty search (Lehman & Stanley, 
+2011a) and quality diversity algorithm (Cully et al., 2015; 
+Mouret & Clune, 2015; Pugh et al., 2016), which be de- 
+scribed in detail below. Here we hybridize such algorithm 
+with ES and demonstrate that they do improve exploration 
+on hard deep RL problems, and do so without sacrifice 
+the speed/scalability benefit of ES. 
+
+There be another interest difference between the other 
+exploration method mention previously and the NS/QD 
+family of algorithms. We do not investigate the benefit 
+of this difference experimentally in this paper, but they 
+be one reason we be interested in NS/QD a an explo- 
+ration method for RL. One commonality among the previ- 
+ous method be that the exploration be perform by a single 
+agent, a choice that have interest consequence for learn- 
+ing. To illustrate these consequences, we borrow an exam- 
+ple from Stanton & Clune (2016). Imagine a cross-shaped 
+maze (SI Sec. 6.2) where to go in each cardinal direction 
+an agent must master a different skill (e.g. go north re- 
+quire learn to swim, west require climb mountains, 
+east require walk on sand, and south require walk 
+on ice). Assume reward may or may not exist at the end 
+of each corridor, so all corridor need to be explored. A 
+single agent have two extreme options, either a depth-first 
+search that serially learns to go to the end of each corridor, 
+or a breadth-first search that go a bit further in one direc- 
+tion, then come back to the center and go a bit further in 
+another direction, etc. Either way, to get to the end of each 
+hallway, the agent will have to at least have traverse each 
+hallway once and thus will have to learn all four set of 
+skills. With the breadth-first option, all four skillsets must 
+be mastered, but a much longer total distance be traveled. 
+
+In both cases, another problem arises because, despite re- 
+cent progress (Kirkpatrick et al., 2017; Velez & Clune, 
+2017), neural network still suffer from catastrophic for- 
+getting, meaning that a they learn new skill they rapidly 
+lose the ability to perform previously learn one (French, 
+1999). Due to catastrophic forgetting, at the end of learn- 
+ing there will be an agent specialized in one of the skill 
+
+(e.g. swimming), but all of the other skill will have be 
+lost. Furthermore, if any amount of the breadth-first search 
+strategy be employed, explore each branch a bit further 
+will require relearn that skill mostly from scratch each 
+iteration, significantly slow exploration. Even if catas- 
+trophic forget could be solved, there may be limit on 
+the cognitive capacity of single agent (as occurs in hu- 
+mans), prevent one agent from master all possible 
+skills. 
+
+A different approach be to explore with a population of 
+agents. In that case, separate agent could become expert 
+in the separate task require to explore in each direction. 
+That may speed learn because each agent can, in paral- 
+lel, learn only the skill require for it corridor. Addition- 
+ally, at the end of exploration a specialist will exist with 
+each distinct skill (versus only one skill remain in the 
+single-agent case). The result population of specialists, 
+each with a different skill or way of solve a problem, can 
+then be harness by other machine learn algorithm 
+that efficiently search through the repertoire of specialist 
+to find the skill or behavior need in a particular situa- 
+tion (Cully et al., 2015; Cully & Mouret, 2013). The skill 
+of each specialist (in any combination or number) could 
+also then be combine in to a single generalist via policy 
+distillation (Rusu et al., 2015). A further benefit of the 
+population-based approach is, when combine exploration 
+with some notion of quality (e.g. maximize reward), a 
+population can try out many different strategies/directions 
+and, once one or a few be found to be promising, the algo- 
+rithm can reallocate resource to pursue the most promising 
+directions. The point be not that population-based explo- 
+ration method be good or bad than single-agent explo- 
+ration method (when hold computation constant), but 
+instead that they be a different option with different ca- 
+pabilities, pros, and cons, and be thus worth investigat- 
+ing (Stanton & Clune, 2016). Supporting this view, recent 
+work have demonstrate the benefit of population for deep 
+learn (Jaderberg et al., 2017; Miikkulainen et al., 2017). 
+
+Novelty search and quality diversity have show promise 
+with small neural network on problem with low- 
+dimensional input and output space (Lehman & Stanley, 
+2011c; Cully et al., 2015; Mouret & Clune, 2015; Pugh 
+et al., 2016; Velez & Clune, 2014; Huizinga et al., 2016). 
+In this paper, for the first time, we study how these two 
+type of algorithm can be hybridize with ES in order to 
+scale them to deep neural network and thus tackle hard, 
+high-dimensional deep reinforcement learn problems. 
+We first study an algorithm call novelty search (NS) 
+(Lehman & Stanley, 2011a), which performs exploration 
+only (ignoring the reward function) to find a set of novel so- 
+lutions. We then investigate an algorithm that balance ex- 
+ploration and exploitation, specifically a novel instance of 
+a quality diversity (QD) algorithm, which seek to produce 
+
+
+
+a set of solution that be both novel and high-performing 
+(Lehman & Stanley, 2011c; Cully et al., 2015; Mouret & 
+Clune, 2015; Pugh et al., 2016). Both NS and QD be ex- 
+plain in detail in Sec. 3. 
+
+ES directly search in in the parameter space of a neural 
+network to find an effective policy. A team from OpenAI 
+recently show that ES can achieve competitive perfor- 
+mance on many reinforcement learn (RL) task while 
+offering some unique benefit over traditional gradient- 
+base RL method (Salimans et al., 2017). Most no- 
+tably, ES be highly parallelizable, which enables near linear 
+speedup in runtime a a function of CPU/GPU workers. 
+For example, with hundred of parallel CPUs, ES be able 
+to able to achieve roughly the same performance on Atari 
+game with the same DNN architecture in 1 hour a A3C 
+do in 24 hour (Salimans et al., 2017). In this paper, we 
+investigate add NS and QD to ES only; in future work, 
+we will investigate how they might be hybridize with Q- 
+learn and policy gradient methods. We start with ES 
+because (1) it fast wall-clock time allows rapid experimen- 
+tal iteration, (2) NS and QD be originally developed a 
+neuroevolution methods, make it natural to try them first 
+with ES, which be also an evolutionary algorithm, (3) it be 
+more straightforward to integrate population-based explo- 
+ration with ES than with Q-learning, and (4) our team be 
+most familiar with the NS and QD family of exploration 
+algorithm than the method that treat each state separately. 
+
+Here we test whether encourage novelty via NS and QD 
+improves the performance of ES on sparse and/or decep- 
+tive control tasks. Our experiment confirm that NS-ES 
+and a simple of version of QD-ES (called NSR-ES) avoid 
+local optimum encounter by ES and achieve high per- 
+formance on task range from simulated robot learn 
+to walk around a deceptive trap to the high-dimensional 
+pixel-to-action task of play Atari games. Our result add 
+these new family of exploration algorithm to the RL tool- 
+box, opening up avenue for study how they can best be 
+combine with RL algorithms, whether ES or others, and 
+compare these new type of population-based exploration 
+method to traditional ones. 
+
+2. Background 
+2.1. Evolution Strategies 
+
+Evolution strategy (ES) be a class of black box optimiza- 
+tion algorithm inspire by natural evolution (Rechenberg, 
+1978): At every iteration (generation), a population of pa- 
+rameter vector (genomes) be perturbed (mutated) and, op- 
+tionally, recombine (merged) via crossover. The reward 
+(fitness) of each resultant offspring be then evaluate ac- 
+cord to some objective function. Some form of selec- 
+tion then ensures that individual with high reward tend to 
+
+produce the individual in the next generation, and the cy- 
+cle repeats. Many algorithm in the ES class differ in their 
+representation of the population and method of recombi- 
+nation; the algorithm subsequently refer to in this work 
+belong to the class of Natural Evolution Strategies (NES) 
+(Wierstra et al., 2008; Sehnke et al., 2010). NES represent 
+the population a a distribution of parameter vector θ char- 
+acterized by parameter φ: pφ(θ). Under a fitness function, 
+f(θ), NES seek to maximize the average fitness of the 
+population, Eθ∼pφ [f(θ)], by optimize φ with stochastic 
+gradient ascent. 
+
+Recent work from OpenAI outline a version of NES ap- 
+ply to standard RL benchmark problem (Salimans et al., 
+2017). We will refer to this variant simply a ES go 
+forward. In their work, a fitness function f(θ) represent 
+the stochastic reward experienced over a full episode of 
+agent interaction, where θ be the parameter of a policy πθ. 
+The population distribution pφt be an isotropic multivariate 
+Gaussian with mean θt, the parameter vector at iteration t, 
+and covariance σ2I (i.e. N (θt, σ2I)). From the distribu- 
+tion, parameter θit ∼ N (θt, σ2I) be sample and their 
+correspond policy πθit be evaluate to obtain a reward 
+f(θit). In a manner similar to REINFORCE (Williams, 
+1992), the approximate gradient of expect reward with 
+respect to θt can be found with the gradient estimator: 
+
+∇φEθ∼φ[f(θ)] ≈ 
+1 
+
+n 
+
+n∑ 
+i=1 
+
+f(θit)∇φ log pφ(θit) 
+
+where n be the number of sample evaluate per generation. 
+Intuitively, NES sample parameter in the neighborhood 
+of θt and determines the direction in which θt should move 
+to improve expect reward. Instead of a baseline, NES 
+relies on a large number of sample n to reduce the variance 
+of the gradient estimator. Generally, NES evolves both the 
+mean and covariance of the population distribution, but for 
+the sake of fair comparison with Salimans et al. (2017) we 
+consider only static covariance distributions, meaning σ be 
+fix throughout training. 
+
+To simplify the optimization process, Salimans et al. (2017) 
+reformulates sample from the population distribution a 
+apply additive Gaussian noise to the current parameter 
+vector : θit = θt + σ�i where �i ∼ N (0, I). The gradient 
+estimate can then be found by take a sum of sample 
+parameter perturbation weight by their reward: 
+
+∇θtE�∼N (0, I)[f(θt + σ�)] ≈ 
+1 
+
+nσ 
+
+n∑ 
+i=1 
+
+f(θit)�i 
+
+To ensure that the scale of reward between domain do 
+not bias the optimization process, we follow the approach 
+of Salimans et al. (2017) and rank-normalize f(θit) before 
+take the weight sum. Overall, this NES variant by Sal- 
+
+
+
+imans et al. (2017) exhibit performance on par with con- 
+temporary, gradient-based algorithm when apply to dif- 
+ficult RL domains, include simulated robot locomotion 
+and Atari 2600 (Bellemare et al., 2013) environments. 
+
+2.2. Novelty Search (NS) 
+
+Optimizing for reward only can often lead an agent to local 
+optima. NS, however, avoids deception in the reward signal 
+by ignore reward altogether. Inspired by nature’s drive 
+towards diversity, NS encourages policy to engage in no- 
+tably different behavior than those previously seen. The 
+algorithm encourages different behavior by compute the 
+novelty of the current policy with respect to previously gen- 
+erated policy and then encourages the population distri- 
+bution to move towards area of parameter space with high 
+novelty. NS outperforms reward-based method in maze 
+and biped walk domains, which posse deceptive re- 
+ward signal that attract agent to local optimum (Lehman & 
+Stanley, 2011a). In this work, investigate the efficacy of NS 
+at the scale of DNNs by combine it with ES. In a com- 
+panion paper, we investigate NS at DNNs scale evolve 
+with a simple GA instead of via ES (Petroski Such et al., 
+2017). 
+
+In NS, a policy π be assign a domain-dependent behav- 
+ior characterization b(π) that describes it behavior. For 
+example, in the case of a humanoid locomotion problem, 
+b(π) may be a simple a a two-dimensional vector con- 
+taining the humanoid’s final {x, y} location. Throughout 
+training, every πθ evaluate add a behavior characteriza- 
+tion b(πθ) to an archive set A with some probability. A 
+particular policy’s novelty N(b(πθ), A) be then compute 
+by select the k-nearest neighbor of b(πθ) from A and 
+compute the average distance between them: 
+
+N(θ,A) = N(b(πθ), A) = 
+1 
+
+|S| 
+∑ 
+j∈S 
+||b(πθ)− b(πj)||2 
+
+S = kNN(b(πθ), A) 
+
+= {b(π1), b(π2), ..., b(πk)} 
+
+Above, the distance between behavior characterization be 
+calculate with an L2-norm, but an arbitrary distance func- 
+tion can be substituted. 
+
+Previously, NS have be implement with a genetic algo- 
+rithm (Lehman & Stanley, 2011a). The next section ex- 
+plain how NS can now be combine with ES, to leverage 
+the advantage of both algorithms. 
+
+3. Methods 
+3.1. NS-ES 
+
+We use the ES optimization framework, described in 
+Sec. 2.1, to compute and follow the gradient of expect 
+
+novelty with respect to θt. Given an archive A and sam- 
+plead parameter θit = θt+σ�i, the gradient estimate can be 
+computed: 
+
+∇θtE�∼N (0, I)[N(θt + σ�,A)|A] ≈ 
+1 
+
+nσ 
+
+n∑ 
+i=1 
+
+N(θit, A)�i 
+
+The gradient estimate obtain tell u how to change the 
+current policy’s parameter θt to increase the average nov- 
+elty of our parameter distribution. We condition the gradi- 
+ent estimate on A, a the archive be fix at the begin of 
+a give iteration and update only at the end. We add only 
+the behavior characterization correspond to each θt, a 
+add those for each sample θit would inflate the archive 
+and slow the nearest-neighbors computation. As more be- 
+havior characterization be add to A, the novelty land- 
+scape changes, result in commonly occur behavior 
+become “boring”. Optimizing for expect novelty lead 
+to policy that move towards unexplored area of behavior 
+space. 
+
+NS-ES could operate with a single agent that be reward 
+for act differently than it ancestors. However, to 
+encourage additional diversity and get the benefit of 
+population-based exploration described in Sec. 1, we can 
+instead create a population of M agents, which we will re- 
+fer to a the meta-population. Each agent, characterize 
+by a unique θm, be reward for be different from all 
+prior agent in the archive (ancestors, other agents, and the 
+ancestor of other agents). In this paper, we have multi- 
+ple agent in the meta-population of our experiment (i.e. 
+M > 1) because we thought it would help, but we do 
+not conduct a thorough analysis on how vary this hyper- 
+parameter affect performance on different domains. We 
+hypothesize that the selection of M be domain dependent 
+and that identify which domain favor which regime be 
+a fruitful area for future research. 
+
+We initialize M random parameter vector and at every 
+iteration select one to update. For our experiments, we 
+probabilistically select which θm to advance from a dis- 
+crete probability distribution a a function of θm’s novelty. 
+Specifically, at every iteration, for a set of agent parameter 
+vector Π = {θ1, θ2, ..., θM}, we calculate each θm’s prob- 
+ability of be select P (θm) a it novelty normalize 
+by the sum of novelty across all policies: 
+
+P (θm) = 
+N(θm, A)∑M 
+j=1N(θ 
+
+j , A) 
+(1) 
+
+Having multiple, separate agent represent a indepen- 
+dent Gaussians be a simple choice for the meta-population 
+distribution (i.e. how the meta-population distribution be 
+represented). In future work, more complex sample 
+distribution that represent the multi-modal nature of 
+meta-population parameter vector could be tried. 
+
+
+
+After select a certain individual m from the meta- 
+population, we compute the gradient of expect novelty 
+with respect to m’s current parameter vector, θmt , and per- 
+form an update step accordingly: 
+
+θmt+1 ← θmt + α 
+1 
+
+nσ 
+
+n∑ 
+i=1 
+
+N(θi,mt , A)�i 
+
+Where n be the number of sample perturbation to θmt , α 
+be the stepsize, and θi,mi = θ 
+
+m 
+t + σ�i, where �i ∼ N (0, I). 
+
+Once the current parameter vector be updated, b(πθmt+1) be 
+compute and add to the share archive A with proba- 
+bility 1. The whole process be repeat for a pre-specified 
+number of iterations, a there be no true convergence point 
+of NS. In this work, the algorithm simply return the 
+highest-performing parameter vector found. Algorithm 1 
+in SI Sec. 6.3 outline a simple, parallel implementation 
+of NS-ES. It be important to note that the addition of the 
+archive and the replacement of the fitness function with 
+novelty do not damage the scalability of the ES optimiza- 
+tion procedure (SI Sec. 6.4). 
+
+3.2. A QD-ES algorithm: NSR-ES 
+
+NS-ES alone can enable agent to avoid deceptive local op- 
+tima in the reward function. Reward signals, however, be 
+still very informative and discard them completely may 
+cause performance to suffer. Consequently, we train a vari- 
+ant of NS-ES, which we call NSR-ES, that combine the 
+reward (“fitness”) and novelty calculate for a give set of 
+policy parameter θ. Similar to NS-ES and ES, NSR-ES 
+operates on entire episode and can thus evaluate reward 
+and novelty simultaneously for any sample parameter vec- 
+tor: θi,mt = θ 
+
+m 
+t + �i. Specifically, we compute f(θ 
+
+i,m 
+t ) and 
+
+N(θi,mt , A), average the two values, and set the average a 
+the weight for the correspond �i. The average process 
+be integrate into the parameter update rule a 
+
+θmt+1 ← θmt + α 
+1 
+
+nσ 
+
+n∑ 
+i=1 
+
+f(θi,mt ) +N(θ 
+i,m 
+t , A) 
+
+2 
+�i 
+
+Intuitively, the algorithm hill-climbs in parameter-space 
+towards policy that both exhibit novel behavior and 
+achieve high rewards. Often, however, the scale of f(θ) 
+and N(θ,A) differ. To combine the two signal effectively, 
+we rank-normalize f(θi,mt ) and N(θ 
+
+i,m 
+t , A) independently 
+
+before compute the average. 
+
+Averaging f(θi,mt ) and N(θ 
+i,m 
+t , A) be a relatively simple 
+
+way of encourage both quality and diversity. More in- 
+tricate method of combine the two desiderata, include 
+simple weight averaging, be left for future work. 
+
+Here we do not take advantage of the entire set of diverse, 
+high-performing individuals, but instead the algorithm sim- 
+ply return the best parameter vector found. This work be 
+
+thus a preliminary step in apply QD algorithm to com- 
+mon deep RL benchmarks. Further research may investi- 
+gate more sophisticated QD methods. SI Sec. 6.3 provide 
+pseudocode for NSR-ES. In the future, we plan to release 
+source code and hyperparameter configuration for all of 
+our experiments. 
+
+4. Experiments 
+4.1. Simulated Humanoid Locomotion problem 
+
+We first test our implementation of NS-ES and NSR-ES 
+on the problem of have a simulated humanoid learn to 
+walk. We chose this problem because it be a challenge 
+continuous control deep reinforcement learn benchmark 
+where most would presume a reward function be necessary 
+to solve the problem. With NS-ES, we test whether search- 
+ing through novelty alone can find solution to the problem. 
+A similar result have be show for much small neural 
+network (∼50-100 parameters) on a more simple simu- 
+lated biped (Lehman & Stanley, 2011c), but here we test 
+whether NS-ES can enable the same result at the scale of 
+deep neural networks. NSR-ES experiment test the effec- 
+tiveness of combine exploration and reward pressure on 
+this difficult continuous control problem. 
+
+Specifically, the domain be the MuJoCo Humanoid-v1 en- 
+vironment in OpenAI Gym (Brockman et al., 2016). In it, a 
+humanoid robot receives a scalar reward compose of four 
+component per timestep. The robot get positive reward 
+for stand and velocity in the positive x direction, and 
+negative reward for ground impact energy and energy ex- 
+pended. These four component be sum across every 
+timestep in an episode to get the total reward. Following 
+the neural network architecture outline by Salimans et al. 
+(2017), the neural network be a multilayer perceptron with 
+two hidden layer contain 256 neuron each, result in 
+a network with 166.7K parameters. While small especially 
+in the number of layers) compare to many deep RL ar- 
+chitectures, this network be still order of magnitude large 
+than what NS have be try with before. We also test NS 
+with a 1M+ parameter network (Sec. 4.2). The input to 
+the network be the observation space from the environment, 
+which be a vector ∈ R376 represent the state of the hu- 
+manoid (e.g. joint angles, velocities) and the output of the 
+network be a vector of motor command ∈ R17 (Brockman 
+et al., 2016). Complete training detail and hyperparame- 
+ters be in SI Sec. 6.6. 
+
+The first experiment compare ES, NS-ES, and NSR-ES on 
+a slightly modify version of OpenAI Gym’s Humanoid- 
+v1 environment. Because the heart of this challenge be to 
+learn to walk efficiently, not to walk in a particular direc- 
+tion, we modify the environment reward to be indiffer- 
+ent to the direction the humanoid traveled. Specifically, 
+
+
+
+Figure 1. The Humanoid Locomotion problem. In the default 
+Humanoid-v1 Environment, a simulated robot learns to walk in 
+an open environment with no wall (left). We create the Hu- 
+manoid Locomotion with Deceptive Trap problem (right) to test 
+algorithm in an RL domain with a clear local optimum. The 
+agent receives more reward the further it walk in the direction of 
+the trap (the small enclosure). Algorithms that do not sufficiently 
+explore may walk into the trap and get stuck, while algorithm 
+that sufficiently encourage exploration over exploitation can avoid 
+the trap. 
+
+the modify reward function be isotropic (i.e. the velocity 
+component of reward be base on distance travel from 
+the origin a oppose to distance travel in the positive x 
+direction). 
+
+As described in section 2.2, novelty search require a 
+domain-specific behavior characterization of each policy 
+b(πθi). For the Humanoid Locomotion problem the BC 
+be the agent’s final {x, y} location, a it be in Lehman 
+& Stanley (2011c). In addition to a behavioral character- 
+ization, NS also require a distance function between two 
+behavioral characterizations. Following Lehman & Stanley 
+2011 (Lehman & Stanley, 2011c), the distance function be 
+the square of the Euclidean distance between two BCs: 
+
+dist(b(πθi), b(πθj )) = (||(bt(πθi))− bt(πθj ))||2)2 
+
+The first result be that ES obtains a high final reward than 
+NS-ES (p < 0.05) and NSR-ES (p < 0.05; these and all 
+future p value be via a Mann-Whitney U test). Its perfor- 
+mance gap be even more pronounce for small amount 
+of computation (Fig. 2). However, many will be surprised 
+that NS-ES be still able to consistently solve the problem 
+despite ignore the environment’s multi-part reward func- 
+tion. While the BC be align (Pugh et al., 2015) with 
+the problem in that reach new {x, y} position tends to 
+also encourage walking, there be many part of the reward 
+function for which the BC do not obviously help (e.g. 
+energy-efficient, low-impact locomotion). 
+
+We hypothesize that with a sophisticated BC that encour- 
+age diversity in all of the behavior the multi-part re- 
+ward function care about, there would be no performance 
+gap. However, such a BC may be difficult to construct and 
+would likely further exaggerate the amount of computation 
+require for NS to match ES. NSR-ES demonstrates faster 
+learn than NS-ES due to the addition of reward pressure, 
+but ultimately result in similar final performance after 600 
+
+generation (p > .05) (Fig. 2). 
+
+Figure 2. Although slow than ES, NS-ES and NSR-ES arrive 
+at competitive solution on average. While ES outperforms NS- 
+ES and NSR-ES, it be interest how well NS-ES do give that 
+it ignores the reward function. The addition of the reward pres- 
+sure help NSR-ES perform much good early than NS-ES and 
+to do so with low variance. Overall all three algorithm learn 
+competitive solution to the problem in that they learn to walk 
+quickly. Here and in similar figure below, the median reward (of 
+the best see policy so far) per generation across 10 run be plot- 
+ted a the bold line with 95% bootstrapped confidence interval of 
+the median (shaded). Policy performance be measure a average 
+performance over ∼30 stochastic evaluations. 
+
+The Humanoid Locomotion problem do not appear to be 
+a deceptive problem, at least for ES. To test whether NS-ES 
+and NSR-ES specifically help with deception, we also com- 
+pare ES to these algorithm on a variant of this environment 
+we create that add a deceptive trap (a local optimum) that 
+must be avoid for maximum performance (Fig. 1, right). 
+In this new environment, a small three-sided enclosure be 
+place at a short distance in front of the start position 
+of the humanoid and the reward function be simply distance 
+travel in the positive x direction. 
+
+Fig. 4 and Table 6.7 show the reward receive by each al- 
+gorithm, and Fig. 3 show how the algorithm differ qual- 
+itatively during search on this problem. In every run, ES 
+get stuck in the local optimum due to follow reward 
+into the deceptive trap. NS-ES be able to avoid the lo- 
+cal optimum a it ignores reward completely and instead 
+seek to thoroughly explore the environment, but do so 
+also mean it make slow progress accord to the reward 
+function. NSR-ES demonstrates superior performance to 
+NS-ES (p < 0.01) and ES (p < 0.01) a it benefit from 
+both optimize for reward and escape the trap via the 
+pressure for novelty. 
+
+Fig. 3 also show the benefit of maintain a meta- 
+population (M = 5) in the NS-ES and NSR-ES algorithms. 
+Some lineage get stuck in the deceptive trap, incentivizing 
+other policy to explore around the trap. At that point, NS- 
+
+
+
+ES and NSR-ES begin to allocate more computational re- 
+source to this newly discovered, more promising strategy 
+via the probabilistic selection method outline in Sec. 3.1. 
+Both the novelty pressure and have a meta-population 
+thus appear to be useful, but in future work we look to dis- 
+ambiguate the relative contribution make by each. 
+
+Figure 3. ES get stuck in the deceptive local optimum while 
+NS-ES & NSR-ES explore to find good solutions. An over- 
+head view of a representative run be show for each algorithm 
+on the Humanoid Locomotion with Deceptive Trap problem. The 
+black star represent the humanoid’s start point. Each diamond 
+represent the final location of a generation’s mean policy, i.e. 
+π(θt), with darker shade for late generations. For NS-ES & 
+NSR-ES plots, each of the M = 5 agent in the meta-population 
+and it descendant be represent by different colors. With ES, 
+the humanoid walk into the deceptive trap and never learns to 
+navigate around it. NS-ES explores the solution space much more 
+than ES and achieves a high reward, but waste significant com- 
+putation explore in low and negative reward area to the left 
+of the origin. NSR-ES have the best performance out of all 3 al- 
+gorithms (Fig. 4). It generally walk in the direction indicate 
+by the reward function, include walk into the trap, but it 
+exploration pressure help it discover other, good solution that 
+involve walk around the trap. Similar plot for all 10 run of 
+each algorithm be provide in SI. 6.9. 
+
+4.2. Atari 
+
+We also test NS-ES and NSR-ES on numerous game 
+from the Atari 2600 environment in OpenAI Gym (Brock- 
+man et al., 2016). Atari game serve a an informative 
+benchmark due to their high-dimensional pixel input and 
+complex control dynamics; each game also require differ- 
+ent level of exploration to solve. To demonstrate the effec- 
+tiveness of NS-ES and NSR-ES for local optimum avoidance 
+
+Figure 4. NSR-ES and NS-ES outperform ES on the Hu- 
+manoid Locomotion with Deceptive Trap problem. ES walk 
+into the trap and, because it have no exploration pressure, get 
+trap there indefinitely. NS-ES outperforms ES a it avoids the 
+local optimum, but require significant computation to do so be- 
+cause it completely ignores the reward. NSR-ES show the best 
+performance, demonstrate the value of reward both explo- 
+ration and performance. 
+
+and direct exploration, we test on 12 different game 
+with vary level of complexity, a define by the tax- 
+onomy in (Bellemare et al., 2016). Primarily, we focus 
+on game in which, during preliminary experiments, we 
+observe that our implementation of ES prematurely con- 
+verge to local optimum (Seaquest, Q*Bert, Freeway, Frost- 
+bite, and Beam Rider). However, we also include a few 
+other game where ES do not converge to local optimum 
+to understand the performance of our algorithm in less- 
+deceptive domain (Alien, Amidar, Bank Heist, Breakout, 
+Gravitar, Zaxxon, and Montezuma’s Revenge). Since we 
+be uncertain a to whether other paper report the average 
+reward of the best single policy found by an algorithm in 
+any run, or the median reward across r independent run 
+of the best policy found in each run, we report both (see 
+Table 1 and Table 2) 
+
+As in Mnih et al. (2016), data preprocessing follow Mnih 
+et al. (2015) and the network architecture be from Mnih 
+et al. (2013). Each algorithm be evaluate over 5 separate 
+runs. In this domain NS-ES and NSR-ES have three meta- 
+population agent (i.e. M = 3), a each algorithm train 
+for few generation than in the Humanoid Locomotion 
+task. We lower M because the Atari network be much 
+large and thus each generation be more computationally 
+expensive. A low M enables more generation to occur 
+in training. 
+
+For the behavior characterization, we follow an idea from 
+Naddaf (2010) and concatenate Atari game RAM state for 
+each timestep in an episode. RAM state in Atari 2600 
+game be integer-valued vector of length 128 in the range 
+
+
+
+[0, 255] that describe all the state variable in a game (e.g. 
+the location of the agent and enemies). Ultimately, we want 
+to automatically learn behavior characterization directly 
+from pixels. A plethora of recent research suggests that be 
+a viable approach (Lange & Riedmiller, 2010; Kingma & 
+Welling, 2013; Bellemare et al., 2016). For example, low- 
+dimensional, latent representation of the state space could 
+be extract from auto-encoders (Tang et al., 2017; van den 
+Oord et al., 2016) or network train to predict future 
+state (Pathak et al., 2017; Stadie et al., 2015). In this work, 
+however, we focus on learn with a pre-defined, informa- 
+tive behavior characterization and leave the task of jointly 
+learn a policy and latent representation of state for fu- 
+ture work. In effect, base novelty on RAM state pro- 
+vides a confirmation of what be possible in principle with 
+a sufficiently inform behavior characterization. We also 
+emphasize that, while during training NS-ES and NSR-ES 
+use RAM state to guide novelty search, the policy itself, 
+πθt , operates only on image input and can be evaluate 
+without any RAM state information. The distance between 
+behavior characterization be the sum of L2-distances at 
+each timestep k: 
+
+dist(b(πθi), b(πθj )) = 
+
+K∑ 
+k=1 
+
+||(bt(πθi))− bt(πθj ))||2 
+
+Table 1 and Table 2 compare the performance of the algo- 
+rithms. While the novelty pressure in NS-ES do help it 
+avoid local optimum in some case (discussed below), opti- 
+mizing for novelty only do not result in high reward in 
+most game (although it do in some). However, it be sur- 
+prise how well NS-ES do in many task give that it be 
+not explicitly attempt to increase reward. 
+
+Because NSR-ES combine exploration with reward maxi- 
+mization, it be able to avoid local optimum encounter by ES 
+while also learn to play the game well. In each of the 5 
+game in which we observe ES converge to premature lo- 
+cal optimum (i.e. Seaquest, Q*Bert, Freeway, Beam Rider, 
+Frostbite), NSR-ES achieves a high median reward. NS- 
+ES also tends to outperform ES in these games. In the 
+other games, ES do not benefit from add an explo- 
+ration pressure and NSR-ES performs worse. It be expect 
+that if there be no local optimum and reward maximization 
+be sufficient to perform well, the extra cost of encourage 
+exploration will hurt performance. We hypothesize that be 
+what be occur with these games. We note that all con- 
+clusions be premature, however, a we do not gather large 
+enough sample size in the Atari domain to test whether 
+these performance difference between algorithm on each 
+game be statistically significant. 
+
+In the game Seaquest, the avoidance of local optimum be 
+particularly evident, a highlight in Fig. 5. ES perfor- 
+mance flatlines early at a median reward of 960, which 
+
+corresponds to a behavior of the agent descend to the 
+bottom, shoot fish, and never come up for air. This 
+strategy represent a classic local optima, a come up for 
+air require temporarily forego reward, but enables far 
+high reward to be earn in the long run. NS-ES learns 
+to come up for air in all 5 run and achieves a significantly 
+high median reward of 1044.5 (p < 0.05). NSR-ES also 
+avoids this local optima, but it additional reward signal 
+help it play the game good (e.g. it be good at shoot en- 
+emies), result in a much high median reward of 2329.7 
+(p < 0.01). Our experimental result for ES on Seaquest 
+differ from those of the blog post associate with Salimans 
+et al. (2017), a it report agent learn to come up for air 
+(our hyperparameters be different than theirs). However, 
+our point be not about this particular local optima, but that 
+ES without exploration can get stuck indefinitely on some 
+local optimum and that novelty-driven exploration can help it 
+get unstuck. 
+
+The Atari result illustrate that NS be an effective mech- 
+anism for encourage direct exploration, give an ap- 
+propriate behavior characterization, for complex, high- 
+dimensional control tasks. A novelty pressure alone pro- 
+duce impressive performance on many games, sometimes 
+even beating ES. Combining novelty and reward performs 
+far better, and improves ES performance on task where 
+it appear to get stuck on local optima. That be said, 
+add a novelty pressure be not always advantageous, es- 
+pecially when reward alone be sufficient. 
+
+GAME ES NS-ES NSR-ES 
+
+ALIEN 4914.0 1600.0 2472.5 
+AMIDAR 462.0 168.7 255.8 
+BANK HEIST 230.0 110.0 213.0 
+BEAM RIDER† 815.2 900.0 823.6 
+BREAKOUT 13.5 10.8 124.3 
+FREEWAY† 31.8 22.7 33.4 
+FROSTBITE† 440.0 252.0 3326.0 
+GRAVITAR 1035.0 815.0 920.0 
+MONTEZUMA’S REVENGE 0.0 0.0 0.0 
+Q*BERT† 1425.0 10075.0 4160.0 
+SEAQUEST† 960.0 1615.0 2672.0 
+ZAXXON 11720.0 3810.0 7690.0 
+
+Table 1. ATARI 2600 reward of the high perform policy 
+found by each algorithm in any run. Scores be the mean over 
+10 stochastic policy evaluations, each of which have up to 30 ran- 
+dom, initial no-operation actions. Table 2 show result average 
+across runs. Games with a † be those in which we observe ES 
+to converge prematurely, presumably due to it encounter local 
+optima. 
+
+
+
+Figure 5. Avoidance of local optimum in Seaquest. With our hy- 
+perparameter configuration, ES converges to a local optimum it 
+never escape from, which involves not come up for air. It never 
+discovers that temporarily forsake reward to surface for air ulti- 
+mately can yield far large rewards. By optimize for both reward 
+and novelty, NSR-ES be able to avoid local optimum and achieve 
+much high performance than ES. With only exploratory pres- 
+sure, NS-ES exhibit good performance in 3/5 runs, and would 
+likely overtake ES in all run with additional computation. Also 
+note that, while it median score be similar to ES, it be not stuck on 
+the same local optima, a it surface for air in all runs. NSR-ES 
+be also still steadily improve at the end of training, suggest 
+that with longer training times, the gap in performance between 
+NSR-ES and ES would grow. 
+
+GAME ES NS-ES NSR-ES 
+
+ALIEN 3283.8 1124.5 2186.2 
+AMIDAR 462.0 134.7 255.8 
+BANK HEIST 140.0 50.0 130.0 
+BEAM RIDER† 871.7 805.5 876.9 
+BREAKOUT 5.6 9.8 10.6 
+FREEWAY† 31.1 22.8 32.3 
+FROSTBITE† 367.4 250.0 2978.6 
+GRAVITAR 1129.4 527.5 732.9 
+MONTEZUMA’S REVENGE 0.0 0.0 0.0 
+Q*BERT† 1075.0 1234.1 1400.0 
+SEAQUEST† 960.0 1044.5 2329.7 
+ZAXXON 9885.0 1761.9 6723.3 
+
+Table 2. ATARI 2600 median reward across runs. The score 
+be the median, across 5 runs, of the mean reward (over 30 
+stochastic evaluations) of each run’s final best policy. Plots of per- 
+formance over time, along with bootstrapped confidence interval 
+of the median, for each algorithm for each game can be found 
+in SI Sec. 6.8. Note that in some case reward report here 
+for ES be low than those report by Salimans et al. (2017), 
+which could be due to differ hyperparameters (see SI Sec. 6.5). 
+Games with a † be those in which we observe ES to converge 
+prematurely, presumably due to it encounter local optima. 
+
+5. Discussion and Conclusion 
+NS and QD be a class of evolutionary algorithm de- 
+sign to avoid local optimum and promote exploration in 
+reinforcement learn environments, but have only be 
+previously show to work with small neural network (on 
+the order of hundred of connections). ES be recently 
+show to be a viable evolutionary algorithm for training 
+deep neural network that can solve challenging, high- 
+dimensional RL task (Salimans et al., 2017). It also be 
+much faster when many parallel computer be available. 
+Here we demonstrate that, when hybridize with ES, NS 
+and QD not only preserve the attractive scalability proper- 
+tie of ES, but also help ES explore and avoid local optimum 
+in domain with deceptive reward functions. Our experi- 
+mental result on the Humanoid Locomotion problem and 
+Atari game illustrate that NS-ES alone can achieve high 
+performance and avoid local optima. A QD algorithm we 
+introduce that optimizes for novelty and reward, which we 
+call NSR-ES, achieves even good performance, include 
+superior performance to ES on a number of challenge do- 
+mains. To the best of our knowledge, this paper report the 
+first attempt at augment ES to perform direct explo- 
+ration in high-dimensional environments. We thus provide 
+an option for those interested in take advantage of the 
+scalability of ES, but who also want high performance 
+on domain that have reward function that be sparse or 
+have local optima. The latter scenario will likely hold for 
+most challenging, real-world domain that machine learn- 
+ing practitioner will wish to tackle in the future. 
+
+Additionally, this work highlight alternate option for ex- 
+ploration in RL domains. The first difference be to holis- 
+tically describe the behavior of an agent instead of defin- 
+ing a per-state exploration bonus. The second be to en- 
+courage a population of agent to simultaneously explore 
+different aspect of an environment. These style of explo- 
+ration be different than the state-based, single-agent explo- 
+ration style that be common in RL (Schmidhuber, 2010; 
+Oudeyer & Kaplan, 2009), include recent extension to 
+deep RL (Pathak et al., 2017; Ostrovski et al., 2017; Tang 
+et al., 2017). These new option thereby open new research 
+area into (1) compare holistic vs. state-based explo- 
+ration, and population-based vs. single-agent exploration, 
+more systematically and on more domains, (2) investigat- 
+ing the best way to combine the merit of all of these op- 
+tions, and (3) hybridize holistic and/or population-based 
+exploration with other algorithm that work well on deep 
+RL problems, such a policy gradient and DQN. It should 
+be relatively straightforward to combine novelty search 
+with policy gradient (NS-PG). It be less obvious how best 
+to combine it with Q-learning to create NS-Q, but it may 
+be possible and potentially fruitful. 
+
+As with any exploration method, encourage novelty can 
+
+
+
+come at a cost if such an exploration pressure be not neces- 
+sary. In Atari game such a Alien and Gravitar, and in the 
+Humanoid Locomotion problem without a deceptive trap, 
+both NS-ES and NSR-ES perform bad than ES. These re- 
+sults motivate research into how best to encourage novelty 
+(and exploration more generally) only when needed. More 
+generally, much work remains in term of invent more 
+sophisticated method to combine pressure for exploration 
+and reward maximization within population-based explo- 
+ration, which we consider an excite area for future work. 
+
+Acknowledgements 
+We thank all of the member of Uber AI Labs, in partic- 
+ular Thomas Miconi, Rui Wang, Peter Dayan, and Theo- 
+fanis Karaletsos, for helpful discussions. We also thank 
+Justin Pinkul, Mike Deats, Cody Yancey, Joel Snow, Leon 
+Rosenshein and the entire OpusStack Team inside Uber for 
+provide our compute platform and for technical sup- 
+port. 
+
+References 
+Bellemare, Marc, Srinivasan, Sriram, Ostrovski, Georg, 
+
+Schaul, Tom, Saxton, David, and Munos, Remi. Uni- 
+fying count-based exploration and intrinsic motivation. 
+In NIPS, pp. 1471–1479, 2016. 
+
+Bellemare, Marc G, Naddaf, Yavar, Veness, Joel, and 
+Bowling, Michael. The arcade learn environment: An 
+evaluation platform for general agents. JAIR, 47:253– 
+279, 2013. 
+
+Brockman, Greg, Cheung, Vicki, Pettersson, Ludwig, 
+Schneider, Jonas, Schulman, John, Tang, Jie, and 
+Zaremba, Wojciech. Openai gym, 2016. 
+
+Cully, A., Clune, J., Tarapore, D., and Mouret, J.-B. Robots 
+that can adapt like animals. Nature, 521:503–507, 2015. 
+doi: 10.1038/nature14422. 
+
+Cully, Antoine and Mouret, Jean-Baptiste. Behavioral 
+repertoire learn in robotics. In GECCO, pp. 175–182, 
+2013. 
+
+Dauphin, Yann, Pascanu, Razvan, Gülçehre, Çaglar, Cho, 
+Kyunghyun, Ganguli, Surya, and Bengio, Yoshua. Iden- 
+tifying and attack the saddle point problem in high- 
+dimensional non-convex optimization. ArXiv e-prints, 
+abs/1406.2572, 2014. 
+
+French, Robert M. Catastrophic forget in connectionist 
+networks. Trends in cognitive sciences, 3(4):128–135, 
+1999. 
+
+Houthooft, Rein, Chen, Xi, Duan, Yan, Schulman, John, 
+De Turck, Filip, and Abbeel, Pieter. Vime: Variational 
+
+information maximize exploration. In NIPS, pp. 1109– 
+1117, 2016. 
+
+Huizinga, Joost, Mouret, Jean-Baptiste, and Clune, Jeff. 
+Does align phenotypic and genotypic modularity im- 
+prove the evolution of neural networks? In Proceedings 
+of the 2016 on Genetic and Evolutionary Computation 
+Conference (GECCO), pp. 125–132, 2016. 
+
+Ioffe, Sergey and Szegedy, Christian. Batch normalization: 
+Accelerating deep network training by reduce internal 
+covariate shift. In ICML, pp. 448–456, 2015. 
+
+Jaderberg, Max, Dalibard, Valentin, Osindero, Simon, 
+Czarnecki, Wojciech M, Donahue, Jeff, Razavi, Ali, 
+Vinyals, Oriol, Green, Tim, Dunning, Iain, Simonyan, 
+Karen, et al. Population base training of neural net- 
+works. arXiv preprint arXiv:1711.09846, 2017. 
+
+Kawaguchi, Kenji. Deep learn without poor local min- 
+ima. In NIPS, pp. 586–594, 2016. 
+
+Kingma, Diederik and Ba, Jimmy. Adam: A 
+method for stochastic optimization. arXiv preprint 
+arXiv:1412.6980, 2014. 
+
+Kingma, Diederik P and Welling, Max. Auto-encoding 
+variational bayes. arXiv preprint arXiv:1312.6114, 
+2013. 
+
+Kirkpatrick, James, Pascanu, Razvan, Rabinowitz, Neil, 
+Veness, Joel, Desjardins, Guillaume, Rusu, Andrei A, 
+Milan, Kieran, Quan, John, Ramalho, Tiago, Grabska- 
+Barwinska, Agnieszka, et al. Overcoming catastrophic 
+forget in neural networks. Proceedings of the Na- 
+tional Academy of Sciences, pp. 201611835, 2017. 
+
+Lange, Sascha and Riedmiller, Martin. Deep auto-encoder 
+neural network in reinforcement learning. In IJCNN, 
+pp. 1–8, 2010. 
+
+Lehman, Joel and Stanley, Kenneth O. Novelty search and 
+the problem with objectives. In Genetic Programming 
+Theory and Practice IX (GPTP 2011), 2011a. 
+
+Lehman, Joel and Stanley, Kenneth O. Abandoning ob- 
+jectives: Evolution through the search for novelty alone. 
+Evolutionary Computation, 19(2):189–223, 2011b. 
+
+Lehman, Joel and Stanley, Kenneth O. Evolving a diver- 
+sity of virtual creature through novelty search and local 
+competition. In GECCO ’11: Proceedings of the 13th 
+annual conference on Genetic and evolutionary compu- 
+tation, pp. 211–218, 2011c. 
+
+Liepins, Gunar E. and Vose, Michael D. Deceptiveness and 
+genetic algorithm dynamics. Technical Report CONF- 
+9007175-1, Oak Ridge National Lab., TN (USA); Ten- 
+nessee Univ., Knoxville, TN (USA), 1990. 
+
+
+
+Miikkulainen, Risto, Liang, Jason, Meyerson, Elliot, 
+Rawal, Aditya, Fink, Dan, Francon, Olivier, Raju, 
+Bala, Navruzyan, Arshak, Duffy, Nigel, and Hodjat, 
+Babak. Evolving deep neural networks. arXiv preprint 
+arXiv:1703.00548, 2017. 
+
+Mnih, Volodymyr, Kavukcuoglu, Koray, Silver, David, 
+Graves, Alex, Antonoglou, Ioannis, Wierstra, Daan, and 
+Riedmiller, Martin. Playing atari with deep reinforce- 
+ment learning. arXiv preprint arXiv:1312.5602, 2013. 
+
+Mnih, Volodymyr, Kavukcuoglu, Koray, Silver, David, 
+Rusu, Andrei A, Veness, Joel, Bellemare, Marc G, 
+Graves, Alex, Riedmiller, Martin, Fidjeland, Andreas K, 
+Ostrovski, Georg, et al. Human-level control through 
+deep reinforcement learning. Nature, 518(7540):529– 
+533, 2015. 
+
+Mnih, Volodymyr, Badia, Adria Puigdomenech, Mirza, 
+Mehdi, Graves, Alex, Lillicrap, Timothy, Harley, Tim, 
+Silver, David, and Kavukcuoglu, Koray. Asynchronous 
+method for deep reinforcement learning. In ICML, pp. 
+1928–1937, 2016. 
+
+Mouret, Jean-Baptiste and Clune, Jeff. Illuminating 
+search space by mapping elites. arXiv preprint 
+arXiv:1504.04909, 2015. 
+
+Naddaf, Yavar. Game-independent ai agent for play 
+atari 2600 console games. 2010. 
+
+Ostrovski, Georg, Bellemare, Marc G, Oord, Aaron 
+van den, and Munos, Rémi. Count-based explo- 
+ration with neural density models. arXiv preprint 
+arXiv:1703.01310, 2017. 
+
+Oudeyer, Pierre-Yves and Kaplan, Frederic. What be intrin- 
+sic motivation? a typology of computational approaches. 
+Frontiers in Neurorobotics, 1:6, 2009. 
+
+Paquette, Phillip. Super mario bros. in openai gym, 2016. 
+
+Pathak, Deepak, Agrawal, Pulkit, Efros, Alexei A, and 
+Darrell, Trevor. Curiosity-driven exploration by self- 
+supervise prediction. arXiv preprint arXiv:1705.05363, 
+2017. 
+
+Petroski Such, Felipe, Madhavan, Vashisht, Conti, 
+Edoardo, Lehman, Joel, Stanley, Kenneth O., and Clune, 
+Jeff. Deep neuroevolution: Genetic algorithm be a 
+competitive alternative for training deep neural network 
+for reinforcement learning. arXiv preprint to appear, 
+2017. 
+
+Pugh, Justin K, Soros, Lisa B, Szerlip, Paul A, and Stanley, 
+Kenneth O. Confronting the challenge of quality diver- 
+sity. In Proceedings of the 2015 Annual Conference on 
+Genetic and Evolutionary Computation (GECCO), pp. 
+967–974, 2015. 
+
+Pugh, Justin K, Soros, Lisa B., and Stanley, Kenneth O. 
+Quality diversity: A new frontier for evolutionary com- 
+putation. 3(40), 2016. ISSN 2296-9144. 
+
+Rechenberg, Ingo. Evolutionsstrategien. In Simulation- 
+smethoden in der Medizin und Biologie, pp. 83–114. 
+1978. 
+
+Rusu, Andrei A, Colmenarejo, Sergio Gomez, Gulcehre, 
+Caglar, Desjardins, Guillaume, Kirkpatrick, James, Pas- 
+canu, Razvan, Mnih, Volodymyr, Kavukcuoglu, Koray, 
+and Hadsell, Raia. Policy distillation. arXiv preprint 
+arXiv:1511.06295, 2015. 
+
+Salimans, Tim, Goodfellow, Ian, Zaremba, Wojciech, Che- 
+ung, Vicki, Radford, Alec, and Chen, Xi. Improved tech- 
+niques for training gans. In NIPS, pp. 2234–2242, 2016. 
+
+Salimans, Tim, Ho, Jonathan, Chen, Xi, and Sutskever, 
+Ilya. Evolution strategy a a scalable alternative to re- 
+inforcement learning. arXiv preprint arXiv:1703.03864, 
+2017. 
+
+Schmidhuber, Jürgen. Formal theory of creativity, fun, and 
+intrinsic motivation (1990–2010). IEEE Transactions on 
+Autonomous Mental Development, 2(3):230–247, 2010. 
+
+Schulman, John, Levine, Sergey, Abbeel, Pieter, Jordan, 
+Michael, and Moritz, Philipp. Trust region policy opti- 
+mization. In ICML, pp. 1889–1897, 2015. 
+
+Sehnke, Frank, Osendorfer, Christian, Rückstieß, Thomas, 
+Graves, Alex, Peters, Jan, and Schmidhuber, Jürgen. 
+Parameter-exploring policy gradients. Neural Networks, 
+23(4):551–559, 2010. 
+
+Stadie, Bradly C, Levine, Sergey, and Abbeel, Pieter. 
+Incentivizing exploration in reinforcement learn- 
+ing with deep predictive models. arXiv preprint 
+arXiv:1507.00814, 2015. 
+
+Stanton, Christopher and Clune, Jeff. Curiosity search: 
+produce generalist by encourage individual to con- 
+tinually explore and acquire skill throughout their life- 
+time. PloS one, 2016. 
+
+Sutton, Richard S and Barto, Andrew G. Reinforcement 
+learning: An introduction, volume 1. 1998. 
+
+Tang, Haoran, Abbeel, Pieter, Foote, Davis, Duan, Yan, 
+Chen, OpenAI Xi, Houthooft, Rein, Stooke, Adam, and 
+DeTurck, Filip. # exploration: A study of count-based 
+exploration for deep reinforcement learning. In NIPS, 
+pp. 2750–2759, 2017. 
+
+van den Oord, Aaron, Kalchbrenner, Nal, Espeholt, Lasse, 
+Vinyals, Oriol, Graves, Alex, et al. Conditional image 
+generation with pixelcnn decoders. In NIPS, pp. 4790– 
+4798, 2016. 
+
+
+
+Velez, Roby and Clune, Jeff. Novelty search creates robot 
+with general skill for exploration. In Proceedings of the 
+2014 Conference on Genetic and Evolutionary Compu- 
+tation, GECCO ’14, pp. 737–744, 2014. 
+
+Velez, Roby and Clune, Jeff. Diffusion-based neuro- 
+modulation can eliminate catastrophic forget in sim- 
+ple neural networks. arXiv preprint arXiv:1705.07241, 
+2017. 
+
+Wierstra, Daan, Schaul, Tom, Peters, Jan, and Schmid- 
+huber, Juergen. Natural evolution strategies. In 
+Evolutionary Computation, 2008. CEC 2008.(IEEE 
+World Congress on Computational Intelligence). IEEE 
+Congress on, pp. 3381–3387, 2008. 
+
+Williams, Ronald J. Simple statistical gradient-following 
+algorithm for connectionist reinforcement learning. 
+Machine learning, 8(3-4):229–256, 1992. 
+
+6. Supplementary Information 
+6.1. Videos of agent behavior 
+
+Videos of example agent behavior in all the environment 
+can be view here: https://goo.gl/cVUG2U. 
+
+6.2. Cross-sectional maze 
+
+Figure 6. Hypothetical Hard Exploration Maze. In this maze, 
+the agent need to traverse 4 different terrain to obtain reward 
+associate with the “?” boxes. Traversing each terrain require 
+learn a certain skill (i.e. climbing, swimming, etc.). The 
+sprite be from a Super Mario Bros. environment introduce by 
+(Paquette, 2016). 
+
+6.3. NS-ES and NSR-ES Algorithm 
+
+Algorithm 1 NS-ES 
+1: Input: learn rate α, noise standard deviation σ, 
+
+number of policy to maintain M , iteration T , be- 
+havior characterization b(πθ) 
+
+2: Initialize: M randomly initialize policy parameter 
+vector {θ10, θ20, ..., θM0 }, archive A, number of work- 
+er n 
+
+3: for j = 1 to M do 
+4: Compute b(πθj0) 
+5: Add b(πθj0) to A 
+6: end for 
+7: for t = 0 to T − 1 do 
+8: Sample θmt from {θ1t , θ2t , . . . , θMt } via eq.1 
+9: for i = 1 to n do 
+
+10: Sample �i ∼ N (0, σ2I) 
+11: Compute θi,mt = θ 
+
+m 
+t + �i 
+
+12: Compute b(πθi,mt ) 
+
+13: Compute Ni = N(θ 
+i,m 
+t , A) 
+
+14: Send Ni from each worker to coordinator 
+15: end for 
+16: Set θmt+1 = θ 
+
+m 
+t + α 
+
+1 
+Wσ 
+
+∑W 
+i=1Ni�i 
+
+17: Compute b(πθmt+1) 
+18: Add b(πθmt+1) to A 
+19: end for 
+
+Algorithm 2 NSR-ES 
+1: Input: learn rate α, noise standard deviation σ, 
+
+number of policy to maintain M , iteration T , be- 
+havior characterization b(πθ) 
+
+2: Initialize: M set of randomly initialize policy pa- 
+rameters {θ10, θ20, ..., θM0 }, archive A, number of work- 
+er n 
+
+3: for j = 1 to M do 
+4: Compute b(πθj0) 
+5: Add b(πθj0) to A 
+6: end for 
+7: for t = 0 to T − 1 do 
+8: Sample θmt from {θ0t , θ1t , . . . , θMt } via eq. 1 
+9: for i = 1 to n do 
+
+10: Sample �i ∼ N (0, σ2I) 
+11: Compute θi,mt = θ 
+
+m 
+t + �i 
+
+12: Compute b(πθi,mt ) 
+
+13: Compute Ni = N(θ 
+i,m 
+t , A) 
+
+14: Compute Fi = f(θ 
+i,m 
+t ) 
+
+15: Send Ni and Fi from each worker to coordinator 
+16: end for 
+17: Set θmt+1 = θ 
+
+m 
+t + α 
+
+1 
+Wσ 
+
+∑W 
+i=1 
+
+Ni+Fi 
+2 �i 
+
+18: Compute b(πθmt+1) 
+19: Add b(πθmt+1) to A 
+20: end for 
+
+https://goo.gl/cVUG2U 
+
+
+6.4. Preserving scalability 
+
+As show in Salimans et al. (2017), ES scale well with 
+the amount of computation available. Specifically, a 
+more CPUs be used, training time reduce almost linearly, 
+whereas DQN and A3C be not amenable to massive par- 
+allelization. NS-ES and NSR-ES, however, enjoy the same 
+parallelization benefit a ES because they use an almost 
+identical optimization process. The addition of an archive 
+between agent in the meta-population do not hurt scala- 
+bility becauseA be only update after θmt have be updated. 
+Since A be kept fix during the calculation of N(θi,mt , A) 
+and f(θi,mt ) for all i = 1...n perturbations, the coordinator 
+only need to broadcast A once at the begin of each 
+generation. In all algorithms, the parameter vector θit must 
+be broadcast at the begin of each generation and since 
+A generally take up much less memory than the parameter 
+vector, broadcasting both would incur effectively zero extra 
+network overhead. NS-ES and NSR-ES do however intro- 
+duce an additional computation conduct on the coordina- 
+tor node. At the start of every generation we must compute 
+the novelty of each candidate θmt ;m ∈ {1, ...,M}. For 
+an archive of length n this operation be O(Mn), but since 
+M be small and fix throughout training this cost be not 
+significant in practice. Additionally, there be method for 
+keep the archive small if this computation becomes an 
+issue (Lehman & Stanley, 2011b). 
+
+6.5. Atari training detail 
+
+Following Salimans et al. (2017), the network architecture 
+for the Atari experiment consists of 2 convolutional layer 
+(16 filter of size 8x8 with stride 4 and 32 filter of size 
+4x4 with stride 2) follow by 1 fully-connected layer with 
+256 hidden units, follow by a linear output layer with 
+one neuron per action. The action space dimensionality 
+can range from 3 to 18 for different games. ReLU activa- 
+tions be place between all layers, right after virtual batch 
+normalization unit (Salimans et al., 2016). Virtual batch 
+normalization be equivalent to batch normalization (Ioffe & 
+Szegedy, 2015), except that the layer normalization statis- 
+tic be compute from a reference batch chosen at the start 
+of training. In our experiments, we collect a reference 
+batch of size 128 at the start of training, generate by ran- 
+dom agent gameplay. Without virtual batch normalization, 
+Gaussian perturbation to the network parameter tend to 
+lead to single-action policies. The lack of action diversity 
+in perturbed policy cripple learn and lead to poor re- 
+sults (Salimans et al., 2017). 
+
+The preprocessing be identical to that in Mnih et al. (2016). 
+Each frame be downsampled to 84x84 pixels, after which 
+it be convert to grayscale. The actual observation to the 
+network be a concatenation of 4 subsequent frames. There 
+be a frameskip of 4. Each episode of training start with up 
+
+to 30 random, no-operation actions. 
+
+For all experiments, we fix the training hyperparameters 
+for fair comparison. Each network be train with the Adam 
+optimizer (Kingma & Ba, 2014) with a learn rate of 
+η = 10−2 and a noise standard deviation of σ = 0.02. The 
+number of sample drawn from the population distribution 
+each generation be W = 5000. For NS-ES and NSR- 
+ES, we set M = 3 a the meta-population size and k = 10 
+for the nearest-neighbor computation, value that be both 
+chosen through an informal hyperparameter search. We 
+train ES, NS-ES, and NSR-ES for a the same number 
+of generation T for each game. The value of T varies be- 
+tween 150 and 300 depend on the number of timesteps 
+per episode of gameplay (i.e. game with longer episode 
+be train for 150 generation and vice versa). The fig- 
+ures in SI Sec. 6.8 show how many generation of training 
+occur for each game. 
+
+6.6. Humanoid Locomotion problem training detail 
+
+The network architecture for the Humanoid Locomotion 
+experiment be a multilayer perceptron with two hidden 
+layer contain 256 neuron (with tanh activations) re- 
+sulting in a network with 166,700 parameters. This archi- 
+tecture be the one in the configuration file include in the 
+source code release by Salimans et al. (2017). The ar- 
+chitecture described in their paper be similar, but smaller, 
+have 64 neuron per layer Salimans et al. (2017). 
+
+For all experiments, we fix the training hyperparameters 
+for fair comparison. Each network be train with the 
+Adam optimizer (Kingma & Ba, 2014) with a learn rate 
+of η = 10−2 and a noise standard deviation of σ = 0.02. 
+The number of sample drawn from the population dis- 
+tribution each generation be W = 10000. For NS-ES 
+and NSR-ES, we set M = 5 a the meta-population size 
+and k = 10 for the nearest-neighbor computation, value 
+that be both chosen through an informal hyperparameter 
+search. We train ES, NS-ES, and NSR-ES for a the same 
+number of generation T for each game. The value of T 
+be 600 for the Humanoid Locomotion problem and 800 for 
+the Humanoid Locomotion with Deceptive Trap problem. 
+
+6.7. Humanoid Locomotion problem tabular result 
+
+ENVIRONMENT ES NS-ES NSR-ES 
+
+ISOTROPIC 7767.8 5355.5 6891.5 
+DECEPTIVE 5.3 14.1 29.4 
+
+Table 3. Final result for the Humanoid Locomotion problem. 
+The report score be compute by take the median over 10 
+independent run of the reward of the high score policy per 
+run (each of which be the mean over ∼30 evaluations). 
+
+
+
+6.8. Plots of Atari learn across training 
+(generations) 
+
+Figure 7. Results for the game Alien. 
+
+Figure 8. Results for the game Amidar. 
+
+Figure 9. Results for the game Bank Heist. 
+
+Figure 10. Results for the game Beam Rider. 
+
+Figure 11. Results for the game Breakout. 
+
+Figure 12. Results for the game Freeway. 
+
+Figure 13. Results for the game Frostbite. 
+
+
+
+Figure 14. Results for the game Gravitar. 
+
+Figure 15. Results for the game Montezuma’s Revenge. 
+
+Figure 16. Results for the game Q*Bert. 
+
+Figure 17. Results for the game Zaxxon. 
+
+6.9. Overhead plot of agent behavior on the Humanoid 
+Locomotion with Deceptive Trap Problem. 
+
+Figure 18. Overhead plot of ES across 10 independent run on 
+the Humanoid Locomotion with Deceptive Trap problem. 
+
+Figure 19. Overhead plot of NS-ES across 10 independent 
+run on the Humanoid Locomotion with Deceptive Trap prob- 
+lem. 
+
+
+
+Figure 20. Overhead plot of NSR-ES across 10 independent 
+run on the Humanoid Locomotion with Deceptive Trap prob- 
+lem. 
+
+

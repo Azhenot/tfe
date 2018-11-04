@@ -1,0 +1,1079 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Image Inpainting for Irregular Holes Using 
+Partial Convolutions 
+
+Guilin Liu Fitsum A. Reda Kevin J. Shih Ting-Chun Wang 
+Andrew Tao Bryan Catanzaro 
+
+NVIDIA Corporation 
+
+Fig. 1. Masked image and correspond inpainted result use our partial- 
+convolution base network. 
+
+Abstract. Existing deep learn base image inpainting method use 
+a standard convolutional network over the corrupt image, use con- 
+volutional filter response condition on both valid pixel a well a the 
+substitute value in the masked hole (typically the mean value). This 
+often lead to artifact such a color discrepancy and blurriness. Post- 
+processing be usually use to reduce such artifacts, but be expensive and 
+may fail. We propose the use of partial convolutions, where the convolu- 
+tion be masked and renormalize to be condition on only valid pixels. 
+We further include a mechanism to automatically generate an update 
+mask for the next layer a part of the forward pass. Our model out- 
+performs other method for irregular masks. We show qualitative and 
+quantitative comparison with other method to validate our approach. 
+
+Keywords: Partial Convolution, Image Inpainting 
+
+1 Introduction 
+
+Image inpainting, the task of fill in hole in an image, can be use in many 
+applications. For example, it can be use in image edit to remove unwanted 
+
+ar 
+X 
+
+iv 
+:1 
+
+80 
+4. 
+
+07 
+72 
+
+3v 
+1 
+
+[ 
+c 
+
+.C 
+V 
+
+] 
+2 
+
+0 
+A 
+
+pr 
+2 
+
+01 
+8 
+
+
+
+2 Guilin Liu et al. 
+
+(a) Image with hole (b) PatchMatch (c) Iizuka et al.[1] (d) Yu et al.[2] 
+
+(e) Hole=127.5 (f) Hole=IN Mean (g) Partial Conv (h) Ground Truth 
+
+Fig. 2. From left to right, top to bottom: 2(a): image with hole. 2(b): inpainted result of 
+PatchMatch[3]. 2(c): inpainted result of Iizuka et al.[1]. 2(d): Yu et al.[2]. 2(e) and 2(f) 
+be use the same network architecture a Section 3.2 but use typical convolutional 
+network, 2(e) us the pixel value 127.5 to initialize the holes. 2(f) us the mean 
+ImageNet pixel value. 2(g): our partial convolution base result which be agnostic to 
+hole values. 
+
+image content, while fill in the result space with plausible imagery. Previ- 
+ous deep learn approach have focus on rectangular region locate around 
+the center of the image, and often rely on expensive post-processing. The goal 
+of this work be to propose a model for image inpainting that operates robustly 
+on irregular hole pattern (see Fig. 1), and produce semantically meaningful 
+prediction that incorporate smoothly with the rest of the image without the 
+need for any additional post-processing or blending operation. 
+
+Recent image inpainting approach that do not use deep learn use image 
+statistic of the remain image to fill in the hole. PatchMatch [3], one of the 
+state-of-the-art methods, iteratively search for the best fitting patch to fill 
+in the holes. While this approach generally produce smooth results, it be limited 
+by the available image statistic and have no concept of visual semantics. For 
+example, in Figure 2(b), PatchMatch be able to smoothly fill in the miss 
+component of the painting use image patch from the surround shadow 
+and wall, but a semantically-aware approach would make use of patch from 
+the painting instead. 
+
+Deep neural network learn semantic prior and meaningful hidden represen- 
+tations in an end-to-end fashion, which have be use for recent image inpaint- 
+ing efforts. These network employ convolutional filter on images, replace the 
+remove content with a fix value. As a result, these approach suffer from 
+dependence on the initial hole values, which often manifest itself a lack of 
+
+
+
+Image Inpainting for Irregular Holes Using Partial Convolutions 3 
+
+texture in the hole regions, obvious color contrasts, or artificial edge response 
+surround the hole. Examples use a U-Net architecture with typical convolu- 
+tional layer with various hole value initialization can be see in Figure 2(e) and 
+2(f). (For both, the training and test share the same initalization scheme). 
+
+Conditioning the output on the hole value ultimately result in various type 
+of visual artifact that necessitate expensive post-processing. For example, Iizuka 
+et al. [1] us fast march [4] and Poisson image blending [5], while Yu et al. [2] 
+employ a following-up refinement network to refine their raw network predictions. 
+However, these refinement cannot resolve all the artifact show a 2(c) and 2(d). 
+Our work aim to achieve well-incorporated hole prediction independent of the 
+hole initialization value and without any additional post-processing. 
+
+Another limitation of many recent approach be the focus on rectangular 
+shape holes, often assume to be center in the image. We find these limitation 
+may lead to overfitting to the rectangular holes, and ultimately limit the utility 
+of these model in application. Pathak et al. [6] and Yang et al. [7] assume 
+64 × 64 square hole at the center of a 128×128 image. Iizuka et al. [1] and Yu 
+et al. [2] remove the center hole assumption and can handle irregular shape 
+holes, but do not perform an extensive quantitative analysis on a large number 
+of image with irregular mask (51 test image in [8]). In order to focus on the 
+more practical irregular hole use case, we collect a large benchmark of image 
+with irregular mask of vary sizes. In our analysis, we look at the effect of 
+not just the size of the hole, but also whether the hole be in contact with the 
+image border. 
+
+To properly handle irregular masks, we propose the use of a Partial Con- 
+volutional Layer, comprise a masked and re-normalized convolution operation 
+follow by a mask-update step. The concept of a masked and re-normalized 
+convolution be also refer to a segmentation-aware convolution in [9] for the 
+image segmentation task, however they do not make modification to the in- 
+put mask. Our use of partial convolution be such that give a binary mask our 
+convolutional result depend only on the non-hole region at every layer. Our 
+main extension be the automatic mask update step, which remove any mask- 
+ing where the partial convolution be able to operate on an unmasked value. 
+Given sufficient layer of successive updates, even the large masked hole will 
+eventually shrink away, leave only valid response in the feature map. The 
+partial convolutional layer ultimately make our model agnostic to placeholder 
+hole values. 
+
+In summary, we make the follow contributions: 
+
+– we propose the the use of partial convolution with an automatic mask update 
+step for achieve state-of-the-art on image inpainting. 
+
+– while previous work fail to achieve good inpainting result with skip link 
+in a U-Net [10] with typical convolutions, we demonstrate that substitute 
+convolutional layer with partial convolution and mask update can achieve 
+state-of-the-art inpainting results. 
+
+– to the best of our knowledge, we be the first to demonstrate the efficacy of 
+training image-inpainting model on irregularly shape holes. 
+
+
+
+4 Guilin Liu et al. 
+
+– we propose a large irregular mask dataset, which will be release to public 
+to facilitate future effort in training and evaluate inpainting models. 
+
+2 Related Work 
+
+Non-learning approach to image inpainting rely on propagate appearance 
+information from neighbor pixel to the target region use some mechanism 
+like distance field[11, 12, 4]. However, these method can only handle narrow 
+holes, where the color and texture variance be small. Big hole may result in 
+over-smoothing or artifact resemble Voronoi region such a in [4]. Patch- 
+base method such a [13, 14] operate by search for relevant patch from the 
+image’s non-hole region or other source image in an iterative fashion. However, 
+these step often come at a large computation cost such a in [15]. PatchMatch [3] 
+speed it up by propose a faster similar patch search algorithm. However, 
+these approach be still not fast enough for real-time application and cannot 
+make semantically aware patch selections. 
+
+Deep learn base method typically initialize the hole with some con- 
+stant placeholder value e.g. the mean pixel value of ImageNet [16], which be 
+then pass through a convolutional network. Due to the result artifacts, 
+post-processing be often use to ameliorate the effect of conditioning on the 
+placeholder values. Content Encoders [6] first embed the 128×128 image with 
+64×64 center hole into low dimensional feature space and then decode the fea- 
+ture to a 64x64 image. Yang et al. [7] take the result from Content Encoders 
+a input and then propagates the texture information from non-hole region to 
+fill the hole region a postprocessing. Song et al. [17] us a refinement network 
+in which a blurry initial hole-filling result be use a the input, then iteratively 
+replace with patch from the closest non-hole region in the feature space. 
+Iizuka et al. [1] extends Content Encoders by define both global and local dis- 
+criminators, then applies Poisson blending a a post-process. Following [1], Yu 
+et al. [2] replace the post-processing with a refinement network power by the 
+contextual attention layers. 
+
+Amongst the deep learn approaches, several other effort also ignore the 
+mask placeholder values. In Yeh et al. [18], search for the closest encode to the 
+corrupt image in a latent space, which be then use to condition the output of 
+a hole-filling generator. Ulyanov et al. [10] further found that the network need 
+no external dataset training and can rely on the structure of the generative 
+network itself to complete the corrupt image. However, this approach can 
+require a different set of hyper parameter for every image, and applies several 
+iteration to achieve good results. Moreover, their design [10] be not able to 
+use skip links, which be know to produce detailed output. With standard 
+convolutional layers, the raw feature of noise or wrong hole initialization value 
+in the encoder stage will propagate to the decoder stage. Our work also do 
+not depend on placeholder value in the hole regions, but we also aim to achieve 
+good result in a single feedforward pas and enable the use of skip link to create 
+detailed predictions. 
+
+
+
+Image Inpainting for Irregular Holes Using Partial Convolutions 5 
+
+Our work make extensive use of a masked or reweighted convolution opera- 
+tion, which allows u to condition output only on valid inputs. Harley et al. [19] 
+recently make use of this approach with a soft attention mask for semantic seg- 
+mentation. It have also be use for full-image generation in PixelCNN [20], to 
+condition the next pixel only on previously synthesize pixels. The partial convo- 
+lution can be see a a special case of the normalize convolution, a introduce 
+in [21]. Our primary contribution with respect to the partial convolution be to 
+further update the input mask for the next layer base on where the partial con- 
+volution be able to make a valid response, and in apply partial convolution 
+to the inpainting problem. Our full model be an encoder-decoder architecture 
+with sufficient receptive field such that the mask be fully valid before it enters 
+the decoder half, which simplifies the decode process. 
+
+3 Approach 
+
+Our propose model us stack partial convolution operation and mask up- 
+date step to perform image inpainting. We first define our convolution and 
+mask update mechanism, then discus model architecture and loss functions. 
+
+3.1 Partial Convolutional Layer 
+
+For brevity, we refer to our partial convolution operation and mask update func- 
+tion jointly a the Partial Convolutional Layer. 
+
+Let W be the convolution filter weight for the convolution filter and b it 
+the correspond bias. X be the feature value (pixels values) for the current 
+convolution (sliding) window and M be the correspond binary mask. The 
+partial convolution at every location, similarly define in [9], be express as: 
+
+x′ = 
+
+{ 
+WT (X⊙M) 1sum(M) + b, if sum(M) > 0 
+0, otherwise 
+
+(1) 
+
+where ⊙ denotes element-wise multiplication. As can be seen, output value 
+depend only on the unmasked inputs. The scale factor 1/sum(M) applies ap- 
+propriate scale to adjust for the vary amount of valid (unmasked) inputs. 
+
+After each partial convolution operation, we then update our mask. Our 
+unmask rule be simple: if the convolution be able to condition it output on 
+at least one valid input value, then we remove the mask for that location. This 
+be express as: 
+
+m′ = 
+
+{ 
+1, if sum(M) > 0 
+
+0, otherwise 
+(2) 
+
+and can easily be implement in any deep learn framework a part of the 
+forward pass. With sufficient successive application of the partial convolution 
+layer, any mask will eventually be all ones, if the input contain any valid pixels. 
+
+
+
+6 Guilin Liu et al. 
+
+3.2 Network Architecture and Implementation 
+
+Implementation. Partial convolution layer be implement by extend exist- 
+ing standard PyTorch[22], although it can be improve both in time and space 
+use custom layers. The straightforward implementation be to define binary 
+mask of size C×H×W, the same size with their associate images/features, 
+and then to implement mask update be implement use a fix convolution 
+layer, with the same kernel size a the partial convolution operation, but with 
+weight identically set to 1 and bias set to 0. The entire network inference on 
+a 512×512 image take 0.23s on a single NVIDIA V100 GPU, regardless of the 
+hole size. 
+
+Network Design. We design a UNet-like architecture [23] similar to the 
+one use in [24], replace all convolutional layer with partial convolutional 
+layer and use near neighbor up-sampling in the decode stage. ReLU be 
+use in the encode stage and LeakyReLU with alpha = 0.2 be use between 
+all decode layers. Batch normalization layer [25] be use between each partial 
+convolution layer and ReLU/LeakyReLU layer except the first and last partial 
+convolutional layers. The encoder comprises eight partial convolutional layer 
+with stride=2. The kernel size be 7, 5, 5, 3, 3, 3, 3 and 3. The channel size 
+be 64, 128, 256, 512, 512, 512, 512, and 512. The decoder include 8 upsampling 
+layers, each with a factor of 2, and follow by a partial convolutional layer. The 
+output channel for partial convolutional layer in the decoder be 512, 512, 512, 
+512, 256, 128, 64, and 3. The skip link feed the decoder stage concatenate 
+both the feature map and binary mask channel-wise before be input to the 
+next partial convolution layer. The last partial convolution layer’s input will 
+contain the concatenation of the original input image with hole and original 
+mask. This make it possible for the model to simply copy non-hole pixels. 
+
+Partial Convolution a Padding. We do not use any exist pad 
+scheme for our convolution when near image boundaries. Instead, the partial 
+convolution layer directly handle this with appropriate masking. This will fur- 
+ther ensure that the inpainted content at the image border will not be affected 
+by invalid value outside of the image, which can be interpret a another hole. 
+
+3.3 Loss Functions 
+
+Our loss function target both per-pixel reconstruction accuracy a well a com- 
+position, i.e. how smoothly the predict hole value transition into their sur- 
+round context. 
+
+Given input image with hole Iin, initial binary mask M (0 for holes)the 
+network prediction Iout, and the ground truth image Igt, we first define our per- 
+pixel loss Lhole = ‖(1−M)⊙ (Iout − Igt)‖1 and Lvalid = ‖M ⊙ (Iout − Igt)‖1. 
+These be the L1 loss on the network output for the hole and the non-hole 
+pixel respectively. 
+
+Next, we define the perceptual loss, introduce by Gatys at al. [26]: 
+
+Lperceptual = 
+N−1∑ 
+
+n=0 
+
+‖Ψn(Iout)− Ψn(Igt)‖1 + 
+N−1∑ 
+
+n=0 
+
+‖Ψn(Icomp)− Ψn(Igt)‖1 (3) 
+
+
+
+Image Inpainting for Irregular Holes Using Partial Convolutions 7 
+
+Here, Icomp be the raw output image Iout, but with the non-hole pixel directly 
+set to ground truth. The perceptual loss computes the L1 distance between 
+both Iout and Icomp and the ground truth, but after project these image into 
+high level feature space use an ImageNet-pretrained VGG-16 [27]. Ψn be the 
+activation map of the nth select layer. We use layer pool1, pool2 and pool3 
+for our loss. 
+
+We further include the style-loss term, which be similar to the perceptual 
+loss [26], but we first perform an autocorrelation (Gram matrix) on each feature 
+map before apply the L1. 
+
+Lstyleout = 
+N−1∑ 
+
+n=0 
+
+∣∣∣ 
+∣∣∣Kn 
+
+(( 
+Ψ 
+
+n 
+(Iout) 
+
+)⊺( 
+Ψ 
+
+n 
+(Iout) 
+
+) 
+− 
+( 
+Ψn(Igt) 
+
+)⊺( 
+Ψn(Igt) 
+
+))∣∣∣ 
+∣∣∣ 
+1 
+
+(4) 
+
+Lstylecomp = 
+N−1∑ 
+
+n=0 
+
+∣∣∣ 
+∣∣∣Kn 
+
+(( 
+Ψ 
+
+n 
+(Icomp) 
+
+)⊺( 
+Ψ 
+
+n 
+(Icomp) 
+
+) 
+− 
+
+( 
+Ψn(Igt) 
+
+)⊺( 
+Ψn(Igt) 
+
+))∣∣∣ 
+∣∣∣ 
+1 
+
+(5) 
+Here, we note that the matrix operation assume that the high level feature 
+Ψ(x)n be of shape (HnWn)×Cn, result in a Cn×Cn Gram matrix, and Kn be 
+the normalization factor 1/CnHnKn for the nth select layer. Again, we include 
+loss term for both raw output and composited output. 
+
+Our final loss term be the total variation (TV) loss Ltv: which be the smooth 
+penalty [28] on P , where P be the region of 1-pixel dilation of the hole region. 
+
+Ltv = 
+∑ 
+
+(i,j)∈P,(i,j+1)∈P 
+‖Ii,j+1comp − Ii,jcomp‖1 + 
+
+∑ 
+
+(i,j)∈P,(i+1,j)∈P 
+‖Ii+1,jcomp − Ii,jcomp‖1 (6) 
+
+The total loss Ltotal be the combination of all the above loss functions. 
+
+Ltotal = Lvalid+6Lhole+0.05Lperceptual+120(Lstyleout+Lstylecomp)+0.1Ltv (7) 
+
+The loss term weight be determine by perform a hyperparameter 
+search on 100 validation images. 
+
+Removing Checkerboard Artifacts and Fish Scale Artifacts. Percep- 
+tual loss [28] be know to generate checkerboard artifacts. Johnson et al. [28] 
+suggests to ameliorate the problem by use the total variation (TV) loss. We 
+found this not to be the case for our model. Figure 3(b) show the result of the 
+model train by remove Lstyleout and Lstylecomp from Ltotal. For our model, 
+the additional style loss term be necessary. However, not all the loss weight 
+scheme for the style loss will generate plausible results. Figure 3(f) show the 
+result of the model train with a small style loss weight. Compared to the result 
+of the model train with full Ltotal in Figure 3(g), it have many fish scale arti- 
+facts, or blocky checkerboard artifacts. Ultimately, a style-loss weight too large 
+will result in the loss of high frequency information. We hope this discussion will 
+be useful to reader interested in employ VGG-based high level losses. 
+
+
+
+8 Guilin Liu et al. 
+
+(a) Image with Hole (b) no Style Loss (c) full Ltotal (d) Ground Truth 
+
+(e) Image with hole (f) Small Style Loss (g) full Ltotal (h) Ground Truth 
+
+Fig. 3. In top row, from left to right: input image with hole; result without style loss; 
+result with style loss; ground truth image. In bottom row, from left to right: input 
+image with hole; result use small style loss weight; result use full Ltotal; ground 
+truth image. 
+
+4 Experiments 
+
+4.1 Irregular Mask Dataset 
+
+Previous work generate hole in their datasets by randomly remove rectan- 
+gular region within their image. We consider this insufficient in create the 
+diverse hole shape and size that we need. As such, we begin by collect 
+mask of random streak and hole of arbitrary shapes. We found the result of 
+occlusion/dis-occlusion mask estimation method between two consecutive frame 
+for video described in [29] to be a good source of such patterns. We generate 
+55,116 mask for the training and 24,866 mask for testing. During training, we 
+augment the mask dataset by randomly sample a mask from 55,116 mask and 
+late perform random dilation, rotation and cropping. All the mask and image 
+for training and test be with the size of 512×512. 
+
+We create a test set by start with the 24,866 raw mask and add ran- 
+dom dilation, rotation and cropping. Many previous method such a [1] have 
+degrade performance at hole near the image borders. As such, we divide the 
+test set into two: mask with and without hole close to border. The split that 
+have hole distant from the border ensures a distance of at least 50 pixel from 
+the border. 
+
+We also further categorize our mask by hole size. Specifically, we generate 6 
+category of mask with different hole-to-image area ratios: (0.01, 0.1], (0.1, 0.2], 
+(0.2, 0.3], (0.3, 0.4], (0.4, 0.5], (0.5, 0.6]. Each category contains 1000 mask with 
+
+
+
+Image Inpainting for Irregular Holes Using Partial Convolutions 9 
+
+and without border constraints. In total, we have create 6 ∗ 2 ∗ 1000 = 12, 000 
+masks. Some example of each category’s mask can be found in Figure 4. 
+
+Fig. 4. Some test mask for each hole-to-image area ratio category. 1, 3 and 5 be 
+show use their example with border constraint; 2, 4 and 6 be show use their 
+example without border constraint. 
+
+4.2 Training Process 
+
+Training Data We use 3 separate image datasets for training and testing: 
+ImageNet dataset [16], Places2 dataset [30] and CelebA-HQ [31, 32]. We use the 
+original train, test, and val split for ImageNet and Places2. For CelebA-HQ, we 
+randomly partition into 27K image for training and 3K image for testing. 
+
+Training Procedure. We initialize the weight use the initialization method 
+described in [33] and use Adam [34] for optimization. We train on a single 
+NVIDIA V100 GPU (16GB) with a batch size of 6. 
+
+Initial Training and Fine-Tuning. Holes present a problem for Batch 
+Normalization because the mean and variance will be compute for hole pixels, 
+and so it would make sense to disregard them at masked locations. However, 
+hole be gradually fill with each application and usually completely go by 
+the decoder stage. 
+
+In order to use Batch Normalization in the presence of holes, we first turn on 
+Batch Normalization for the initial training use a learn rate of 0.0002. Then, 
+we fine-tune use a learn rate of 0.00005 and freeze the Batch Normalization 
+parameter in the encoder part of the network. We keep Batch Normalization 
+enable in the decoder. This not only avoids the incorrect mean and variance 
+issues, but also help u to achieve faster convergence. ImageNet and Places2 
+model train for 10 days, whereas CelebA-HQ train in 3 days. All fine-tuning 
+be perform in one day. 
+
+4.3 Comparisons 
+
+We compare our method with 4 methods: 
+
+– PM: PatchMatch [3], the state-of-the-art non-learning base approach 
+– GL: Method propose by Iizuka et al. [1] 
+– GntIpt: Method propose by Yu et al. [2] 
+– Conv: Same network structure a our method but use typical convolu- 
+
+tional layers. Loss weight be re-determined via hyperparameter search. 
+
+
+
+10 Guilin Liu et al. 
+
+Our method be denote a PConv. A fair comparison with GL and GntIpt 
+would require retrain their model on our data. However, the training of both 
+approach use local discriminator assume availability of the local bound 
+box of the holes, which would not make sense for the shape of our masks. 
+As such, we directly use their release pre-trained models1. As we do not know 
+their train-test splits, our own split will likely differ from theirs. We evaluate 
+on 12,000 image randomly assign our mask to image without replacement. 
+
+Qualitative Comparisons. Figure 5 and Figure 6 show the comparison 
+on ImageNet and Places2 respectively. GT represent the ground truth. We 
+compare with GntIpt[2] on CelebA-HQ in Figure 9. GntIpt test CelebA-HQ 
+on 256×256 so we downsample the image to be 256×256 before feed into 
+their model. It can be see that PM may copy semantically incorrect patch to 
+fill holes, while GL and GntIpt sometimes fail to achieve plausible result through 
+post-processing or refinement network. Figure 7 show the result of Conv, which 
+be with the distinct artifact from conditioning on hole placeholder values. 
+
+(a) Input (b) PM (c) GL (d) GntIpt (e) PConv (f) GT 
+
+Fig. 5. Comparisons of test result on ImageNet 
+
+Quantitative comparisons. As mention in [2], there be no good numerical 
+metric to evaluate image inpainting result due to the existence of many possible 
+solutions. Nevertheless we follow the previous image inpainting work [7, 2] by 
+
+1 https://github.com/satoshiiizuka/siggraph2017 inpainting, 
+https://github.com/JiahuiYu/generative inpainting 
+
+
+
+Image Inpainting for Irregular Holes Using Partial Convolutions 11 
+
+(a) Input (b) PM (c) GL (d) GntIpt (e) PConv (f) GT 
+
+Fig. 6. Comparison of test result on Places2 image 
+
+reporting ℓ1 error, PSNR, SSIM [35], and the inception score [36]. ℓ1 error, 
+PSNR and SSIM be report on Places2, whereas the Inception score (IScore) 
+be report on ImageNet. Note that the release model for [1] be train only on 
+Places2, which we use for all evaluations. Table 1 show the comparison results. 
+It can be see that our method outperforms all the other method on these 
+measurement on irregular masks. 
+
+User Study In addition to quantitative comparisons, we also evaluate our 
+algorithm via a human subjective study. We perform pairwise A/B test deployed 
+on the Amazon Mechanical Turk (MTurk) platform. We perform two different 
+kind of experiments: unlimited time and limited time. We also report the case 
+with and without hole close to the image boundary separately. For each sit- 
+uation, We randomly select 300 image for each method, where each image be 
+compare 10 times. 
+
+
+
+12 Guilin Liu et al. 
+
+Input Conv PConv Input Conv PConv 
+
+Fig. 7. Comparison between typical convolution layer base result (Conv) and partial 
+convolution layer base result (PConv). 
+
+[0.01,0.1] (0.1,0.2] (0.2,0.3] (0.3,0.4] (0.4,0.5] (0.5,0.6] 
+
+N B N B N B N B N B N B 
+
+ℓ1(PM)(%) 0.45 0.42 1.25 1.16 2.28 2.07 3.52 3.17 4.77 4.27 6.98 6.34 
+ℓ1(GL)(%) 1.39 1.53 3.01 3.22 4.51 5.00 6.05 6.77 7.34 8.20 8.60 9.78 
+ℓ1(GnIpt)(%) 0.78 0.88 1.98 2.09 3.34 3.72 4.98 5.50 6.51 7.13 8.33 9.19 
+ℓ1(Conv)(%) 0.52 0.50 1.26 1.17 2.20 2.01 3.37 3.03 4.58 4.10 6.66 6.01 
+ℓ1(PConv)(%) 0.49 0.47 1.18 1.09 2.07 1.88 3.19 2.84 4.37 3.85 6.45 5.72 
+
+PSNR(PM) 32.97 33.68 26.87 27.51 23.70 24.35 21.27 22.05 19.70 20.58 17.60 18.22 
+PSNR(GL) 30.17 29.74 23.87 23.83 20.92 20.73 18.80 18.61 17.60 17.38 16.90 16.37 
+PSNR(GnIpt) 29.07 28.38 23.20 22.86 20.58 19.86 18.53 17.85 17.31 16.68 16.24 15.52 
+PSNR(Conv) 33.21 33.79 27.30 27.89 24.23 24.90 21.79 22.60 20.20 21.13 18.24 18.94 
+PSNR(PConv) 33.75 34.34 27.71 28.32 24.54 25.25 22.01 22.89 20.34 21.38 18.21 19.04 
+
+SSIM(PM) 0.946 0.947 0.861 0.865 0.763 0.768 0.666 0.675 0.568 0.579 0.459 0.472 
+SSIM(GL) 0.929 0.923 0.831 0.829 0.732 0.721 0.638 0.627 0.543 0.533 0.446 0.440 
+SSIM(GnIpt) 0.940 0.938 0.855 0.855 0.760 0.758 0.666 0.666 0.569 0.570 0.465 0.470 
+SSIM(Conv) 0.943 0.943 0.862 0.865 0.769 0.772 0.674 0.682 0.576 0.587 0.463 0.478 
+SSIM(PConv) 0.946 0.945 0.867 0.870 0.775 0.779 0.681 0.689 0.583 0.595 0.468 0.484 
+
+IScore(PM) 0.090 0.058 0.307 0.204 0.766 0.465 1.551 0.921 2.724 1.422 4.075 2.226 
+IScore(GL) 0.183 0.112 0.619 0.464 1.607 1.046 2.774 1.941 3.920 2.825 4.877 3.362 
+IScore(GnIpt) 0.127 0.088 0.396 0.307 0.978 0.621 1.757 1.126 2.759 1.801 3.967 2.525 
+IScore(Conv) 0.068 0.041 0.228 0.149 0.603 0.366 1.264 0.731 2.368 1.189 4.162 2.224 
+IScore(PConv) 0.051 0.032 0.163 0.109 0.446 0.270 0.954 0.565 1.881 0.838 3.603 1.588 
+
+Table 1. Comparisons with various methods. Columns represent different hole-to- 
+image area ratios. N=no border, B=border 
+
+For the unlimited time setting, the worker be give two image at once: 
+each generate by a different method. The worker be then give unlimited 
+time to select which image look more realistic. We also shuffle the image order 
+to ensure unbiased comparisons. The result across all different hole-to-image 
+area ratio be summarize in Fig. 8(a). The first row show the result where 
+the hole be at least 50 pixel away from the image border, while the second 
+row show the case where the hole may be close to or touch image border. As 
+can be seen, our method performs significantly good than all the other method 
+(50% mean two method perform equally well) in both cases. 
+
+For the limited time setting, we compare all method (including ours) to the 
+ground truth. In each comparison, the result of one method be chosen and show 
+to the worker along with the ground truth for a limited amount of time. The 
+worker be then ask to select which image look more natural. This evaluates 
+
+
+
+Image Inpainting for Irregular Holes Using Partial Convolutions 13 
+
+how quickly the difference between the image can be perceived. The comparison 
+result for different time interval be show in Fig. 8(b). Again, the first row 
+show the case where the hole do not touch the image boundary while the 
+second row allows that. Our method outperforms the other method in most 
+case across different time period and hole-to-image area ratios. 
+
+(b) Limited time comparison(a) Unlimited time comparison 
+
+250 m 1000 m 4000 m 
+
+N 
+o 
+
+b 
+o 
+
+u 
+n 
+
+d 
+ary 
+
+h 
+o 
+
+le 
+W 
+
+ith 
+b 
+
+o 
+u 
+
+n 
+d 
+
+ary 
+h 
+
+o 
+le 
+
+Fig. 8. User study results. We perform two kind of experiments: unlimited time and 
+limited time. (a) In the unlimited time setting, we compare our result with the result 
+generate by another method. The rate where our result be prefer be graphed. 50% 
+mean two method be equal. In the first row, the hole be not allow to touch the 
+image boundary, while in the second row it be allowed. (b) In the limited time setting, 
+we compare all method to the ground truth. The subject be give some limited time 
+(250ms, 1000ms or 4000ms) to select which image be more realistic. The rate where 
+ground truth be prefer over the other method be reported. The low the curve, the 
+better. 
+
+5 Discussion & Extension 
+
+5.1 Discussion 
+
+We propose the use of a partial convolution layer with an automatic mask updat- 
+ing mechanism and achieve state-of-the-art image inpainting results. Our model 
+can robustly handle hole of any shape, size location, or distance from the image 
+borders. Further, our performance do not deteriorate catastrophically a hole 
+increase in size, a see in Figure 10. However, one limitation of our method be 
+that it fails for some sparsely structure image such a the bar on the door in 
+Figure 11, and, like most methods, struggle on the large of holes. 
+
+5.2 Extension to Image Super Resolution 
+
+We also extend our framework to image super resolution task by offset pixel 
+and insert holes. Specifically, give a low resolution image I with heightH and 
+
+
+
+14 Guilin Liu et al. 
+
+(a) Input (b) GntIpt (c) PConv(Ours) (d) Ground Truth 
+
+Fig. 9. Testing result on CelebA-HQ. 
+
+Fig. 10. Inpainting result with various dilation of the hole region from left to right: 
+0, 5, 15, 35, 55, and 95 pixel dilation respectively. Top row: input; bottom row: corre- 
+sponding inpainted results. 
+
+width W and up-scaling factor K, we construct the input I ′ with height K*H 
+and width K*W for the network use the following: for each pixel (x, y) in I, we 
+put it at (K*x+⌊K/2⌋, K*y+⌊K/2⌋) in I ′ and mark this position to have mask 
+value be 1. One example input set and correspond output with K=4 can 
+be found in Figure 12. We compare with two well-known image super-resolution 
+approach SRGAN[37] and MDSR+[38] with K=4 in Figure 13. 
+
+
+
+Image Inpainting for Irregular Holes Using Partial Convolutions 15 
+
+Fig. 11. Failure cases. Each group be order a input, our result and ground truth. 
+
+(a) Low Res (b) Input (c) Input Mask (d) Output (e) GT 
+
+Fig. 12. Example input and output for image super resolution task. Input to the net- 
+work be construct from the low resolution image by offset pixel and insert 
+hole use the way described in Section 5.2. 
+
+Bicubic SRGAN MDSR+ PConv GT 
+
+Fig. 13. Comparison with SRGAN and MDSR+ for image super resolution task. 
+
+Acknowledgement. We would like to thank Jonah Alben, Rafael Valle 
+Costa, Karan Sapra, Chao Yang, Raul Puri, Brandon Rowlett and other NVIDIA 
+colleague for valuable discussions, and Chris Hebert for technical support. 
+
+
+
+16 Guilin Liu et al. 
+
+References 
+
+1. Iizuka, S., Simo-Serra, E., Ishikawa, H.: Globally and locally consistent image 
+completion. ACM Transactions on Graphics (TOG) 36(4) (2017) 107 
+
+2. Yu, J., Lin, Z., Yang, J., Shen, X., Lu, X., Huang, T.S.: Generative image inpainting 
+with contextual attention. arXiv preprint arXiv:1801.07892 (2018) 
+
+3. Barnes, C., Shechtman, E., Finkelstein, A., Goldman, D.B.: Patchmatch: A ran- 
+domized correspondence algorithm for structural image editing. ACM Transactions 
+on Graphics-TOG 28(3) (2009) 24 
+
+4. Telea, A.: An image inpainting technique base on the fast march method. 
+Journal of graphic tool 9(1) (2004) 23–34 
+
+5. Pérez, P., Gangnet, M., Blake, A.: Poisson image editing. ACM Transactions on 
+graphic (TOG) 22(3) (2003) 313–318 
+
+6. Pathak, D., Krahenbuhl, P., Donahue, J., Darrell, T., Efros, A.A.: Context en- 
+coders: Feature learn by inpainting. In: Proceedings of the IEEE Conference on 
+Computer Vision and Pattern Recognition. (2016) 2536–2544 
+
+7. Yang, C., Lu, X., Lin, Z., Shechtman, E., Wang, O., Li, H.: High-resolution image 
+inpainting use multi-scale neural patch synthesis. In: The IEEE Conference on 
+Computer Vision and Pattern Recognition (CVPR). Volume 1. (2017) 3 
+
+8. Hays, J., Efros, A.A.: Scene completion use million of photographs. In: ACM 
+Transactions on Graphics (TOG). Volume 26., ACM (2007) 4 
+
+9. Harley, A.W., Derpanis, K.G., Kokkinos, I.: Segmentation-aware convolutional 
+network use local attention masks. 2017 IEEE International Conference on 
+Computer Vision (ICCV) (2017) 5048–5057 
+
+10. Ulyanov, D., Vedaldi, A., Lempitsky, V.: Deep image prior. arXiv preprint 
+arXiv:1711.10925 (2017) 
+
+11. Bertalmio, M., Sapiro, G., Caselles, V., Ballester, C.: Image inpainting. In: Pro- 
+ceedings of the 27th annual conference on Computer graphic and interactive tech- 
+niques, ACM Press/Addison-Wesley Publishing Co. (2000) 417–424 
+
+12. Ballester, C., Bertalmio, M., Caselles, V., Sapiro, G., Verdera, J.: Filling-in by 
+joint interpolation of vector field and gray levels. IEEE transaction on image 
+processing 10(8) (2001) 1200–1211 
+
+13. Efros, A.A., Freeman, W.T.: Image quilt for texture synthesis and transfer. In: 
+Proceedings of the 28th annual conference on Computer graphic and interactive 
+techniques, ACM (2001) 341–346 
+
+14. Kwatra, V., Essa, I., Bobick, A., Kwatra, N.: Texture optimization for example- 
+base synthesis. In: ACM Transactions on Graphics (ToG). Volume 24., ACM 
+(2005) 795–802 
+
+15. Simakov, D., Caspi, Y., Shechtman, E., Irani, M.: Summarizing visual data use 
+bidirectional similarity. In: Computer Vision and Pattern Recognition, 2008. CVPR 
+2008. IEEE Conference on, IEEE (2008) 1–8 
+
+16. Russakovsky, O., Deng, J., Su, H., Krause, J., Satheesh, S., Ma, S., Huang, Z., 
+Karpathy, A., Khosla, A., Bernstein, M., Berg, A.C., Fei-Fei, L.: ImageNet Large 
+Scale Visual Recognition Challenge. International Journal of Computer Vision 
+(IJCV) 115(3) (2015) 211–252 
+
+17. Song, Y., Yang, C., Lin, Z., Li, H., Huang, Q., Kuo, C.C.J.: Image inpainting use 
+multi-scale feature image translation. arXiv preprint arXiv:1711.08590 (2017) 
+
+18. Yeh, R., Chen, C., Lim, T.Y., Hasegawa-Johnson, M., Do, M.N.: Semantic image 
+inpainting with perceptual and contextual losses. arXiv preprint arXiv:1607.07539 
+(2016) 
+
+
+
+Image Inpainting for Irregular Holes Using Partial Convolutions 17 
+
+19. Harley, A.W., Derpanis, K.G., Kokkinos, I.: Segmentation-aware convolutional 
+network use local attention masks. In: IEEE International Conference on Com- 
+puter Vision (ICCV). Volume 2. (2017) 7 
+
+20. van den Oord, A., Kalchbrenner, N., Espeholt, L., Vinyals, O., Graves, A., et al.: 
+Conditional image generation with pixelcnn decoders. In: Advances in Neural 
+Information Processing Systems. (2016) 4790–4798 
+
+21. Knutsson, H., Westin, C.F.: Normalized and differential convolution. In: Proceed- 
+ings of IEEE Conference on Computer Vision and Pattern Recognition. (Jun 1993) 
+515–523 
+
+22. Paszke, A., Gross, S., Chintala, S., Chanan, G., Yang, E., DeVito, Z., Lin, Z., 
+Desmaison, A., Antiga, L., Lerer, A.: Automatic differentiation in pytorch. (2017) 
+
+23. Ronneberger, O., Fischer, P., Brox, T.: U-net: Convolutional network for biomedi- 
+cal image segmentation. In: International Conference on Medical image compute 
+and computer-assisted intervention, Springer (2015) 234–241 
+
+24. Isola, P., Zhu, J.Y., Zhou, T., Efros, A.A.: Image-to-image translation with con- 
+ditional adversarial networks. arXiv preprint (2017) 
+
+25. Ioffe, S., Szegedy, C.: Batch normalization: Accelerating deep network training by 
+reduce internal covariate shift. In: International conference on machine learning. 
+(2015) 448–456 
+
+26. Gatys, L.A., Ecker, A.S., Bethge, M.: A neural algorithm of artistic style. arXiv 
+preprint arXiv:1508.06576 (2015) 
+
+27. Simonyan, K., Zisserman, A.: Very deep convolutional network for large-scale 
+image recognition. arXiv preprint arXiv:1409.1556 (2014) 
+
+28. Johnson, J., Alahi, A., Fei-Fei, L.: Perceptual loss for real-time style transfer and 
+super-resolution. In: European Conference on Computer Vision, Springer (2016) 
+694–711 
+
+29. Sundaram, N., Brox, T., Keutzer, K.: Dense point trajectory by gpu-accelerated 
+large displacement optical flow. In: European conference on computer vision, 
+Springer (2010) 438–451 
+
+30. Zhou, B., Lapedriza, A., Khosla, A., Oliva, A., Torralba, A.: Places: A 10 million 
+image database for scene recognition. IEEE Transactions on Pattern Analysis and 
+Machine Intelligence (2017) 
+
+31. Liu, Z., Luo, P., Wang, X., Tang, X.: Deep learn face attribute in the wild. In: 
+Proceedings of International Conference on Computer Vision (ICCV). (December 
+2015) 
+
+32. Karras, T., Aila, T., Laine, S., Lehtinen, J.: Progressive grow of gans for im- 
+prove quality, stability, and variation. arXiv preprint arXiv:1710.10196 (2017) 
+
+33. He, K., Zhang, X., Ren, S., Sun, J.: Delving deep into rectifiers: Surpassing human- 
+level performance on imagenet classification. In: Proceedings of the IEEE interna- 
+tional conference on computer vision. (2015) 1026–1034 
+
+34. Kingma, D.P., Ba, J.: Adam: A method for stochastic optimization. arXiv preprint 
+arXiv:1412.6980 (2014) 
+
+35. Wang, Z., Bovik, A.C., Sheikh, H.R., Simoncelli, E.P.: Image quality assessment: 
+from error visibility to structural similarity. IEEE transaction on image processing 
+13(4) (2004) 600–612 
+
+36. Salimans, T., Goodfellow, I., Zaremba, W., Cheung, V., Radford, A., Chen, X.: 
+Improved technique for training gans. In: Advances in Neural Information Pro- 
+cessing Systems. (2016) 2234–2242 
+
+37. Ledig, C., Theis, L., Huszár, F., Caballero, J., Cunningham, A., Acosta, A., Aitken, 
+A., Tejani, A., Totz, J., Wang, Z., et al.: Photo-realistic single image super- 
+resolution use a generative adversarial network. arXiv preprint (2016) 
+
+
+
+18 Guilin Liu et al. 
+
+38. Lim, B., Son, S., Kim, H., Nah, S., Lee, K.M.: Enhanced deep residual network 
+for single image super-resolution. In: The IEEE Conference on Computer Vision 
+and Pattern Recognition (CVPR) Workshops. Volume 1. (2017) 3 
+
+Appendix 
+
+Details of Network Architecture 
+
+Module Name Filter Size # Filters/Channels Stride/Up Factor BatchNorm Nonlinearity 
+
+PConv1 7×7 64 2 - ReLU 
+PConv2 5×5 128 2 Y ReLU 
+PConv3 5×5 256 2 Y ReLU 
+PConv4 3×3 512 2 Y ReLU 
+PConv5 3×3 512 2 Y ReLU 
+PConv6 3×3 512 2 Y ReLU 
+PConv7 3×3 512 2 Y ReLU 
+PConv8 3×3 512 2 Y ReLU 
+
+NearestUpSample1 512 2 - - 
+Concat1(w/ PConv7) 512+512 - - 
+
+PConv9 3×3 512 1 Y LeakyReLU(0.2) 
+NearestUpSample2 512 2 - - 
+
+Concat2(w/ PConv6) 512+512 - - 
+PConv10 3×3 512 1 Y LeakyReLU(0.2) 
+
+NearestUpSample3 512 2 - - 
+Concat3(w/ PConv5) 512+512 - - 
+
+PConv11 3×3 512 1 Y LeakyReLU(0.2) 
+NearestUpSample4 512 2 - - 
+
+Concat4(w/ PConv4) 512+512 - - 
+PConv12 3×3 512 1 Y LeakyReLU(0.2) 
+
+NearestUpSample5 512 2 - - 
+Concat5(w/ PConv3) 512+256 - - 
+
+PConv13 3×3 256 1 Y LeakyReLU(0.2) 
+NearestUpSample6 256 2 - - 
+
+Concat6(w/ PConv2) 256+128 - - 
+PConv14 3×3 128 1 Y LeakyReLU(0.2) 
+
+NearestUpSample7 128 2 - - 
+Concat7(w/ PConv1) 128+64 - - 
+
+PConv15 3×3 64 1 Y LeakyReLU(0.2) 
+NearestUpSample8 64 2 - - 
+Concat8(w/ Input) 64+3 - - 
+
+PConv16 3×3 3 1 - - 
+Table 2. PConv be define a a partial convolutional layer with the specify filter 
+size, stride and number of filters. PConv1-8 be in encoder stage, whereas PConv9-16 
+be in decoder stage. The BatchNorm column indicates whether PConv be follow 
+by a Batch Normalization layer. The Nonlinearity column show whether and what 
+nonlinearity layer be use (following the BatchNorm if BatchNorm be used). Skip link 
+be show use Concat∗, which concatenate the previous near neighbor upsampled 
+result with the correspond mention PConv# result from the encoder stage. 
+
+
+
+Image Inpainting for Irregular Holes Using Partial Convolutions 19 
+
+More Comparisons on Irregular Masks 
+
+Input PM GL GntIpt PConv GT 
+
+Fig. 14. Comparisons on irregular masks. The abbreviation of the notation be the 
+same a Figure 5 and Figure 6 in the paper. 
+
+
+
+20 Guilin Liu et al. 
+
+More Comparisons on Regular Masks 
+
+Input PM GL GntIpt PConv GT 
+
+Fig. 15. Comparisons on regular masks. The abbreviation of the notation be the 
+same a Figure 5 and Figure 6 in the paper. 
+
+
+
+Image Inpainting for Irregular Holes Using Partial Convolutions 21 
+
+More Comparisons On Image Super Resolution 
+
+Bicubic SRGAN MDSR+ PConv GT 
+
+
+
+22 Guilin Liu et al. 
+
+More Results of Our Approach 
+
+Input PConv Input PConv 
+
+
+
+Image Inpainting for Irregular Holes Using Partial Convolutions 23 
+
+Input PConv Input PConv 
+
+

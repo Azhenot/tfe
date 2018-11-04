@@ -1,0 +1,1964 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+intellig model for classif and regress 
+
+yin lou 
+dept. of comput scienc 
+
+cornel univers 
+yinlou@cs.cornell.edu 
+
+rich caruana 
+microsoft research 
+
+microsoft corpor 
+rcaruana@microsoft.com 
+
+johann gehrk 
+dept. of comput scienc 
+
+cornel univers 
+johannes@cs.cornell.edu 
+
+abstract 
+complex model for regress and classif have high accu- 
+racy, but be unfortun no longer interpret by users. We 
+studi the perform of gener addit model (gams), 
+which combin single-featur model call shape function through 
+a linear function. sinc the shape function can be arbitrarili com- 
+plex, gam be more accur than simpl linear models. but sinc 
+they do not contain ani interact between features, they can be 
+easili interpret by users. 
+
+We present the first large-scal empir comparison of exist 
+method for learn gams. our studi includ exist spline and 
+tree-bas method for shape function and penal least squares, 
+gradient boosting, and backfit for learn gams. We also 
+present a new method base on tree ensembl with an adapt 
+number of leaf that consist outperform previou work. We 
+complement our experiment result with a bias-vari analy- 
+si that explain how differ shape model influenc the addi- 
+tive model. our experi show that shallow bag tree with 
+gradient boost distinguish itself a the best method on low- to 
+medium-dimension datasets. 
+
+categori and subject descriptor 
+i.2.6 [comput methodologies]: learning—induct 
+
+keyword 
+intellig models, classification, regress 
+
+1. introduct 
+everyth should be make a simpl a possible, but not simpler. 
+
+— albert einstein. 
+
+classif and regress be two of the most import data 
+mine tasks. currently, the most accur method on mani dataset 
+be complex model such a boost trees, svms, or deep neural 
+nets. however, in mani applic what be learn be just a im- 
+portant a the accuraci of the predictions. unfortunately, the high 
+accuraci of complex model come at the expens of interpretabil- 
+
+permiss to make digit or hard copi of all or part of thi work for 
+person or classroom use be grant without fee provid that copi be 
+not make or distribut for profit or commerci advantag and that copi 
+bear thi notic and the full citat on the first page. To copi otherwise, to 
+republish, to post on server or to redistribut to lists, requir prior specif 
+permiss and/or a fee. 
+kdd’12, august 12–16, 2012, beijing, china. 
+copyright 2012 acm 978-1-4503-1462-6 /12/08 ...$10.00. 
+
+0 1 2 3 4 
+
+− 
+2 
+
+− 
+1 
+
+0 
+1 
+
+2 
+
+0.0 0.5 1.0 1.5 2.0 
+
+− 
+2 
+
+− 
+1 
+
+0 
+1 
+
+2 
+
+0 5 10 15 
+
+− 
+2 
+
+− 
+1 
+
+0 
+1 
+
+2 
+
+f1(x1) f2(x2) f3(x3) 
+
+0 10 20 30 40 50 
+
+− 
+2 
+
+− 
+1 
+
+0 
+1 
+
+2 
+
+0.0 0.2 0.4 0.6 0.8 1.0 1.2 1.4 
+
+− 
+2 
+
+− 
+1 
+
+0 
+1 
+
+2 
+
+0 1 2 3 4 5 6 
+
+− 
+2 
+
+− 
+1 
+
+0 
+1 
+
+2 
+
+f4(x4) f5(x5) f6(x6) 
+
+figur 1: shape function for synthet dataset in exampl 1. 
+
+ity; e.g., even the contribut of individu featur to the predic- 
+tion of a complex model be difficult to understand. 
+
+the goal of thi work be to construct accur model that be in- 
+terpretable. By interpret we mean that user can understand 
+the contribut of individu featur in the model; e.g., we want 
+model that can quantifi the impact of each predictor. thi desider- 
+ata permit arbitrari complex relationship between individu fea- 
+ture and the target, but exclud model with complex interact 
+between features. thu in thi paper we fit model of the form: 
+
+g(y) = f1(x1) + ...+ fn(xn), (1) 
+
+which be know a gener addit model in the literatur [15, 
+22]. the function g(·) be call the link function and we call the 
+fi shape functions. If the link function be the identity, equat 1 
+describ an addit model (e.g., a regress model); if the link 
+function be the logist function, equat 1 describ a gener 
+addit model (e.g., a classif model). 
+
+exampl 1. assum we be give a dataset with 10,000 point 
+gener from the model y = x1 + x22 + 
+
+√ 
+x3 + log(x4) + 
+
+exp(x5) + 2 sin(x6) + �, where � ∼ N (0, 1). after fit an 
+addit model to the data of the form show in equat 1, we 
+can visual the contribut of xi a show in figur 1: be- 
+caus predict be a linear function of the fi(xi), scatterplot 
+of fi(xi) on the y-axi vs. xi on the x-axi allow u to visual the 
+shape function that relat the fi(xi) to the xi, thu we can easili 
+understand the contribut of xi to the prediction. 
+
+becaus the data in exampl 1 be drawn from a model with no 
+interact between features, a model of the form in equat 1 be 
+abl to fit the data perfectli (modulo noise). however, data be not 
+alway so simpl in practice. As a second example, consid a real 
+dataset where there may be interact between features. 
+
+
+
+model form intellig accuraci 
+linear model y = β0 + β1x1 + ...+ βnxn +++ + 
+
+gener linear model g(y) = β0 + β1x1 + ...+ βnxn +++ + 
+addit model y = f1(x1) + ...+ fn(xn) ++ ++ 
+
+gener addit model g(y) = f1(x1) + ...+ fn(xn) ++ ++ 
+full complex model y = f(x1, ..., xn) + +++ 
+
+tabl 1: from linear to addit models. 
+
+100 200 300 400 500 
+
+− 
+20 
+
+− 
+10 
+
+0 
+10 
+
+20 
+30 
+
+40 
+
+120 140 160 180 200 220 240 
+
+− 
+20 
+
+− 
+10 
+
+0 
+10 
+
+20 
+30 
+
+40 
+
+0 100 200 300 
+
+− 
+20 
+
+− 
+10 
+
+0 
+10 
+
+20 
+30 
+
+40 
+
+cement water age 
+
+figur 2: shape function for concret dataset in exampl 2. 
+
+exampl 2. the “concrete” dataset relat the compress 
+strength of concret to it age and ingredients. the dataset contain 
+1030 point with eight numer features. We again fit an addit 
+model of the form in equat 1. figur 2 show scatterplot of 
+the shape function learn for three of the eight features. As we 
+can see from the figure, the compress of concret depend 
+nearli linearli on the cement feature, but it be a complex non-linear 
+function of the water and age features; we say that the model have 
+shape these features. A linear model without the abil to shape 
+featur would have bad fit becaus it cannot captur these non- 
+linearities. moreover, an attempt to interpret the contribut of 
+featur by examin the slope of a simpl linear model would 
+be misleading; the addit model yield much good fit to the data 
+while still remain intelligible.1 
+
+As we saw in the examples, addit model explicitli decom- 
+pose a complex function into one-dimension components, it shape 
+functions. note, however, that the shape function themselv may 
+be non-linear: each featur xi can have a complex non-linear shape 
+fi(xi), and thu the accuraci of addit model can be signif- 
+icantli high than the accuraci of simpl linear models. tabl 
+1 summar the differ between model of differ com- 
+plexiti that we consid in thi paper. linear models, and gen- 
+eral linear model (glms) be the most intelligible, but of- 
+ten the least accurate. addit models, and gener addit 
+model (gams) be more accur than glm on mani data set 
+becaus they captur non-linear relationship between (individual) 
+featur and the response, but retain much of the intellig of 
+linear models. full complex model such a ensembl of tree 
+be more accur on mani dataset becaus they model both non- 
+linear and interaction, but be so complex that it be nearli impos- 
+sibl to interpret them. 
+
+In thi paper we present the result of (to the best of our knowl- 
+edge) the larg experiment studi of gams. We consid shape 
+function base on spline [14, 22] and boost stump [13], a 
+well a novel shape function base on bag and boost ensem- 
+ble of tree that choos the number of leaf adaptively. We exper- 
+iment with (iter re-weighted) least squares, gradient boost- 
+ing, and backfit to both iter refin the shape function 
+and construct the linear model of the shape features. We appli 
+these method to six classif and six regress tasks. for 
+comparison, we fit simpl linear model a a baseline. We also fit 
+
+1see section 4 for the fit of differ model to thi dataset. 
+
+model regress classif mean 
+linear/logist 1.68 1.22 1.45 
+p-ls/p-irl 1.00 1.00 1.00 
+
+bst-sp 1.03 1.00 1.02 
+bf-sp 1.00 1.00 1.00 
+
+bst-bagtr2 0.96 0.96 0.96 
+bst-bagtr3 0.97 0.94 0.96 
+bst-bagtr4 0.99 0.95 0.97 
+bst-bagtrx 0.95 0.94 0.95 
+
+random forest 0.88 0.80 0.84 
+
+tabl 2: preview of empir results. 
+
+unrestrict ensembl of tree a full complex model to get an 
+idea of what accuraci be achievable. 
+
+tabl 2 summar the key find of our study. entri in the 
+tabl be the averag accuraci on the regress and classif 
+datasets, normal by the accuraci of penal (iter re- 
+weighted) least squar with spline (p-ls/p-irls). As expected, 
+the accuraci of gam fall between that of linear/logist regres- 
+sion without featur shape and full-complex model such a 
+random forests. however, surprisingly, the best gam model have 
+accuraci much closer to the full-complex model than to the lin- 
+ear models. our result show that bag tree with 2-4 leaf a 
+shape function in combin with gradient boost a learn 
+method (method bst-bag-tr2 to bst-bag-tr4) outperform all 
+other method on most datasets. our novel method of adapt 
+select the right number of leaf (method bst-bagtrx) be al- 
+most alway even better, and thu we recommend it a the method 
+of choice. On average, thi method reduc loss by about 5% over 
+previou gam models, a signific improv in practice. 
+
+the rest of the paper be structur a follows. section 2 present 
+algorithm for fit gener addit model with variou shape 
+function and learn methods. section 3 describ our experi- 
+mental setup, section 4 present the result and their interpretation, 
+follow by a discuss in section 5 and an overview of relat 
+work in section 6. We conclud in section 7. 
+
+2. methodolog 
+let D = {(xi, yi)}n1 denot a train dataset of size N , where 
+
+xi = (xi1, ..., xin) be a featur vector with n featur and yi be the 
+target. In thi paper, we consid both regress problem where 
+yi ∈ R and binari classif problem where yi ∈ {1,−1}. 
+given a model F , let F (xi) denot the predict of the model for 
+data point xi. our goal in both classif and regress be to 
+minim the expect valu of some loss function l(y, F (x)). 
+
+We be work with gener addit model of the form in 
+equat 1. To train such model we have to select (i) the shape 
+function for individu featur and (ii) the learn method use 
+to train the overal model. We discu these two choic next. 
+
+
+
+2.1 shape function 
+In our studi we consid two class of shape functions: regres- 
+
+sion spline and tree or ensembl of trees. note that all shape 
+function relat a singl attribut to the target. 
+
+regress splines. We consid regress spline of degre d 
+
+of the form y = 
+d∑ 
+
+k=1 
+
+βkbk(x). 
+
+tree and ensembl of trees. We also use binari tree and 
+ensembl of binari tree with larg varianc reduct a split 
+select method. We control tree complex by either fix the 
+number of leaf or by disallow leaf that have few than an 
+α-fraction of the number of train examples. 
+
+We consid the follow ensembl variants: 
+
+• singl tree. We use a singl regress tree a a shape func- 
+tion. 
+
+• bag trees. We use the well-known techniqu of bag 
+to reduc varianc [6]. 
+
+• boost trees. We use gradient boosting, where each suc- 
+cessiv tree tri to predict the overal residu from all pre- 
+cede tree [12]. 
+
+• boost bag trees. We use a bag ensembl in each 
+step of stochast gradient boost [13], result in a boost 
+ensembl of bag trees. 
+
+2.2 gener addit model 
+We consid three differ method for fit addit model in 
+
+our study: least squar fit for learn regress spline shape 
+functions, and gradient boost and backfit for learn tree 
+and tree ensembl shape functions. We review them here briefli 
+for complet although we would like to emphas that these 
+method be not a contribut of thi paper. 
+
+2.2.1 least squar 
+fit a spline reduc to learn the weight βk(x) for the ba- 
+
+si function bk(x). learn the weight can be reduc to fit 
+a linear model y = xβ, where Xi = [b1(xi1), ..., bk(xin)]; the 
+coeffici of the linear model can be comput exactli use the 
+least squar method [22]. To control smoothness, there be a “wig- 
+gliness” penalty: we minim ‖y −xβ‖ + λ 
+
+∑ 
+i 
+
+∫ 
+[f ′′i (xi)] 
+
+2dx 
+with the smooth paramet λ. larg valu of λ lead to a straight 
+line for fi while low valu of λ allow the spline to fit close to 
+the data. We use thin plate regress spline from the R pack- 
+age “mgcv” [22] that automat select the best valu for the 
+paramet of the spline [21]. We call thi method penal least- 
+squar (p-ls) in our experiments. 
+
+the fit of an addit logist regress model use spline 
+be similarli reduc to fit a logist regress with a differ 
+basis, which can be solv use penalized-it reweight 
+least squar (p-irls) [22]. 
+
+2.2.2 gradient boost 
+We use standard gradient boost [12, 13] with one difference: 
+
+sinc we want to learn shape function for all features, in each 
+iter of boost we cycl sequenti through all features. for 
+completeness, we includ pseudo-cod in algorithm 1 and 2. In 
+algorithm 1, we first set all shape function to zero (line 1). then 
+we loop over M iter (line 2) and over all featur (line 3) 
+and then calcul the residu (line 4). We then learn then one- 
+dimension function to predict the residu (line 5) and add it to 
+the shape function (line 6). 
+
+2.2.3 backfit 
+A popular algorithm for learn addit model be the backfit- 
+
+ting algorithm [15]. the algorithm start with an initi guess of all 
+shape function (such a set them all to zero). the first shape 
+function f1 be then learn use the train set with the goal to 
+predict y. then we learn the second shape function f2 on the resid- 
+ual y−f1(x1), i.e., use train set {(xi2, y−f1(xi1))}n1 . the 
+third shape function be train on the residu y−f1(x1)−f2(x2), 
+and so on. after we have train n shape functions, the first shape 
+function be discard and retrain on the residu of the other 
+n−1 shape functions. note that backfit be a form of the “gauss- 
+seidel” algorithm and it converg be usual guarante [15]. 
+it pseudocod look ident to algorithm 1 except that line 6 be 
+replac by fj ← S. 
+
+To fit an addit logist regress model, we can use a general- 
+ize version of the backfit algorithm call the “local score 
+algorithm” [15], which be a gener method for fit gener 
+addit models. We form the respons 
+
+ỹi = F (xi) + 
+1(yi = 1)− p(xi) 
+p(xi)(1− p(xi)) 
+
+, 
+
+where p(xi) = 11+exp(−f (xi)) . We then appli the weight back- 
+fit algorithm to the respons ỹi with observ weight p(xi) 
+(1− p(xi)) [15]. 
+
+algorithm 1 gradient boost for regress 
+1: fj ← 0 
+2: for m = 1 to M do 
+3: for j = 1 to n do 
+4: R← {xij , yi − 
+
+∑ 
+k fk} 
+
+N 
+1 
+
+5: learn shape function S : xj → y use R a train 
+dataset 
+
+6: fj ← fj + S 
+
+algorithm 2 gradient boost for classif 
+1: fj ← 0 
+2: for m = 1 to M do 
+3: for j = 1 to n do 
+4: ỹi ← 2yi1+exp(2yif (xi)) , i = 1, ..., N 
+5: learn {rkm}k1 ← a tree with K leaf node use 
+
+{(xij , ỹi)}n1 a train dataset 
+6: γkm = 
+
+∑ 
+xij∈rkm 
+
+ỹi∑ 
+xij∈rkm 
+
+|ỹi|(2−|ỹi|) 
+, k = 1, ...,k 
+
+7: fj ← fj + 
+∑K 
+
+k=1 γkm1(xij ∈ rkm) 
+
+3. experiment setup 
+In thi section we describ the experiment design. 
+
+3.1 dataset 
+We select dataset of low-to-medium dimension with at 
+
+least 1000 points. tabl 3 summar the characterist of the 12 
+datasets. one of the regress dataset be a synthet problem use 
+to illustr featur shape (but we do not use the result on thi 
+dataset when compar the accuraci of the methods). 
+
+the “concrete,” “wine,” and “music” regress dataset be 
+from the uci repositori [1]; “delta” be the task of control the 
+aileron of a f16 aircraft [2]; “compact” be a regress dataset 
+from the delv repositori that describ the state of multius com- 
+puter [3]. the synthet dataset be describ in exampl 1. 
+
+
+
+dataset size attribut %po 
+concret 1030 9 - 
+
+wine 4898 12 - 
+delta 7192 6 - 
+
+compact 8192 22 - 
+music 50000 90 - 
+
+synthet 10000 6 - 
+spambas 4601 58 39.40 
+insur 9823 86 5.97 
+
+magic 19020 11 64.84 
+letter 20000 17 49.70 
+adult 46033 9/43 16.62 
+
+physic 50000 79 49.72 
+
+tabl 3: datasets. 
+
+shape least gradient backfittingfunct squar boost 
+spline p-ls/p-irl bst-sp bf-sp 
+
+singl tree n/a bst-trx bf-tr 
+bag tree n/a bst-bagtrx bf-bagtr 
+boost tree n/a bst-trx bf-bsttrx 
+
+boost n/a bst-bagtrx bf-bbtrxbag tree 
+
+tabl 4: notat for learn method and shape functions. 
+
+the “spambase,” “insurance,” “magic,” “letter” and “adult” 
+classif dataset be from the uci repository. “adult” con- 
+tain nomin attribut that we transform to boolean attribut 
+(one boolean per value). “letter” have be convert to a binari 
+problem by use a-m a posit and the rest a negatives. the 
+“physics” dataset be from the kdd cup 2004 [4]. 
+
+3.2 method 
+recal from section 2 that we have two differ type of shape 
+
+function and three differ method of learn gener addi- 
+tive models; see tabl 4 for an overview of these method and their 
+names. while penal least squar for regress (p-ls) and 
+penal iter re-weight least squar for classif (p- 
+irls) onli work with splines, gradient boost and backfit 
+can be appli to both spline and ensembl of trees. 
+
+In gradient boosting, we vari the number of leaf in the bag 
+or boost trees: 2, 3, 4, 8, 12 to 16 (indic by append thi 
+number to the method names). train model will contain M 
+such tree for each shape function after M iterations. In backfit- 
+ting, we re-build the shape function for each featur from scratch 
+in each round, so the shape function need to have enough expres- 
+sive power to captur a complex function. thu we control the 
+complex of the tree not by the number of leaves, but by adap- 
+tive choos a paramet α that stop split node small 
+than an α fraction of the size of the train data; we vari α ∈ 
+{0.00125, 0.025, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5}. 
+A summari of the combin of shape function and learn 
+method can be found in tabl 4. 
+
+beyond the paramet that we alreadi discussed, p-l and P- 
+irl have a paramet λ, which be estim use gener 
+cross valid a discuss in section 2. We do not fix the number 
+of iter for gradient boost and backfit but instead run 
+these method until converg a follows: We divid the train 
+set into five partitions. We then set asid one of the partit a 
+
+a valid set, train the model on the remain four partitions, 
+and use the valid set to check for convergence. We repeat thi 
+process five time and then comput M , the averag number of 
+iter until converg across the five iterations. We then re- 
+train the model use the whole train set for M iterations. We 
+follow a similar procedur for backfit where we pick the best α 
+for each partit and averag them to train the final model use 
+the whole train dataset. 
+
+3.3 metric 
+for regress problems, we report the root mean squar error 
+
+(rmse) for linear regress (no featur shaping), addit model 
+with shape with spline or tree (penal least squares, gradient 
+boost and backfitting), and unrestrict full-complex model 
+(random forest regress tree and addit grove [5, 19]). 
+
+for classif problems, we report the error rate for logis- 
+tic regression, gener addit model with spline or tree 
+(penal iter re-weight least squares, gradient boost 
+and backfitting), and full-complex unrestrict model (random 
+forest [8]).2 
+
+In all experi we use 100 tree for bagging. We do not no- 
+tice signific improv by use more iter of bagging. 
+for addit groves, the number of tree be automat select 
+by the algorithm on the valid set. for p-l and p-irls, we 
+use an R packag call “mgcv” [22]. We perform 5-fold cross 
+valid for all experiments.3 
+
+4. result 
+the regress and classif result be present in tabl 5 
+
+and tabl 6, respectively. We report mean and standard deviat 
+on the 5-fold cross valid test-sets. To facilit comparison 
+across multipl datasets, we comput normal score that aver- 
+age the perform of each method across the datasets, normal- 
+ize by the accuraci of p-ls/p-irl on each dataset. 
+
+tabl 5 and tabl 6 be laid out a follows: the top of each 
+tabl show result for linear/logist regress (no featur shap- 
+ing) and the tradit spline-bas gam model p-ls/p-irls, 
+bst-sp, and bf-sp. the middl of the tabl present result for 
+new method that do featur shape with tree instead of spline 
+such a boost size-limit tree (e.g., bst-tr3), boosted-bag 
+size-limit tree (e.g., bst-bagtr3), backfit of boost tree 
+(e.g., bf-bsttr3), and backfit of boosted-bag tree (e.g., 
+bf-bbtr3). the bottom of each tabl present result for unre- 
+strict full-complex model such a random forest and addi- 
+tive groves. our goal be to devis more power gam model that 
+be a close in accuraci a possibl to the full-complex models, 
+while preserv the intellig of linear models. 
+
+sever clear pattern emerg in both tables. 
+(1) there be a larg gap in accuraci between linear method that 
+
+do not do featur shape (linear or logist regression) and most 
+method that perform featur shaping. for example, on averag the 
+spline-bas p-l gam model have 60% low normal rmse 
+than vanilla linear regression. similarly, on average, p-irl be 
+about 20% more accur than logist regression. 
+
+(2) the new tree-bas shape method be more accur than 
+the spline-bas method a long a model complex (and vari- 
+anc — see section 5.1) be controlled. In both tables, the most ac- 
+curat tree-bas gam model use boosted-bag tree that be 
+size-limit to 2-4 leaves. 
+
+2random forest be a veri competit full complex model [10]. 
+3we use 5-fold instead of 10-fold cross valid becaus some of 
+the experi be veri expensive. 
+
+
+
+2 
+4 
+6 
+8 
+
+10 
+12 
+14 
+16 
+
+0 200 400 600 800 
+
+train 
+valid 
+
+test 
+
+2 
+4 
+6 
+8 
+
+10 
+12 
+14 
+16 
+
+0 200 400 600 800 
+
+train 
+valid 
+
+test 
+
+2 
+4 
+6 
+8 
+
+10 
+12 
+14 
+
+0 200 400 600 800 
+
+train 
+valid 
+
+test 
+
+0 
+0.05 
+0.1 
+
+0.15 
+0.2 
+
+0.25 
+0.3 
+
+0.35 
+
+0 1000 2000 2900 
+
+train 
+valid 
+
+test 
+
+0 
+0.05 
+0.1 
+
+0.15 
+0.2 
+
+0.25 
+0.3 
+
+0.35 
+
+0 1000 2000 2900 
+
+train 
+valid 
+
+test 
+
+0 
+0.05 
+0.1 
+
+0.15 
+0.2 
+
+0.25 
+0.3 
+
+0.35 
+
+0 10000 20000 
+
+train 
+valid 
+
+test 
+
+(a) bst-bagtr2 (b) bst-bagtr16 (c) bf-bagtr (d) bst-bagtr2 (e) bst-bagtr16 (f) bf-bagtr 
+
+figur 3: train curv for gradient boost and backfitting. figur (a), (b) and (c) show the behavior of bst-bagtr2, bst- 
+bagtr16 and bf-bagtr on the “concrete” regress problem, respectively. figur (d), (e) and (f) illustr behavior of bst- 
+bagtr2, bst-bagtr16 and bf-bagtr on the “spambase” classification, respectively. 
+
+blast furnac slag fli ash superplastic coars aggreg fine aggreg 
+
+0 50 100 150 200 250 300 350 
+
+− 
+20 
+
+− 
+10 
+
+0 
+10 
+
+20 
+30 
+
+40 
+
+0 50 100 150 200 
+
+− 
+20 
+
+− 
+10 
+
+0 
+10 
+
+20 
+30 
+
+40 
+
+0 5 10 15 20 25 30 
+
+− 
+20 
+
+− 
+10 
+
+0 
+10 
+
+20 
+30 
+
+40 
+
+800 850 900 950 1000 1050 1100 1150 
+
+− 
+20 
+
+− 
+10 
+
+0 
+10 
+
+20 
+30 
+
+40 
+
+600 700 800 900 1000 
+
+− 
+20 
+
+− 
+10 
+
+0 
+10 
+
+20 
+30 
+
+40 
+
+-20 
+
+0 
+
+20 
+
+40 
+
+60 
+
+0 50 100 150 200 250 300 350 400 
+
+-20 
+
+0 
+
+20 
+
+40 
+
+60 
+
+0 50 100 150 200 
+
+-20 
+
+0 
+
+20 
+
+40 
+
+60 
+
+0 5 10 15 20 25 30 35 
+
+-20 
+
+0 
+
+20 
+
+40 
+
+60 
+
+800 850 900 950 1000 1050 1100 1150 
+
+-20 
+
+0 
+
+20 
+
+40 
+
+60 
+
+550 600 650 700 750 800 850 900 950 1000 
+
+0.14 0.06 0.04 0.05 0.06 
+
+figur 4: shape of featur for the “concrete” dataset produc by p-l (top) and bst-bagtr3 (bottom). 
+
+(3) unrestrict full-complex model such a random forest 
+and addit grove be more accur than ani of the gam mod- 
+el becaus they be abl to model featur interactions, which linear 
+model of shape featur cannot capture. our goal be to push the 
+accuraci of linear shape model a close a possibl to the accu- 
+raci of these unrestrict full-complex models. 
+
+look more close at the result for model that shape fea- 
+ture with trees, the most accur model on averag be bst-bagtr2 
+for regression, and bst-bagtr3 for classification. model that use 
+more leaf be consist less accur than compar model 
+with 2-4 leaves. It be critic to control tree complex when boost- 
+ing tree for featur shaping. moreover, the most accur meth- 
+od use bag insid of boost to reduc variance. (more on 
+model varianc in section 5.1.) finally, on the regress problems, 
+method base on gradient boost of residu slightli edg 
+out the method base on backfitting, though the differ be not 
+statist significant. On the classif problems, however, 
+where backfit be perform on pseudo-residuals, there be sta- 
+biliti problem that caus some run to diverg or fail to terminate. 
+overall, tree-bas shape method base on gradient-boost 
+appear to be prefer to tree-bas method base on backfit 
+becaus the gradient boost method may be a littl more accu- 
+rate, be often faster, and on some problem be more robust. 
+
+although tree-bas featur shape yield signific improve- 
+ment in accuraci for gams, on most problem they be not abl 
+to close the gap with unrestrict full-complex model such a 
+random forests. for example, all linear method have much bad 
+rmse on the wine regress problem than the unrestrict ran- 
+dom forest model. On problem where featur interact be impor- 
+tant, linear model without interact term must be less accurate. 
+
+4.1 model select 
+there be a risk when compar mani parameter of a new 
+
+method against a small number of baselin methods, that the new 
+method will appear to be good becaus select the best model 
+on the test set lead to overfit to the test sets. To avoid this, the 
+tabl includ result for a method call “bst-bagtrx” that us 
+the cross-valid valid set (not the CV test sets) to pick 
+the best paramet from the bst-bagtrxmodel for each dataset. 
+thi method be not bia by look at result on test sets, be fulli 
+automat and thu do not depend on human judgement, and be 
+abl to select differ paramet for each problem. the result 
+in tabl 5 and tabl 6 suggest that bst-bagtrx be more accu- 
+rate than ani singl fix parameterization. look at the model 
+select by bst-bagtrx, we see that bst-bagtrx usual pick 
+model with 2, 3 or 4 leaves, and that the model it select often 
+be the one with the best test-set performance. On both the regres- 
+sion and classif datasets, bf-bagtrx be significantli more 
+accur than ani of the model that use spline for featur shaping. 
+
+5. discuss 
+5.1 bias-vari analysi 
+
+the result in tabl 5 and 6 show that add featur shape 
+to linear model significantli improv accuraci on problem of 
+small-medium dimensionality, and featur shape with tree-bas 
+model significantli improv accuraci compar to featur shap- 
+ing with splines. but whi be tree-bas method more accur 
+for featur shape than spline-bas methods? In thi section we 
+show that spline tend to underfit, i.e., have veri low varianc at 
+the expens of high bias, but tree-bas shape model can have 
+both low bia and low varianc if tree complex be controlled. 
+
+To show whi spline model do not perform a well a tree mod- 
+
+
+
+freq_georg freq_hp freq_! freq_remov freq_$ 
+
+0 5 10 15 20 25 30 
+
+− 
+10 
+
+− 
+5 
+
+0 
+5 
+
+10 
+
+0 5 10 15 20 
+
+− 
+10 
+
+− 
+5 
+
+0 
+5 
+
+10 
+
+0 5 10 15 20 25 30 
+
+− 
+10 
+
+− 
+5 
+
+0 
+5 
+
+10 
+
+0 2 4 6 
+
+− 
+10 
+
+− 
+5 
+
+0 
+5 
+
+10 
+
+0 1 2 3 4 5 
+
+− 
+10 
+
+− 
+5 
+
+0 
+5 
+
+10 
+
+-3 
+
+-2 
+
+-1 
+
+0 
+
+1 
+
+2 
+
+3 
+
+4 
+
+0 5 10 15 20 25 30 35 
+-3 
+
+-2 
+
+-1 
+
+0 
+
+1 
+
+2 
+
+3 
+
+4 
+
+0 5 10 15 20 25 
+-3 
+
+-2 
+
+-1 
+
+0 
+
+1 
+
+2 
+
+3 
+
+4 
+
+0 5 10 15 20 25 30 35 
+-3 
+
+-2 
+
+-1 
+
+0 
+
+1 
+
+2 
+
+3 
+
+4 
+
+0 1 2 3 4 5 6 7 8 
+-3 
+
+-2 
+
+-1 
+
+0 
+
+1 
+
+2 
+
+3 
+
+4 
+
+0 1 2 3 4 5 6 
+
+0.053 0.045 0.037 0.035 0.033 
+
+figur 5: shape of featur for the “spambase” dataset produc by p-irl (top) and bst-bagtr3 (bottom). 
+
+els, and whi control complex be so critic with trees, we 
+perform a bias-vari analysi on the regress datasets.4 As in 
+previou experiments, we randomli select 20% of the point a test 
+sets. We then draw L sampl of size M = 0.64n point from the 
+remain point to keep the train sampl size the same a with 
+5-fold cross valid in previou experiments. We use L = 10 
+trials. the bias-vari decomposit be calcul a follows: 
+
+expect loss = (bias)2 + variance+ nois 
+
+defin the averag predict onl sampl for each point (xi, yi) 
+in test set a ȳi = 1L 
+
+∑L 
+l=1 ŷ 
+
+l 
+i, where ŷ 
+
+l 
+i be the predict valu forxi 
+
+use sampl l. the squar bia (bias)2 = 1 
+N′ 
+
+∑n′ 
+i=1[ȳi − yi] 
+
+2, 
+where yi be the know target in the test set and N ′ = 0.2n be 
+the size of test set. the varianc be calcul a varianc = 
+1 
+N′ 
+
+∑n′ 
+i=1 
+
+1 
+L 
+
+∑L 
+l=1[ŷ 
+
+l 
+i − ȳi]2. 
+
+the bias-vari result for the six regress dataset be show 
+in figur 6. We can see that method base on regress spline 
+have veri low variance, but sometim at the expens of increas 
+bias, while the best tree-bas method consist have low bia 
+combin with low-enough varianc to yield good overal rmse. 
+If tree complex be not care controlled, however, varianc 
+explod and hurt total rmse. As expected, add bag in- 
+side boost further reduc variance, make tree-bas featur 
+shape method base on gradient-boost of residu with in- 
+ternal bag the most accur method overall. (we do not expect 
+bag would help regress spline becaus the varianc of re- 
+gression spline be so low to begin with.) but even bag will 
+not prevent overfit if the tree be too complex. figur 3 show 
+train curv on the train, valid and test set for gradient 
+boost with bag and backfit with bag on a regres- 
+sion and classif problem. bst-bagtr2 be more resist to 
+overfit than bst-bagtr16 which easili overfits. 
+
+the train curv for backfit be not monotonic, and have 
+distinct peak on the classif problem. each peak correspond 
+to a new backfit iter when pseudo residu be updated. 
+In our experience, backfit on classif problem be consis- 
+tentli inferior to other methods, in part becaus it be harder for the 
+local score algorithm to find a “good” set of pseudo residuals, 
+which ultim lead to instabl and poor fit. interestingly, in 
+
+4we do not perform bias-vari analysi on the classif 
+problem becaus the bias-vari decomposit for classifica- 
+tion be not a well defined. 
+
+the bias-vari analysi of backfitting, both bia and varianc of- 
+ten increas a the tree becom larger, and the bad perform 
+model on the five non-synthet dataset be backfit model with 
+larg trees. We suspect backfit can get stuck in inferior local 
+minimum when shape with larg trees, hurt both bia and vari- 
+ance, which may explain the instabl and converg problem 
+observ with backfit on some classif problems. 
+
+5.2 underfitting, intelligibility, and fidel 
+one of the main reason to use gam (linear model of non- 
+
+linearli shape features) be intelligibility. figur 1 in section 1 
+show shape model for featur in the synthet dataset. In thi 
+section we show shape model learn for featur from real re- 
+gression and classif problems. 
+
+figur 4 show featur shape plot for the “concrete” regres- 
+sion problem. figur 5 show shape plot for the “spambase” clasi- 
+ficat problem. In each figure, the top row of plot be from 
+the p-l spline method, and the bottom row of plot be from 
+bst-bagtr3. confid interv for the least squre method can 
+be comput analytically. confid interv for bst-bagtr3 
+be gener by run bst-bagtr3 multipl time on bootstrap 
+samples. As expected, the spline-bas approach produc smooth 
+plots. the cost of thi smoothness, however, be poorer fit that result 
+in high rmse or low accuracy. moreover, not all phenomenon 
+be smooth. freez and boil occur at distinct temperatures, the 
+onset of instabl occur abruptli a fluid flow increas rel 
+to reynold number, and mani human decis make process 
+such a loans, admiss to school, or administ medic pro- 
+cedur use discret thresholds. 
+
+On the “concrete” dataset, all featur in figur 4 be clearli 
+non-linear. On thi dataset p-l be sacrific accuraci for smooth- 
+ness — the tree-bas fit method have significantli low rmse 
+than p-ls. the smoother p-l model may appear more appeal 
+and easi to interpret, but there be structur in the bst-bagtr3 
+model that be less appar or miss in the p-l plot that might 
+be inform or important. As just one example, the p-l and 
+bst-bagtr3 model do not agre on the slope of part of the mod- 
+el for the coars and fine aggreg features. 
+
+On the “spambase” dataset, the shape function be nonlinear 
+with sharp turns. again, the bst-bagtr3 model be significantli 
+more accur than p-irls. interestingly, the spline model for 
+featur freq_hp, freq_!, freq_remov and freq_$ show strong 
+posit or neg slope in the right-hand side of the shape plot 
+
+
+
+model concret wine delta compact music synthet mean 
+linear regress 10.43±0.49 7.55±0.13 5.68±0.14 9.72±0.55 9.61±0.09 1.01±0.00 1.68±0.98 
+
+p-l 5.67±0.41 7.25±0.21 5.67±0.16 2.81±0.13 9.27±0.07 0.04±0.00 1.00±0.00 
+bst-sp 5.79±0.37 7.27±0.18 5.68±0.18 3.19±0.37 9.29±0.08 0.04±0.00 1.03±0.06 
+bf-sp 5.66±0.42 7.25±0.21 5.67±0.17 2.77±0.06 9.27±0.08 0.04±0.00 1.00±0.01 
+
+bst-tr2 5.19±0.39 7.17±0.10 5.75±0.18 2.68±0.33 9.55±0.08 0.11±0.00 0.98±0.08 
+bst-tr3 5.13±0.37 7.20±0.16 5.82±0.19 3.18±0.45 9.77±0.07 0.05±0.01 1.02±0.11 
+bst-tr4 5.24±0.39 7.24±0.15 5.83±0.21 3.70±0.52 9.88±0.09 0.07±0.01 1.07±0.15 
+bst-tr8 5.57±0.61 7.35±0.17 5.97±0.22 5.07±0.54 10.03±0.10 0.19±0.02 1.19±0.33 
+
+bst-tr12 5.92±0.63 7.39±0.13 6.03±0.19 6.59±0.71 10.15±0.07 0.26±0.02 1.31±0.54 
+bst-tr16 6.08±0.37 7.41±0.23 6.09±0.19 7.07±1.01 10.23±0.08 0.33±0.03 1.36±0.60 
+
+bst-bagtr2 5.06±0.39 7.05±0.11 5.67±0.20 2.59±0.34 9.42±0.08 0.07±0.00 0.96±0.08 
+bst-bagtr3 4.93±0.41 7.01±0.10 5.67±0.20 2.82±0.35 9.45±0.07 0.03±0.00 0.97±0.09 
+bst-bagtr4 4.99±0.43 7.01±0.12 5.70±0.20 2.95±0.35 9.46±0.08 0.03±0.00 0.99±0.09 
+bst-bagtr8 5.04±0.43 7.04±0.13 5.79±0.18 3.40±0.34 9.48±0.08 0.06±0.00 1.02±0.13 
+bst-bagtr12 5.11±0.44 7.07±0.15 5.85±0.18 3.76±0.33 9.50±0.07 0.07±0.00 1.05±0.16 
+bst-bagtr16 5.18±0.49 7.10±0.18 5.91±0.20 4.16±0.39 9.52±0.09 0.09±0.00 1.09±0.21 
+bst-bagtrx 4.89±0.37 7.00±0.10 5.65±0.20 2.59±0.34 9.42±0.08 0.03±0.00 0.95±0.09 
+
+bf-tr 5.80±0.60 7.19±0.09 5.67±0.21 2.81±0.25 9.88±0.08 0.06±0.03 1.02±0.07 
+bf-bagtr 5.10±0.49 7.02±0.13 5.61±0.21 2.69±0.31 9.43±0.07 0.04±0.00 0.97±0.07 
+bf-bsttr2 5.11±0.37 7.14±0.11 5.73±0.20 2.66±0.35 9.62±0.07 0.13±0.01 0.98±0.08 
+bf-bsttr3 5.21±0.38 7.29±0.19 5.84±0.21 4.38±0.24 10.77±0.10 0.04±0.01 1.14±0.24 
+bf-bsttr4 5.49±0.72 7.44±0.20 5.94±0.21 4.97±0.73 11.24±0.07 0.06±0.03 1.21±0.33 
+bf-bsttr8 6.74±0.76 7.93±0.32 6.08±0.24 9.18±0.77 12.08±0.07 0.04±0.01 1.59±0.87 
+
+bf-bsttr12 7.13±0.68 8.10±0.27 6.15±0.24 11.20±0.72 12.31±0.15 0.08±0.03 1.76±1.16 
+bf-bsttr16 7.22±0.73 8.33±0.35 6.18±0.24 11.41±0.29 12.59±0.10 0.11±0.08 1.79±1.17 
+bf-bbtr2 5.13±0.41 7.05±0.12 5.66±0.19 2.59±0.37 9.50±0.07 0.12±0.00 0.97±0.08 
+bf-bbtr3 5.15±0.44 7.07±0.17 5.74±0.20 2.85±0.33 9.80±0.07 0.04±0.00 0.99±0.09 
+bf-bbtr4 6.20±0.86 7.12±0.22 5.80±0.23 3.01±0.23 9.83±0.08 0.04±0.00 1.05±0.09 
+bf-bbtr8 6.33±0.46 7.30±0.21 5.95±0.23 3.72±0.84 9.86±0.11 0.04±0.00 1.11±0.16 
+
+bf-bbtr12 6.52±0.56 7.52±0.30 6.01±0.20 4.32±0.94 9.89±0.06 0.04±0.00 1.17±0.23 
+bf-bbtr16 6.37±0.48 7.63±0.26 6.07±0.24 4.85±0.76 9.91±0.07 0.05±0.01 1.21±0.29 
+
+random forest 4.98±0.44 6.05±0.23 5.34±0.13 2.45±0.09 9.70±0.07 0.55±0.00 0.88±0.06 
+addit grove 4.25±0.47 6.21±0.20 5.35±0.14 2.23±0.15 9.03±0.05 0.02±0.00 0.86±0.10 
+
+tabl 5: rmse for regress datasets. each cell contain the mean rmse ± one standard deviation. averag normal score on 
+five dataset (exclud synthetic) be show in the last column, where the score be calcul a rel improv over p-ls. 
+
+where data be spars (albeit with veri wide confid intervals) 
+while the bst-bagtr3 shape plot appear to be good behaved. 
+
+below each shape plot in figur 4 and 5 be the weight of each 
+shape term in the linear model. these weight tell user how im- 
+portant each term be to the model. term can be sort by weight, 
+and if necessari term with low weight can be remov from the 
+model and the retain featur reshaped. 
+
+In both figur there be coars similar between the featur 
+shape plot learn by the spline and tree-bas methods, but in 
+mani plot the tree-bas method appear to have caught structur 
+that be miss or more difficult to see in the spline plots. the spline 
+model may be more appeal to the eye, but they be clearli less 
+accur and appear to miss some of detail of the shape functions. 
+
+5.3 comput cost 
+In our experiments, p-l and p-irl be veri fast on small 
+
+datasets, but on the larg dataset they be slow than the bst- 
+trx. due to the extra cost of bagging, bst-bagtrx, bf-bagtr 
+and bf-bbtrx be much slow than p-ls/p-irl or bst-trx. 
+the slowest method we test be backfitting, which be expens be- 
+caus at each iter the previou shape function be discard 
+and a new fit for each featur must be learned. gradient boost- 
+ing converg faster becaus in each iter the algorithm add a 
+
+patch to the exist pool of predictors, thu build on previou 
+effort rather than discard them. 
+
+gradient boost be easi to parallel [17] than backfit 
+(gauss-seidel). the jacobi method be sometim use a an alter- 
+nativ to gauss-seidel becaus it be easi to parallelize, however, 
+in our experience, jacobi-bas backfit converg to subopti- 
+mal solut that can be much worse. 
+
+5.4 limit and extens 
+the experi in thi paper be on dataset of low-to-medium 
+
+dimension (less than 100 dimensions). our next step be to scale 
+the algorithm to dataset with more dimens (and more train 
+points). even linear model lose intellig when there be hun- 
+dred of term in the model. To help retain intellig in high di- 
+mension spaces, we have begin develop an extens to bst- 
+bagtrx that incorpor featur select in the featur shape 
+process to retain onli those featur that, after shaping, make the 
+larg contribut to the model. We do not present result for 
+featur select in thi paper becaus of space limitations, and be- 
+caus it be import to focu first on the foundat issu of what 
+algorithm(s) train the best models. 
+
+In thi paper we focu exclus on shape function of indi- 
+vidual features; featur interact be not allowed. becaus of this, 
+the model will not be abl to achiev the same accuraci a unre- 
+
+
+
+model spambas insur magic letter adult physic mean 
+logist regress 7.67±1.03 6.11±0.29 20.99±0.46 27.54±0.27 16.04±0.46 29.24±0.36 1.22±0.23 
+
+p-irl 6.43±0.77 6.11±0.30 14.53±0.41 17.47±0.24 15.00±0.28 29.04±0.49 1.00±0.00 
+bst-sp 6.24±0.65 6.07±0.31 14.54±0.31 17.61±0.23 15.02±0.25 28.98±0.43 1.00±0.03 
+bf-sp 6.37±0.29 6.11±0.29 14.58±0.32 17.52±0.17 15.01±0.28 28.98±0.46 1.00±0.03 
+
+bst-tr2 5.22±0.77 5.97±0.38 14.63±0.36 17.40±0.22 14.90±0.26 29.58±0.53 0.97±0.08 
+bst-tr3 5.09±0.79 5.97±0.38 14.54±0.14 17.29±0.25 14.58±0.33 28.81±0.52 0.95±0.08 
+bst-tr4 5.11±0.70 5.97±0.38 14.60±0.25 17.44±0.26 14.65±0.35 28.72±0.48 0.96±0.08 
+bst-tr8 5.39±1.06 5.97±0.38 14.64±0.23 17.44±0.27 14.61±0.34 28.77±0.55 0.96±0.08 
+
+bst-tr12 5.61±0.76 5.97±0.38 14.57±0.41 17.45±0.24 14.57±0.36 28.63±0.60 0.97±0.08 
+bst-tr16 5.93±0.96 5.97±0.38 14.83±0.38 17.47±0.23 14.62±0.32 28.63±0.51 0.98±0.05 
+
+bst-bagtr2 5.00±0.65 5.97±0.38 14.47±0.20 17.25±0.22 14.95±0.35 29.32±0.67 0.96±0.09 
+bst-bagtr3 4.89±1.01 5.97±0.38 14.39±0.13 17.22±0.24 14.57±0.29 28.65±0.47 0.94±0.09 
+bst-bagtr4 4.98±1.07 5.98±0.35 14.40±0.28 17.31±0.23 14.63±0.30 29.05±0.50 0.95±0.09 
+bst-bagtr8 5.22±1.05 5.99±0.36 14.43±0.33 17.42±0.15 14.68±0.35 28.73±0.64 0.96±0.08 
+bst-bagtr12 5.48±1.09 6.00±0.36 14.44±0.35 17.45±0.19 14.67±0.39 29.06±0.77 0.97±0.07 
+bst-bagtr16 5.52±1.01 5.99±0.36 14.45±0.29 17.47±0.23 14.69±0.34 28.77±0.65 0.97±0.07 
+bst-bagtrx 4.78±0.82 5.95±0.37 14.31±0.21 17.21±0.23 14.58±0.28 28.62±0.49 0.94±0.09 
+
+bf-tr 6.41±0.37 6.34±0.27 16.81±0.35 17.36±0.26 14.96±0.28 31.64±0.57 1.05±0.07 
+bf-bagtr 5.63±0.47 6.34±0.22 15.09±0.48 17.41±0.23 14.95±0.34 29.51±0.46 0.99±0.06 
+bf-bsttr2 5.39±0.68 6.28±0.18 14.43±0.37 17.44±0.35 14.87±0.21 29.70±0.66 0.98±0.35 
+bf-bsttr3 6.85±1.48 6.31±0.54 15.11±0.24 17.53±0.18 14.64±0.32 29.90±0.34 1.02±0.06 
+bf-bsttr4 7.63±0.85 6.40±0.48 15.47±0.26 17.46±0.29 14.66±0.27 29.67±0.80 1.05±0.09 
+bf-bsttr8 10.20±1.30 6.52±0.54 16.26±0.36 17.47±0.25 14.60±0.36 30.32±0.41 1.13±0.24 
+
+bf-bsttr12 12.39±1.04 6.53±0.54 16.95±0.40 17.50±0.25 14.76±0.32 31.08±0.43 1.21±0.35 
+bf-bsttr16 13.11±1.32 6.55±0.58 17.68±0.56 17.52±0.24 14.79±0.33 31.97±0.37 1.24±0.40 
+bf-bbtr2 5.48±0.59 6.20±0.26 15.26±0.43 17.86±0.30 14.90±0.31 29.36±0.56 0.99±0.08 
+bf-bbtr3 5.83±0.76 6.42±0.24 14.64±0.18 17.43±0.34 14.77±0.34 28.64±0.56 0.99±0.06 
+bf-bbtr4 6.13±0.90 6.48±0.20 14.68±0.24 17.43±0.26 14.74±0.35 28.64±0.50 1.00±0.07 
+bf-bbtr8 6.48±0.97 6.59±0.26 14.79±0.20 17.51±0.27 14.64±0.33 28.65±0.50 1.01±0.07 
+bf-bbtr12 7.35±1.24 6.56±0.21 14.90±0.22 17.53±0.18 14.58±0.33 28.88±0.29 1.04±0.10 
+bf-bbtr16 7.72±1.36 6.56±0.20 15.02±0.40 17.52±0.24 14.58±0.28 29.16±0.38 1.05±0.11 
+
+random forest 4.48±0.64 5.97±0.41 11.99±0.50 6.23±0.27 14.85±0.25 28.55±0.56 0.80±0.23 
+
+tabl 6: error rate for classif datasets. each cell contain the classif error ± one standard deviation. averag 
+normal score on all dataset be show in the last column, where the score be calcul a rel improv over p-irls. 
+
+strict full-complex model on mani datasets. the addit of 
+a few care select interact term would further close thi 
+gap [16]. becaus 3-d plot can be visualized, we may be abl to 
+allow pairwis interact in our model while preserv some of 
+the intelligibility. 
+
+our empir result suggest that bag small tree of onli 2- 
+4 leaf yield the best accuracy. these be veri small tree train 
+for one featur at a time and thu they divid the number line into 2- 
+4 subintervals. We could imagin replac bag decis tree 
+with some type of dynam program algorithm that directli 
+work on (possibl smoothed) subinterv of the number line. 
+
+6. relat work 
+gener addit model be introduc by the statist 
+
+commun [14, 15, 22] and have be extend to includ lasso 
+featur select [18] and to incorpor interact term [16]. 
+binder and tutz perform a comprehens comparison of meth- 
+od for fit gam with regress spline [7]. they compar 
+backfitting, boosting, and penal iter re-weight least 
+squar on simul datasets. our work differ from their in that 
+we examin both regress spline and regress trees, most of 
+our experi be with real datasets, we look at both regress 
+and classification, and we introduc a new method that be more ac- 
+curat than splines. 
+
+method have be propos for fit gam with arbitrari 
+
+link function where the link function also be unknown and must 
+be fitted. ace [9] be probabl the most well-known method for 
+fit these kind of gams. We do not evalu ace in thi work 
+becaus learn link function can be complex, make it difficult 
+to interpret the featur shape models. We focu on the ident and 
+logit link function becaus these be the link function appropri 
+for regress and classification. 
+
+forman et al. propos featur shape for linear svm classi- 
+fier [11]. their focu be on estim the posterior probabl 
+P (y = 1|xi = v). 
+
+recent there have be effort to scale gams. [17] us mapre- 
+duce to parallel gradient boost and larg tree construction. 
+[20] parallel grow regress tree via gradient boost us- 
+ing a master-work paradigm where data be partit among 
+workers. the algorithm care orchestr overlap between com- 
+munic and comput to achiev good performance. 
+
+7. conclus 
+We present a comprehens empir studi of algorithm for 
+
+fit gener addit model (gams) with spline and tree- 
+base shape functions. our bias-vari analysi show that spline- 
+base method tend to underfit and thu may miss import non- 
+smooth structur in the shape models. As expected, the bias-vari 
+analysi also show that tree-bas method be prone to overfit 
+and requir care regularization. We also introduc a new gam 
+
+
+
+0 
+
+10 
+
+20 
+
+30 
+
+40 
+
+50 
+
+60 
+
+70 
+
+p-l 
+bst-sp 
+bf-sp 
+bst-tr2 
+bst-tr3 
+bst-tr4 
+bst-tr8 
+bst-tr12 
+bst-tr16 
+bst-bagtr2 
+bst-bagtr3 
+bst-bagtr4 
+bst-bagtr8 
+bst-bagtr12 
+
+bst-bagtr16 
+
+bf-tr 
+bf-bagtr 
+bf-bsttr2 
+bf-bsttr3 
+bf-bsttr4 
+bf-bsttr8 
+bf-bsttr12 
+bf-bsttr16 
+bf-bbtr2 
+bf-bbtr3 
+bf-bbtr4 
+bf-bbtr8 
+bf-bbtr12 
+bf-bbtr16 
+
+bia 
+varianc 
+
+(a) concret 
+
+0 
+
+0.1 
+
+0.2 
+
+0.3 
+
+0.4 
+
+0.5 
+
+0.6 
+
+0.7 
+
+0.8 
+
+0.9 
+
+p-l 
+bst-sp 
+bf-sp 
+bst-tr2 
+bst-tr3 
+bst-tr4 
+bst-tr8 
+bst-tr12 
+bst-tr16 
+bst-bagtr2 
+bst-bagtr3 
+bst-bagtr4 
+bst-bagtr8 
+bst-bagtr12 
+
+bst-bagtr16 
+
+bf-tr 
+bf-bagtr 
+bf-bsttr2 
+bf-bsttr3 
+bf-bsttr4 
+bf-bsttr8 
+bf-bsttr12 
+bf-bsttr16 
+bf-bbtr2 
+bf-bbtr3 
+bf-bbtr4 
+bf-bbtr8 
+bf-bbtr12 
+bf-bbtr16 
+
+bia 
+varianc 
+
+(b) wine 
+
+0 
+0.05 
+0.1 
+
+0.15 
+0.2 
+
+0.25 
+0.3 
+
+0.35 
+0.4 
+
+0.45 
+0.5 
+
+p-l 
+bst-sp 
+bf-sp 
+bst-tr2 
+bst-tr3 
+bst-tr4 
+bst-tr8 
+bst-tr12 
+bst-tr16 
+bst-bagtr2 
+bst-bagtr3 
+bst-bagtr4 
+bst-bagtr8 
+bst-bagtr12 
+
+bst-bagtr16 
+
+bf-tr 
+bf-bagtr 
+bf-bsttr2 
+bf-bsttr3 
+bf-bsttr4 
+bf-bsttr8 
+bf-bsttr12 
+bf-bsttr16 
+bf-bbtr2 
+bf-bbtr3 
+bf-bbtr4 
+bf-bbtr8 
+bf-bbtr12 
+bf-bbtr16 
+
+bia 
+varianc 
+
+(c) delta 
+
+0 
+
+20 
+
+40 
+
+60 
+
+80 
+
+100 
+
+120 
+
+140 
+
+160 
+
+180 
+
+p-l 
+bst-sp 
+bf-sp 
+bst-tr2 
+bst-tr3 
+bst-tr4 
+bst-tr8 
+bst-tr12 
+bst-tr16 
+bst-bagtr2 
+bst-bagtr3 
+bst-bagtr4 
+bst-bagtr8 
+bst-bagtr12 
+
+bst-bagtr16 
+
+bf-tr 
+bf-bagtr 
+bf-bsttr2 
+bf-bsttr3 
+bf-bsttr4 
+bf-bsttr8 
+bf-bsttr12 
+bf-bsttr16 
+bf-bbtr2 
+bf-bbtr3 
+bf-bbtr4 
+bf-bbtr8 
+bf-bbtr12 
+bf-bbtr16 
+
+bia 
+varianc 
+
+(d) compact 
+
+0 
+
+20 
+
+40 
+
+60 
+
+80 
+
+100 
+
+120 
+
+140 
+
+160 
+
+180 
+
+p-l 
+bst-sp 
+bf-sp 
+bst-tr2 
+bst-tr3 
+bst-tr4 
+bst-tr8 
+bst-tr12 
+bst-tr16 
+bst-bagtr2 
+bst-bagtr3 
+bst-bagtr4 
+bst-bagtr8 
+bst-bagtr12 
+
+bst-bagtr16 
+
+bf-tr 
+bf-bagtr 
+bf-bsttr2 
+bf-bsttr3 
+bf-bsttr4 
+bf-bsttr8 
+bf-bsttr12 
+bf-bsttr16 
+bf-bbtr2 
+bf-bbtr3 
+bf-bbtr4 
+bf-bbtr8 
+bf-bbtr12 
+bf-bbtr16 
+
+bia 
+varianc 
+
+(e) music 
+
+0 
+
+0.02 
+
+0.04 
+
+0.06 
+
+0.08 
+
+0.1 
+
+0.12 
+
+0.14 
+
+p-l 
+bst-sp 
+bf-sp 
+bst-tr2 
+bst-tr3 
+bst-tr4 
+bst-tr8 
+bst-tr12 
+bst-tr16 
+bst-bagtr2 
+bst-bagtr3 
+bst-bagtr4 
+bst-bagtr8 
+bst-bagtr12 
+
+bst-bagtr16 
+
+bf-tr 
+bf-bagtr 
+bf-bsttr2 
+bf-bsttr3 
+bf-bsttr4 
+bf-bsttr8 
+bf-bsttr12 
+bf-bsttr16 
+bf-bbtr2 
+bf-bbtr3 
+bf-bbtr4 
+bf-bbtr8 
+bf-bbtr12 
+bf-bbtr16 
+
+bia 
+varianc 
+
+(f) synthet 
+
+figur 6: bias-vari analysi for the six regress problem (bia = red at bottom of bars; varianc = green at top of bars). 
+
+method base on gradient boost of size-limit bag tree that 
+yield significantli more accuraci than previou algorithm on both 
+regress and classif problem while retain the intelligi- 
+biliti of gam models. 
+
+acknowledgments. We thank the anonym review and 
+daria sorokina for their valuabl comments. thi research have 
+be support by the nsf under grant iis-0911036 and iis- 
+1012593 and by a gift from nec. ani opinions, findings, conclu- 
+sion or recommend express be those of the author and 
+do not necessarili reflect the view of the sponsors. 
+
+8. refer 
+[1] http://archive.ics.uci.edu/ml/. 
+[2] http://www.liaad.up.pt/~ltorgo/ 
+
+regression/datasets.html. 
+[3] http://www.cs.toronto.edu/~delve/data/ 
+
+datasets.html. 
+[4] http://osmot.cs.cornell.edu/kddcup/. 
+[5] http://additivegroves.net. 
+[6] E. bauer and R. kohavi. An empir comparison of vote 
+
+classif algorithms: bagging, boosting, and variants. 
+machin learning, 36(1):105–139, 1999. 
+
+[7] H. binder and G. tutz. A comparison of method for the 
+fit of gener addit models. statist and 
+computing, 18(1):87–99, 2008. 
+
+[8] L. breiman. random forests. machin learning, 45(1):5–32, 
+2001. 
+
+[9] L. breiman and J. friedman. estim optim 
+transform for multipl regress and correlation. 
+journal of the american statist association, page 
+580–598, 1985. 
+
+[10] R. caruana and A. niculescu-mizil. An empir 
+comparison of supervis learn algorithms. In icml, 
+2006. 
+
+[11] G. forman, M. scholz, and S. rajaram. featur shape for 
+linear svm classifiers. In kdd, 2009. 
+
+[12] J. friedman. greedi function approximation: a gradient 
+boost machine. annal of statistics, 29:1189–1232, 2001. 
+
+[13] J. friedman. stochast gradient boosting. comput 
+statist and data analysis, 38:367–378, 2002. 
+
+[14] T. hasti and R. tibshirani. gener addit model 
+(with discussion). statist science, 1:297–318, 1986. 
+
+[15] T. hasti and R. tibshirani. gener addit models. 
+chapman & hall/crc, 1990. 
+
+[16] G. hooker. gener function anova diagnost for 
+high-dimension function of depend variables. journal 
+of comput and graphic statistics, 16(3):709–732, 
+2007. 
+
+[17] B. panda, J. herbach, S. basu, and R. bayardo. planet: 
+massiv parallel learn of tree ensembl with 
+mapreduce. pvldb, 2009. 
+
+[18] P. ravikumar, H. liu, J. lafferty, and L. wasserman. spars 
+addit models. journal of the royal statist society: 
+seri B (statist methodology), 71(5):1009–1030, 2009. 
+
+[19] D. sorokina, R. caruana, and M. riedewald. addit grove 
+of regress trees. In ecml, 2007. 
+
+[20] S. tyree, K. weinberger, K. agrawal, and J. paykin. parallel 
+boost regress tree for web search ranking. In www, 
+2011. 
+
+[21] S. wood. thin plate regress splines. journal of the royal 
+statist society: seri B (statist methodology), 
+65(1):95–114, 2003. 
+
+[22] S. wood. gener addit models: an introduct with 
+R. crc press, 2006. 
+
+

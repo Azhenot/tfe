@@ -1,0 +1,988 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ES Is More Than Just a Traditional Finite-Difference 
+Approximator 
+
+Joel Lehman, Jay Chen, Jeff Clune, and Kenneth O. Stanley 
+Uber AI Labs 
+
+San Francisco, CA 94103 
+{joel.lehman,jayc,jeffclune,kstanley}@uber.com 
+
+Abstract 
+
+An evolution strategy (ES) variant recently attract significant attention due to 
+it surprisingly good performance at optimize neural network in challenge 
+deep reinforcement learn domains. It search directly in the parameter space 
+of neural network by generate perturbation to the current set of parameters, 
+check their performance, and move in the direction of high reward. The 
+resemblance of this algorithm to a traditional finite-difference approximation of the 
+reward gradient in parameter space naturally lead to the assumption that it be just 
+that. However, this assumption be incorrect. The aim of this paper be to definitively 
+demonstrate this point empirically. ES be a gradient approximator, but optimizes for 
+a different gradient than just reward (especially when the magnitude of candidate 
+perturbation be high). Instead, it optimizes for the average reward of the entire 
+population, often also promote parameter that be robust to perturbation. This 
+difference can channel ES into significantly different area of the search space 
+than gradient descent in parameter space, and also consequently to network with 
+significantly different properties. This unique robustness-seeking property, and it 
+consequence for optimization, be demonstrate in several domains. They include 
+humanoid locomotion, where network from policy gradient-based reinforcement 
+learn be far less robust to parameter perturbation than ES-based policy that 
+solve the same task. While the implication of such robustness and robustness- 
+seek remain open to further study, the main contribution of this work be to 
+highlight that such difference indeed exist and deserve attention. 
+
+1 Introduction 
+
+Salimans et al. (2017) recently demonstrate that an evolutionary-inspired approach can compete on 
+modern reinforcement learn (RL) benchmark that require large-scale deep learn architectures. 
+While the field of evolution strategy (ES; Schwefel 1993) have a rich history encompass a broad 
+variety of search algorithm (see Beyer and Schwefel 2002), Salimans et al. (2017) have drawn 
+attention to the particular form of ES apply in that paper (which do not reflect the field a a 
+whole), in effect a simplify version of natural ES (NES; Wierstra et al. 2014). Because this form 
+of ES be the focus of this paper, herein it be refer to simply a ES. One way to view ES be a a 
+policy gradient algorithm apply to the parameter space instead of to the state space a be more 
+typical (Williams, 1992), and the distribution of parameter (rather than actions) be optimize to 
+maximize the expectation of performance. Central to this interpretation be how ES estimate (and 
+follows) the gradient of increase performance with respect to the current distribution of parameters. 
+In particular, in ES many independent parameter vector be drawn from the current distribution, 
+their performance be evaluated, and this information be then aggregate to estimate a gradient of 
+distributional improvement. 
+
+ar 
+X 
+
+iv 
+:1 
+
+71 
+2. 
+
+06 
+56 
+
+8v 
+1 
+
+[ 
+c 
+
+.N 
+E 
+
+] 
+1 
+
+8 
+D 
+
+ec 
+2 
+
+01 
+7 
+
+
+
+The implementation of this approach be similar in it realization to a finite-differences gradient 
+estimator (Richardson, 1911; Spall, 1992), wherein evaluate tiny perturbation of a parameter 
+vector contribute to a direct calculation of the gradient of performance. As a result, it may be 
+attractive to interpret the result of Salimans et al. (2017) solely through the lens of finite difference 
+(e.g. a in Ebrahimi et al. 2017), conclude that the method be interest or effective only because 
+it be approximate the gradient of performance with respect to the parameters. However, such 
+a hypothesis ignores that ES’s objective function be interestingly different from traditional finite 
+differences, which this paper argues grant it additional property of interest. In particular, ES 
+optimizes the performance of any draw from the learn distribution of parameter (called the 
+search distribution), while finite difference optimizes the performance of one particular set of 
+the domain parameters. The main contribution of this paper be to support the hypothesis that this 
+subtle distinction may in fact be important to understand the behavior of ES (and future NES-like 
+approaches), by conduct experiment that highlight how ES be driven to more robust area of the 
+search space than either finite difference or a more traditional evolutionary approach. The push 
+towards robustness carry potential implication for RL and other application of deep learn that 
+could be miss without highlight it specifically. 
+
+Note that the core interest of this paper be to clarify a subtle but interest possible misconception, 
+and not merely to debate the semantics of what exactly do or do not qualify a a finite-difference 
+approximator. The frame here be that a traditional finite-difference gradient approximator make 
+tiny perturbation of domain parameter to estimate the gradient of improvement for the current 
+point in the search space. While it be true that ES also stochastically follow a gradient (i.e. the 
+search gradient of how to improve expect performance across the search distribution represent a 
+cloud in the parameter space), it do not do so by standard application of common finite-differences 
+methods. In any case, the most important distinction be that ES optimizes the expect value of a 
+distribution of parameter with fix variance, while traditional finite difference optimizes a singular 
+optimal parameter vector. 
+
+To explore the empirical effect of this distinction, this paper first us simple two-dimensional fitness 
+landscape to highlight systematic difference between the behavior of ES and other optimization 
+approaches. The result from these theoretical experiment be then validate in the Humanoid 
+Locomotion RL benchmark domain, show that ES’s drive towards robustness manifest also in 
+complex domains. Interestingly, parameter vector result from ES be much more robust than 
+those of similar performance discover by a genetic algorithm (GA) or by a non-evolutionary policy 
+gradient approach (TRPO). 
+
+These result have implication for researcher in evolutionary computation (EC; De Jong 2002) who 
+have long be interested in property like robustness (Wilke et al., 2001; Wagner, 2008; Lenski 
+et al., 2006) and evolvability (Wagner and Altenberg, 1996; Kirschner and Gerhart, 1998; Lehman 
+and Stanley, 2013), and also for deep learn researcher seek to more fully understand ES and 
+how it relates to gradient-based methods. 
+
+2 Background 
+
+The method of finite difference be review first, follow by the related approach of follow 
+search gradient apply by ES. Finally, method that (like ES) encourage robustness in EC be 
+discussed. 
+
+2.1 Finite Differences 
+
+One popular numerical approach to estimate the gradient of a function be the finite-difference 
+method. The idea be that a tiny (but finite) perturbation be apply to the parameter of a scalar-valued 
+system (i.e. a system output a scalar), and that evaluate the effect of such perturbation enables 
+approximate the derivative with respect to the parameters. Such a method be useful for optimization 
+when the system a a whole be not differentiable, e.g. in a RL context, when reward come from 
+a partially-observable or analytically-intractable environment. Indeed, because of it conceptual 
+simplicity there be many policy gradient method motivate by the finite-difference approach (Spall, 
+1992; Glynn, 1987). 
+
+2 
+
+
+
+One common finite-difference estimator of the derivative of function f with respect to the scalar x be 
+give by: 
+
+f ′(x) ≈ f(x) + f(x+ δ) 
+δ 
+
+, 
+
+give some small constant δ. This estimator generalizes naturally to the set of parameter vectors, 
+where the partial derivative with respect to each element of such a vector can be similarly calculated; 
+however, naive finite difference scale poorly with the size of the problem, a it perturbs each param- 
+eter individually, make it application infeasible for large problem (like optimize deep neural 
+networks). However, finite-difference-based method such a simultaneous perturbation stochastic 
+approximation (SPSA; Spall 1992) can aggregate information from independent perturbation of 
+all parameter simultaneously to estimate the gradient more efficiently. Indeed, SPSA be similar in 
+implementation to ES. 
+
+However, the motivation for traditional finite-differences methods, importantly, be to use tiny pertur- 
+bations; the large such perturbation become, the less meaningfully it approximates the underlie 
+gradient, which be formally define a the slope of the function with respect to it parameter at a 
+particular point. In other words, a perturbation become larger, finite difference becomes qualita- 
+tively disconnect from the principle motivate it construction; it estimate becomes increasingly 
+influence by the curvature of the reward function, and it interpretation becomes unclear. This 
+consideration be important because ES be not motivate by tiny perturbation nor by approximate 
+the gradient of performance for any singular set of parameters, a the next section describes in 
+more detail. 
+
+2.2 Search Gradients 
+
+Instead of search directly for a single high-performing set of a parameter vector, a be typical 
+in gradient descent and finite-difference methods, a distinct (but related) approach be to optimize the 
+search distribution of domain parameter to achieve high average reward when a particular parameter 
+vector be sample from the distribution (Berny, 2000; Wierstra et al., 2014; Sehnke et al., 2010). 
+Doing so require follow search gradient (Berny, 2000; Wierstra et al., 2014), i.e. gradient of 
+increase expect fitness with respect to distributional parameter (e.g. the mean and variance of a 
+Gaussian distribution). 
+
+While the procedure for follow such search gradient us mechanism similar to a finite-difference 
+gradient approximation (i.e. it involves aggregate fitness information from sample of domain 
+parameter in a local neighborhood), importantly the underlie objective function from which it 
+derives be different: 
+
+J(θ) = Eθf(z) = 
+
+∫ 
+f(z)π(z|θ)dz, (1) 
+
+where f(z) be the fitness function, and z be a sample from the search distribution π(z|θ) specify by 
+parameter θ. Equation 1 formalizes the idea that ES’s objective (like other search-gradient methods) 
+be to optimize the distributional parameter such that the expect fitness of domain parameter drawn 
+from that search distribution be maximized. In contrast, the objective function for more traditional 
+gradient descent approach be to find the optimal domain parameter directly: J(θ) = f(θ). 
+
+While NES allows for adjust both the mean and variance of a search distribution, in the ES of 
+Salimans et al. (2017), the evolve distributional parameter control only the mean of a Gaussian 
+distribution and not it variance. As a result, ES cannot reduce variance of potentially-sensitive 
+parameters; importantly, the implication be that ES will be driven towards robust area of the search 
+space. For example, imagine two path through the search space of similarly increase reward, where 
+one path require precise setting of domain parameter (i.e. only a low-variance search distribution 
+could capture such precision) while the other do not. In this scenario, ES with a sufficiently-high 
+variance set will only be able to follow the latter path, in which performance be generally robust 
+to parameter perturbations. The experiment in this paper illuminate circumstance in which this 
+robustness property of ES impact search. Note that the relationship of low-variance ES (which bear 
+strong similarity to finite differences) to SGD be explore in more depth in Zhang et al. (2017). 
+
+3 
+
+
+
+2.3 Robustness in Evolutionary Computation 
+
+Researchers in EC have long be concerned with robustness in the face of mutation (Wilke et al., 
+2001; Wagner, 2008; Lenski et al., 2006), i.e. the idea that randomly mutate a genotype will not 
+devastate it functionality. In particular, evolve genotype in EC often lack the apparent robustness 
+of natural organism (Lehman and Stanley, 2011b), which can hinder progress in an evolutionary 
+algorithm (EA). In other words, robustness be important for it link to evolvability (Kirschner and 
+Gerhart, 1998; Wagner and Altenberg, 1996), or the ability of evolution to generate productive 
+heritable variation. 
+
+As a result, EC researcher have introduce mechanism useful to encourage robustness, such a 
+self-adaptation (Meyer-Nieberg and Beyer, 2007), wherein evolution can modify or control aspect of 
+generate variation. Notably, however, such mechanism can emphasize robustness over evolvability 
+depend on selection pressure (Clune et al., 2008; Lehman and Stanley, 2011b), i.e. robustness 
+can be trivially maximize when a genotype encodes that it should be subject only to trivial 
+perturbations. ES avoids this potential pathology because the variance of it distribution be fixed, 
+although in a full implementation of NES variance be subject to optimization and the robustness- 
+evolvability trade-off would likely re-emerge. 
+
+While the experiment in this paper show that ES be drawn to robust area of the search space a a 
+direct consequence of it objective (i.e. to maximize expect fitness across it search distribution), 
+in more traditional EAs healthy robustness be often a second-order effect (Lehman and Stanley, 
+2011b; Kounios et al., 2016; Wilke et al., 2001). For example, if an EA lack elitism and mutation 
+rate be high, evolution favor more robust optimum although it be not a direct objective of search 
+(Wilke et al., 2001); similarly, when selection pressure reward phenotypic or behavioral divergence, 
+self-adaptation can serve to balance robustness and evolvability (Lehman and Stanley, 2011b). 
+
+It be important to note that the relationship between ES’s robustness drive and evolvability be nuanced 
+and likely domain-dependent. For example, some domain may indeed require certain NN weight 
+to be precisely specified, and evolvability may be hinder by prohibit such specificity. Thus an 
+interest open question be whether ES’s mechanism for generate robustness can be enhance to 
+good seek evolvability in a domain-independent way, and additionally, whether it mechanism can 
+be abstract such that it direct search for robustness can also benefit more traditional EAs. 
+
+3 Experiments 
+
+The approach of this paper be to demonstrate empirically the way in which the ES of Salimans et al. 
+(2017) systematically differs from a more traditional gradient-following approach. First, in a series of 
+toy landscapes, a finite-differences approximator of domain parameter improvement be contrast with 
+ES’s approximator of distributional parameter improvement, to highlight similarity and differences. 
+Additionally, in the limit of decrease variance, the convergence of ES’s distributional gradient to 
+the domain parameter gradient be also empirically validated. 
+
+Then, to explore whether these difference also manifest in real world domains, the robustness 
+property of ES be investigate in a popular RL benchmark, i.e. the Humanoid Locomotion task 
+(Brockman et al., 2016). Policies from ES be compare with those from a genetic algorithm (GA) 
+and a representative policy gradient RL algorithm call trust region policy optimization (TRPO; 
+Schulman et al. 2015), to explore whether ES be drawn to qualitatively different area of the parameter 
+space. 
+
+3.1 Fitness Landscapes 
+
+This section introduces a series of illustrative fitness landscape (shown in figure 1), in which the 
+behavior of ES and finite difference can easily be contrasted. In each landscape, performance be 
+a deterministic function of two variables. For ES, the distribution over variable be an isotropic 
+Gaussian with fix variance a in Salimans et al. (2017), i.e. each dimension varies independently 
+from the other. That is, ES optimizes two distributional parameter that encode the location of the 
+distribution’s mean. In contrast, while the finite-difference gradient-follower also optimizes two 
+parameters, these represent a single instantiation of domain parameters, and consequently it function 
+thus depends only on f(θ) at that singular position. 
+
+4 
+
+
+
+X 
+
+(a) Donut Landscape 
+
+X 
+
+(b) Narrowing Path Landscape 
+
+X 
+
+(c) Fleeting Peaks Landscape 
+
+X 
+
+(d) Gradient Gap Landscape 
+
+X 
+
+(e) Gradient Cliff Landscape 
+
+Figure 1: Illustrative fitness landscapes. A series of five fitness landscape highlight divergence 
+between the behavior of ES and finite differences. In all landscapes, darker color indicate low 
+fitness and the red X indicates the start point of search. In the (a) Donut landscape, there be a 
+single Gaussian fitness peak, but the small neighborhood immediately around and include the peak 
+have zero reward. In the (b) Narrowing Path landscape, fitness increase to the right, but the peak’s 
+spread increasingly narrows, test an optimizer’s ability to follow a narrow path. In the (c) Fleeting 
+Peaks landscape, fitness increase to the right, but optimization to the true peak be complicate by 
+a series of small local optima. The (d) Gradient Gap landscape be complicate by a gradient-free 
+zero-reward gap in an otherwise smooth landscape, highlight ES’s ability to cross fitness plateau 
+(i.e. escape area of the landscape where there be no local gradient). A control for the Gradient Gap 
+landscape be the (e) Gradient Cliff landscape, wherein there be no promising area beyond the gap. 
+
+In the Donut landscape (figure 1a), when the variance of ES’s Gaussian be high enough (i.e. σ of 
+the search distribution be set to 0.16, show in figure 2a), ES maximizes distributional reward by 
+center the mean of it domain parameter distribution at the middle of the donut where fitness be 
+lowest; figure 3a further illuminates this divergence. When ES’s variance be small (σ = 0.04), ES 
+instead position itself such that the tail of it distribution avoids the donut hole (figure 2b). Finally, 
+when ES’s variance becomes tiny (σ = 0.002), the distribution becomes tightly distribute along 
+the edge of the donut-hole (figure 2c). This final ES behavior be qualitatively similar to follow a 
+finite-difference approximation of the domain parameter performance gradient (figure 2d). 
+
+In the Narrowing Path landscape (figure 1b), when ES be apply with high variance (σ = 0.12) it be 
+unable to progress far along the narrow path to high fitness (figure 4a), because expect value 
+be high when a significant portion of the distribution remains on the path. As variance decline 
+(figures 4b and 4c), ES proceeds further along the path. Finite-difference gradient descent be able to 
+easily traverse the entire path (figure 4d). 
+
+In the Fleeting Peaks landscape (figure 1c), when ES be apply with high variance (σ = 0.16) the 
+search distribution have sufficient spread to ignore the local optimum and proceeds to the maximal-fitness 
+area (figure 5a). With medium variance (σ = 0.048; figure 5b), ES gravitates to each local optimum 
+before leap to the next one, and ultimately becomes stuck on the last local optimum (see also 
+figure 3b). With low variance (σ = 0.002; figure 5c), ES latch onto the first local optimum and 
+remains stuck there indefinitely. Finite-difference gradient descent becomes stuck on the same local 
+optimum (figure 5d). 
+
+Finally, in the Gradient Gap landscape (figure 1d), ES with high variance (σ = 0.18) can traverse 
+a zero-fitness non-diffentiable gap in the landscape (figure 6a), demonstrate ES’s ability to “look 
+
+5 
+
+
+
+(a) ES with σ = 0.16 (b) ES with σ = 0.04 
+
+(c) ES with σ = 0.002 (d) Finite Differences with � = 1e− 7 
+
+Figure 2: Search trajectory comparison in the Donut landscape. The plot compare representative 
+trajectory of ES with decrease variance in it search distribution to finite-differences gradient 
+descent. With (a) high variance, ES maximizes expect fitness by move the distribution’s mean into 
+a low-fitness area. With (b,c) decrease variance, ES be drawn closer to the edge of the low-fitness 
+area, qualitatively converge to the behavior of (d) finite-difference gradient descent. 
+
+ahead” in parameter space to cross fitness valley between local optimum (see also figure 3c). Lower 
+variance ES (not shown) and finite difference cannot cross the gap (figure 6b). Highlighting that ES 
+be inform by sample at the tail of the search distribution and be not blindly push forward, ES 
+with high variance in the Gradient Cliff landscape (figure 6c) do not leap into the cliff, and low 
+variance ES (not shown) and finite difference (figure 6d) behave no different then they do in the 
+Gradient Gap landscape. 
+
+Overall, these landscapes, while simple, help to demonstrate that there be indeed systematic differ- 
+ences between ES and traditional gradient descent. They also show that no particular treatment be 
+ideal in all cases, so the utility of the optimize over a fixed-variance search distribution, at least for 
+find the global optimum, be (as would be expected) domain-dependent. The next section describes 
+result in the Humanoid Locomotion domain that provide a proof-of-concept that these difference 
+also manifest themselves when apply ES to modern deep RL benchmarks. 
+
+6 
+
+
+
+0 25 50 75 100 125 150 175 200 
+Iteration 
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+Fi 
+tn 
+
+e 
+s 
+
+Value at Distribution Mean 
+Expected Value across Distribution 
+
+(a) Reward of ES on the Donut Landscape 
+
+0 100 200 300 400 500 600 
+Iteration 
+
+0.5 
+
+1.0 
+
+1.5 
+
+2.0 
+
+2.5 
+
+3.0 
+
+Fi 
+tn 
+
+e 
+s 
+
+Value at Distribution Mean 
+Expected Value across Distribution 
+
+(b) Reward of ES on the Fleeting Peaks Landscape 
+
+0 50 100 150 200 250 
+Iteration 
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+Fi 
+tn 
+
+e 
+s 
+
+Value at Distribution Mean 
+Expected Value across Distribution 
+
+(c) Reward of ES on the Gradient Gap Landscape 
+
+Figure 3: ES maximizes expect value over the search distribution. These plot show how the 
+expect value of fitness and the fitness value evaluate at the distribution’s mean can diverge in 
+representative run of ES. This divergence be show on (a) the Donut landscape with high variance 
+(σ = 0.16), (b) the Fleeting Peaks landscape with medium variance (σ = 0.048), and (c) the Gradient 
+Gap landscape with high variance (σ = 0.18). 
+
+4 Humanoid Locomotion 
+
+In the Humanoid Locomotion domain, a simulated humanoid robot be control by an NN controller 
+with the objective of produce a fast energy-efficient gait (Tassa et al., 2012; Brockman et al., 
+2016), implement in the Mujoco physic simulator (Todorov et al., 2012). Many RL method be 
+able to produce competent gaits, which this paper considers a achieve a fitness score of 6,000 
+average across many independent evaluations, follow the threshold score in Salimans et al. 
+(2017); average be necessary because the domain be stochastic. The purpose of this experiment be 
+not to compare performance across method a be typical in RL, but instead to examine the robustness 
+of solutions, a define by the distribution of performance in the neighborhood of solutions. 
+
+Three method be compare in this experiment: ES, GA, and TRPO. Both ES and GA be method 
+that directly search through the parameter space for solutions, while TRPO us gradient descent 
+to modify policy directedly to more often take action result in high reward. All method 
+optimize the same underlie NN architecture, which be a feedforward NN with two hidden layer of 
+256 Tanh units, comprise approximately 167,000 weight parameter (recall that ES optimizes the 
+same number of parameters, but that they represent the mean of a search distribution over domain 
+parameters). This NN architecture be take from the configuration file release with the source code 
+from Salimans et al. (2017). The architecture described in their paper be similar, but smaller, have 
+64 neuron per layer (Salimans et al., 2017). 
+
+The hypothesis be that ES policy will be more robust to policy perturbation than policy of similar 
+performance generate by either GA or TRPO. The GA of Petroski Such et al. (2017) provide 
+a natural control, because it mutation operator be the same that generates variation within ES, 
+
+7 
+
+
+
+(a) ES with σ = 0.12 (b) ES with σ = 0.04 
+
+(c) ES with σ = 0.0005 (d) Finite Differences with � = 1e− 7 
+
+Figure 4: Search trajectory comparison in the Narrowing Path landscape. With (a) high variance, 
+ES maximizes expect fitness by stay on the wider part of the path, meaning it do not traverse 
+the entire path. Importantly, if ES be be use to ultimately discover a single high-value policy, a be 
+often the case (Salimans et al., 2017), this method will not discover the superior solution further 
+down the path. With (b,c) decrease variance, ES be able to traverse further along the narrow path. 
+(d) Finite-difference gradient descent traverse the entire path. 
+
+but it objective function do not directly reward robustness. Note that ES be train with policy 
+perturbation from a Gaussian distribution with σ = 0.02 while the GA require a much narrower 
+distribution (σ = 0.00224) for successful training (Petroski Such et al., 2017); training the GA 
+with a large mutational distribution destabilize evolution, a mutation too rarely would preserve 
+or improve performance to support adaptation. Interestingly, this destabilization itself support the 
+idea that robustness to high variance perturbation be not pervasive throughout this search space. 
+TRPO provide another useful control, because it follow the gradient of increase performance 
+without generate any random parameter perturbations; thus if the robustness of ES solution be 
+high than that of those from TRPO, it also provide evidence that ES’s behavior be distinct, i.e. it 
+be not best understood a simply follow the gradient of improve performance with respect to 
+domain parameter (as TRPO does); note that this argument do not imply that TRPO be deficient if 
+it policy be less robust to random parameter perturbation than ES, a such random perturbation 
+be not part of it search process. 
+
+8 
+
+
+
+(a) ES with σ = 0.16 (b) ES with σ = 0.048 
+
+(c) ES with σ = 0.002 (d) Finite difference with � = 1e− 7 
+
+Figure 5: Search trajectory comparison in the Fleeting Peaks landscape. With (a) high variance, 
+ES can bypass the local optimum because it contribution to expect fitness across the distribution 
+be small. With (b) medium variance, ES hop between local optima, and with (c) low variance, ES 
+converges to a local optimum, similarly to (d) finite-difference gradient descent. 
+
+The experimental methodology be to take solution from different method and examine the distribu- 
+tion of result performance when policy be perturbed with the perturbation size of ES and of GA. 
+In particular, policy be take from generation 1,000 of the GA, from iteration 100 of ES, and from 
+iteration 350 of TRPO, where method have approximately evolve a solution of ≈6,000 fitness. The 
+ES be run with hyperparameters accord to Salimans et al. (2017), the GA be take from Petroski 
+Such et al. (2017), and TRPO be base on OpenAI’s baseline package (Dhariwal et al., 2017). Exact 
+hyperparameters be list in the appendix. 
+
+4.1 Results 
+
+Figure 7 show a representative example of the stark difference between the robustness of ES solution 
+and those from the GA or TRPO, even when the GA be subject only to the lower-variance perturbation 
+that be apply during evolution. Qualitatively we observe that this result appear consistent across 
+independently train models. A video compare perturbed policy of ES and TRPO can be view 
+at the follow URL (along with other video show select fitness landscape animations): 
+https://goo.gl/yz1MeM. 
+
+9 
+
+https://goo.gl/yz1MeM 
+
+
+(a) ES on Gradient Gap with σ = 0.18 (b) Finite difference on Gradient Gap with � = 1e− 7 
+
+(c) ES on Gradient Cliff with σ = 0.18 (d) Finite difference on Gradient Cliff with � = 1e−7 
+
+Figure 6: Search trajectory comparison in the Gradient Gap and Gradient Cliff landscapes. 
+With (a) high variance, ES can bypass the gradient-free gap because it distribution can span the 
+gap; with lower-variance ES or (b) finite differences, search cannot cross the gap. In the control 
+Gradient Cliff landscape, (c) ES with high variance remains root in the high-fitness area, and the 
+performance of (d) finite difference be unchanged from the Gradient Gap landscape. 
+
+To further explore this robustness difference, a quantitative measure of robustness be also applied. 
+In particular, for each model, the original parameter vector’s reward be calculate by average it 
+performance over 1,000 trial in the environment. Then, 1,000 perturbation be generate for each 
+model, and each perturbation’s performance be average over 100 trial in the environment. Finally, 
+a robustness score be calculate for each model a the ratio of the perturbations’ median performance 
+to the unperturbed policy’s performance, i.e. a robustness score of 0.5 indicates that the median 
+perturbation performs half a well a the unperturbed model. The result (shown in figure 8) indicate 
+that indeed by this measure ES be significantly more robust than the GA or TRPO (Mann-Whitney 
+U-test; p < 0.01). The conclusion be that the robustness-seeking property of ES demonstrate in 
+the simple landscape also manifest itself in this more challenge and high-dimensional domain. 
+Interestingly, TRPO be significantly more robust than both GA treatment (Mann-Whitney U-test; 
+p < 0.01) even though it be not driven by random perturbations; future work could probe the 
+relationship between the SGD update of policy gradient method and the random perturbation 
+apply by ES and the GA. 
+
+10 
+
+
+
+0 1000 2000 3000 4000 5000 6000 7000 
+Reward 
+
+0 
+
+20 
+
+40 
+
+60 
+
+80 
+
+Fr 
+eq 
+
+ue 
+nc 
+
+y 
+
+ES 
+GA 
+
+(a) ES (σ = 0.02) v GA (σ = 0.002) 
+
+0 1000 2000 3000 4000 5000 6000 7000 
+Reward 
+
+0 
+
+50 
+
+100 
+
+150 
+
+200 
+
+Fr 
+eq 
+
+ue 
+nc 
+
+y 
+
+ES 
+GA 
+
+(b) ES (σ = 0.02) v GA (σ = 0.02) 
+
+0 1000 2000 3000 4000 5000 6000 7000 
+Reward 
+
+0 
+
+20 
+
+40 
+
+60 
+
+80 
+
+Fr 
+eq 
+
+ue 
+nc 
+
+y 
+
+ES 
+TRPO 
+
+(c) ES (σ = 0.02) v TRPO (σ = 0.02) 
+
+Figure 7: ES be more robust to parameter perturbation in the Humanoid Locomotion task. The 
+distribution of reward be show from perturb model train by ES, GA, and TRPO. Models be 
+train to a fitness value of 6,000 reward, and robustness be evaluate by generate perturbation 
+with Gaussian noise (with the specify variance) and evaluate perturbed policy in the domain. 
+High-variance perturbation of ES produce a healthier distribution of reward than do perturbation of 
+GA or TRPO. 
+
+11 
+
+
+
+ES TRPO GA (training ) GA (high ) 
+Method 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+Ro 
+bu 
+
+st 
+ne 
+
+s 
+
+Figure 8: Quantitative measure of robustness across independent run of ES, GA, and TRPO. 
+The distribution of reward be show from perturb 10 independent model for each of ES, GA, 
+and TRPO under the high-variance perturbation use to train ES (σ = 0.02). Results from GA 
+be show also for perturbation drawn from the lower-variance distribution it experienced during 
+training (σ = 0.00224). The conclusion be that high-variance perturbation of ES retain significantly 
+high performance than do perturbation of GA or TRPO (Student’s t-test; p < 0.01). 
+
+5 Discussion and Conclusion 
+
+An important contribution of this paper be to ensure that awareness of the robustness-seeking property 
+of ES, especially with high σ, be not lose – which be a risk when ES be described a simply perform 
+stochastic finite differences. In effect, when σ be above some threshold, it be not accurate to interpret 
+ES a merely an approximation of SGD, nor a a traditional finite-differences-based approximator. 
+Rather, it becomes a gradient approximator couple with a compass that seek area of the search 
+space robust to parameter perturbations. This latter property be not easily available to point-based 
+gradient methods, a highlight dramatically in the Humanoid Locomotion experiment in this paper. 
+On the other hand, if one want ES to good mimic finite difference and SGD, that option be still 
+feasible simply by reduce σ. 
+
+The extent to which seek robustness to parameter perturbation be important remains open to further 
+research. As show in the landscape experiments, when it come to find optima, it clearly depends 
+on the domain. If the search space be reminiscent of Fleeting Peaks, then ES be likely an attractive 
+option for reach the global optimum. However, if it be more like the Narrowing Path landscape, 
+especially if the ultimate goal be a single solution (and there be no concern about it robustness), then 
+high-sigma ES be less attractive (and the lower-sigma ES explore in Zhang et al. (2017) would be 
+more appropriate). It would be interest to good understand whether and under what condition 
+domain more often resemble Fleeting Peaks a oppose to the Narrowing Path. 
+
+An intrigue question that remains open be when and why such robustness might be desirable 
+even for reason outside of global optimality. For example, it be possible that policy encode by 
+network in robust region of the search space (i.e. where perturb parameter lead to network of 
+similar performance) be also robust to other kind of noise, such a domain noise. It be interest 
+to speculate on this possibility, but at present it remains a topic for future investigation. Perhaps 
+parameter robustness also correlate to robustness to new opponent in coevolution or self-play 
+(Popovici et al., 2012), but that again cannot yet be answered. Another open question be how 
+robustness interacts with divergent search technique like novelty search (Lehman and Stanley, 
+2011a) or quality diversity method (Pugh et al., 2016); follow-up experiment to Conti et al. (2017), 
+which combine ES with novelty search, could explore this issue. Of course, the degree to which the 
+implication of robustness matter likely varies by domain a well. For example, in the Humanoid 
+Locomotion task the level of domain noise mean that there be little choice but to choose a high σ 
+during evolution (because otherwise the effect of perturbation could be drown out by noise), but 
+in a domain like MNIST there be no obvious need for anything but an SGD-like process (Zhang et al., 
+2017). 
+
+12 
+
+
+
+Another possible benefit of robustness be that it could be an indicator of compressibility: If small 
+mutation tend not to impact functionality (as be the case for robust NNs), then less numerical 
+precision be require to specify an effective set of network weight (i.e. few bit be require to 
+encode them). This issue too be presently unexplored. 
+
+This study focus on ES, but it raise new question about other related algorithms. For instance, 
+non-evolutionary method may be modify to include a drive towards robustness or may already 
+share abstract connection with ES. For example, stochastic gradient Langevin dynamic (Welling 
+and Teh, 2011), a Bayesian approach to SGD, approximates a distribution of solution over iteration 
+of training by add Gaussian noise to SGD updates, in effect also produce a solution cloud. 
+Additionally, it be possible that method combine parameter-space exploration with policy gradient 
+(such a Plappert et al. 2017) could be modify to include robustness pressure. 
+
+A related question is, do all evolutionary algorithms, which be generally population-based, posse 
+at least the potential for the same tendency towards robustness? Perhaps some such algorithm 
+have a different mean of turn the knob between gradient follow and robustness seeking, but 
+nevertheless in effect leave room for the same dual tendencies. One particularly interest relative of 
+ES be the NES (Wierstra et al., 2014), which adjusts σ dynamically over the run. Given that σ seem 
+instrumental in the extent to which robustness becomes paramount, characterize the tendency of 
+NES in this respect be also important future work. 
+
+We hope ultimately that the brief demonstration in this work can serve a a reminder that the analogy 
+between ES and finite difference only go so far, and there be therefore other intrigue property 
+of the algorithm that remain to be investigated. 
+
+Acknowledgements 
+
+We thank all of the member of Uber AI Labs, in particular Thomas Miconi, Martin Jankowiak, 
+Rui Wang, Xingwen Zhang, and Zoubin Ghahramani for helpful discussions; Felipe Such for his 
+GA implementation and Edoardo Conti for his ES implementation, both of which be use in 
+this paper’s experiments. We also thank Justin Pinkul, Mike Deats, Cody Yancey, Joel Snow, Leon 
+Rosenshein and the entire OpusStack Team inside Uber for provide our compute platform and 
+for technical support. 
+
+References 
+Berny, A. (2000). Statistical machine learn and combinatorial optimization. In Theoretical Aspects 
+
+of Evolutionary Computing, page 287–306. Springer. 
+
+Beyer, H.-G. and Schwefel, H.-P. (2002). Evolution strategies: A comprehensive introduction. 
+Natural Computing, 1:3–52. 
+
+Brockman, G., Cheung, V., Pettersson, L., Schneider, J., Schulman, J., Tang, J., and Zaremba, W. 
+(2016). OpenAI gym. 
+
+Clune, J., Misevic, D., Ofria, C., Lenski, R. E., Elena, S. F., and Sanjuán, R. (2008). Natural selection 
+fails to optimize mutation rate for long-term adaptation on rugged fitness landscapes. PLoS 
+Computational Biology, 4(9):e1000187. 
+
+Conti, E., Madhavan, V., Petroski Such, F., Lehman, J., Stanley, K. O., and Clune, J. (2017). 
+Improving exploration in evolution strategy for deep reinforcement learn via a population of 
+novelty-seeking agents. arXiv preprint to appear. 
+
+De Jong, K. A. (2002). Evolutionary Computation: A Unified Perspective. MIT Press, Cambridge, 
+MA. 
+
+Dhariwal, P., Hesse, C., Plappert, M., Radford, A., Schulman, J., Sidor, S., and Wu, Y. (2017). Openai 
+baselines. https://github.com/openai/baselines. 
+
+Ebrahimi, S., Rohrbach, A., and Darrell, T. (2017). Gradient-free policy architecture search and 
+adaptation. ArXiv e-prints, 1710.05958. 
+
+13 
+
+https://github.com/openai/baselines 
+
+
+Glynn, P. W. (1987). Likelilood ratio gradient estimation: an overview. In Proceedings of the 19th 
+conference on Winter simulation, page 366–375. ACM. 
+
+Kirschner, M. and Gerhart, J. (1998). Evolvability. Proceedings of the National Academy of Sciences, 
+95(15):8420–8427. 
+
+Kounios, L., Clune, J., Kouvaris, K., Wagner, G. P., Pavlicev, M., Weinreich, D. M., and Watson, 
+R. A. (2016). Resolving the paradox of evolvability with learn theory: How evolution learns to 
+improve evolvability on rugged fitness landscapes. arXiv preprint arXiv:1612.05955. 
+
+Lehman, J. and Stanley, K. O. (2011a). Abandoning objectives: Evolution through the search for 
+novelty alone. Evolutionary Computation, 19(2):189–223. 
+
+Lehman, J. and Stanley, K. O. (2011b). Improving evolvability through novelty search and self- 
+adaptation. In Evolutionary Computation (CEC), 2011 IEEE Congress on, page 2693–2700. 
+IEEE. 
+
+Lehman, J. and Stanley, K. O. (2013). Evolvability be inevitable: Increasing evolvability without the 
+pressure to adapt. PLoS ONE, 8(4):e62186. 
+
+Lenski, R. E., Barrick, J. E., and Ofria, C. (2006). Balancing robustness and evolvability. PLoS 
+biology, 4(12):e428. 
+
+Meyer-Nieberg, S. and Beyer, H.-G. (2007). Self-adaptation in evolutionary algorithms. Parameter 
+set in evolutionary algorithms, page 47–75. 
+
+Petroski Such, F., Madhavan, V., Conti, E., Lehman, J., Stanley, K. O., and Clune, J. (2017). Deep 
+neuroevolution: Genetic algorithm be a competitive alternative for training deep neural network 
+for reinforcement learning. arXiv preprint to appear. 
+
+Plappert, M., Houthooft, R., Dhariwal, P., Sidor, S., Chen, R. Y., Chen, X., Asfour, T., Abbeel, P., and 
+Andrychowicz, M. (2017). Parameter space noise for exploration. arXiv preprint arXiv:1706.01905. 
+
+Popovici, E., Bucci, A., Wiegand, R. P., and De Jong, E. D. (2012). Coevolutionary Principles, page 
+987–1033. Springer Berlin Heidelberg, Berlin, Heidelberg. 
+
+Pugh, J. K., Soros, L. B., and Stanley, K. O. (2016). Quality diversity: A new frontier for evolutionary 
+computation. 3(40). 
+
+Richardson, L. F. (1911). The approximate arithmetical solution by finite difference of physical 
+problem involve differential equations, with an application to the stress in a masonry dam. 
+Philosophical Transactions of the Royal Society of London. Series A, Containing Papers of a 
+Mathematical or Physical Character, 210:307–357. 
+
+Salimans, T., Ho, J., Chen, X., and Sutskever, I. (2017). Evolution strategy a a scalable alternative 
+to reinforcement learning. arXiv preprint arXiv:1703.03864. 
+
+Schulman, J., Levine, S., Abbeel, P., Jordan, M., and Moritz, P. (2015). Trust region policy optimiza- 
+tion. In Proceedings of the 32nd International Conference on Machine Learning (ICML-15), page 
+1889–1897. 
+
+Schwefel, H.-P. P. (1993). Evolution and optimum seeking: the sixth generation. John Wiley & Sons, 
+Inc. 
+
+Sehnke, F., Osendorfer, C., Rückstieß, T., Graves, A., Peters, J., and Schmidhuber, J. (2010). 
+Parameter-exploring policy gradients. Neural Networks, 23(4):551–559. 
+
+Spall, J. C. (1992). Multivariate stochastic approximation use a simultaneous perturbation gradient 
+approximation. IEEE transaction on automatic control, 37(3):332–341. 
+
+Tassa, Y., Erez, T., and Todorov, E. (2012). Synthesis and stabilization of complex behavior 
+through online trajectory optimization. In Intelligent Robots and Systems (IROS), 2012 IEEE/RSJ 
+International Conference on, page 4906–4913. IEEE. 
+
+14 
+
+
+
+Todorov, E., Erez, T., and Tassa, Y. (2012). Mujoco: A physic engine for model-based control. 
+In Intelligent Robots and Systems (IROS), 2012 IEEE/RSJ International Conference on, page 
+5026–5033. IEEE. 
+
+Wagner, A. (2008). Robustness and evolvability: a paradox resolved. Proceedings of the Royal 
+Society of London B: Biological Sciences, 275(1630):91–100. 
+
+Wagner, G. P. and Altenberg, L. (1996). Perspective: complex adaptation and the evolution of 
+evolvability. Evolution, 50(3):967–976. 
+
+Welling, M. and Teh, Y. W. (2011). Bayesian learn via stochastic gradient langevin dynamics. 
+In Proceedings of the 28th International Conference on Machine Learning (ICML-11), page 
+681–688. 
+
+Wierstra, D., Schaul, T., Glasmachers, T., Sun, Y., Peters, J., and Schmidhuber, J. (2014). Natural 
+evolution strategies. Journal of Machine Learning Research, 15(1):949–980. 
+
+Wilke, C. O., nad Charles Ofria, J. L. W., Lenski, R. E., and Adami, C. (2001). Evolution of digital 
+organism at high mutation rate lead to survival of the flattest. Nature, 412:331–333. 
+
+Williams, R. J. (1992). Simple statistical gradient-following algorithm for connectionist reinforce- 
+ment learning. Machine learning, 8(3-4):229–256. 
+
+Zhang, X., Clune, J., and Stanley, K. O. (2017). On the relationship between the openai evolution 
+strategy and stochastic gradient descent. arXiv preprint to appear. 
+
+Appendix A Hyperparameters 
+
+This section describes the relevant hyperparameters for the search method (ES, GA, and TRPO) 
+apply in the Humanoid Walker experiments. 
+
+A.1 ES 
+
+The ES algorithm be base on Salimans et al. (2017) and us the same hyperparameters a in their 
+Humanoid Walker experiment. In particular, 10,000 roll-outs be use per iteration of the algorithm, 
+with a fix σ of the parameter distribution set to 0.02. The ADAM optimizer be apply with a 
+step-size of 0.01. 
+
+A.2 GA 
+
+The GA be base on Petroski Such et al. (2017). The population size be set to 12,501, and σ of the 
+normal distribution use to generate mutation perturbation be set to 0.00224. Truncation selection 
+be performed, and only the highest-performing 5% of the population survived. 
+
+A.3 TRPO 
+
+The TRPO (Schulman et al., 2015) implementation be take from the OpenAI baseline package 
+(Dhariwal et al., 2017). The maximum KL divergence be set to 0.1 and 10 iteration of conjugate 
+gradient be conduct per batch of training data. Discount rate (γ) be set to 0.99. 
+
+15 
+
+
+1 Introduction 
+2 Background 
+2.1 Finite Differences 
+2.2 Search Gradients 
+2.3 Robustness in Evolutionary Computation 
+
+3 Experiments 
+3.1 Fitness Landscapes 
+
+4 Humanoid Locomotion 
+4.1 Results 
+
+5 Discussion and Conclusion 
+A Hyperparameters 
+A.1 ES 
+A.2 GA 
+A.3 TRPO 
+
+

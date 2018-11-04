@@ -1,0 +1,1567 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Kudu: Storage for Fast Analytics on Fast Data ∗ 
+
+Todd Lipcon David Alves Dan Burkert Jean-Daniel Cryans Adar Dembo 
+Mike Percy Silvius Rus Dave Wang Matteo Bertozzi Colin Patrick McCabe 
+
+Andrew Wang 
+Cloudera, inc. 
+
+28 September 2015 
+
+Abstract 
+
+Kudu be an open source storage engine for structure data 
+which support low-latency random access together with ef- 
+ficient analytical access patterns. Kudu distributes data us- 
+ing horizontal partition and replicates each partition us- 
+ing Raft consensus, provide low mean-time-to-recovery and 
+low tail latencies. Kudu be design within the context of 
+the Hadoop ecosystem and support many mode of access 
+via tool such a Cloudera Impala[20], Apache Spark[28], and 
+MapReduce[17]. 
+
+1 Introduction 
+
+In recent years, explosive growth in the amount of data be- 
+ing generate and capture by enterprise have result in the 
+rapid adoption of open source technology which be able to 
+store massive data set at scale and at low cost. In particu- 
+lar, the Hadoop ecosystem have become a focal point for such 
+“big data” workloads, because many traditional open source 
+database system have lag in offering a scalable alterna- 
+tive. 
+
+Structured storage in the Hadoop ecosystem have typically 
+be achieve in two ways: for static data sets, data be 
+typically store on HDFS use binary data format such 
+a Apache Avro[1] or Apache Parquet[3]. However, neither 
+HDFS nor these format have any provision for update indi- 
+vidual records, or for efficient random access. Mutable data 
+set be typically store in semi-structured store such a 
+Apache HBase[2] or Apache Cassandra[21]. These system 
+allow for low-latency record-level read and writes, but lag 
+far behind the static file format in term of sequential read 
+throughput for application such a SQL-based analytics or 
+machine learning. 
+
+The gap between the analytic performance offer by static 
+data set on HDFS and the low-latency row-level random ac- 
+ce capability of HBase and Cassandra have require prac- 
+
+∗This document be a draft. Edits will be make and re- 
+publish to the Kudu open source project web site on a roll 
+basis. 
+
+titioners to develop complex architecture when the need 
+for both access pattern arises in a single application. In 
+particular, many of Cloudera’s customer have developed 
+data pipeline which involve stream ingest and update in 
+HBase, follow by periodic job to export table to Parquet 
+for late analysis. Such architecture suffer several downsides: 
+
+1. Application architect must write complex code to man- 
+age the flow and synchronization of data between the two 
+systems. 
+
+2. Operators must manage consistent backups, security 
+policies, and monitoring across multiple distinct systems. 
+
+3. The result architecture may exhibit significant lag be- 
+tween the arrival of new data into the HBase “staging 
+area” and the time when the new data be available for 
+analytics. 
+
+4. In the real world, system often need to accomodate late- 
+arrive data, correction on past records, or privacy- 
+related deletion on data that have already be migrate 
+to the immutable store. Achieving this may involve ex- 
+pensive rewrite and swap of partition and manual 
+intervention. 
+
+Kudu be a new storage system design and implement 
+from the ground up to fill this gap between high-throughput 
+sequential-access storage system such a HDFS[27] and low- 
+latency random-access system such a HBase or Cassandra. 
+While these exist system continue to hold advantage in 
+some situations, Kudu offer a “happy medium” alternative 
+that can dramatically simplify the architecture of many com- 
+mon workloads. In particular, Kudu offer a simple API for 
+row-level inserts, updates, and deletes, while provide table 
+scan at throughput similar to Parquet, a commonly-used 
+columnar format for static data. 
+
+This paper introduces the architecture of Kudu. Section 
+2 describes the system from a user’s point of view, introduc- 
+ing the data model, APIs, and operator-visible constructs. 
+Section 3 describes the architecture of Kudu, include how 
+it partition and replicates data across nodes, recovers from 
+
+1 
+
+
+
+faults, and performs common operations. Section 4 explains 
+how Kudu store it data on disk in order to combine fast ran- 
+dom access with efficient analytics. Section 5 discus inte- 
+grations between Kudu and other Hadoop ecosystem projects. 
+Section 6 present preliminary performance result in syn- 
+thetic workloads. 
+
+2 Kudu at a high level 
+
+2.1 Tables and schema 
+
+From the perspective of a user, Kudu be a storage system 
+for table of structure data. A Kudu cluster may have any 
+number of tables, each of which have a well-defined schema 
+consist of a finite number of columns. Each such column 
+have a name, type (e.g INT32 or STRING) and optional nullabil- 
+ity. Some order subset of those column be specify to be 
+the table’s primary key. The primary key enforces a unique- 
+ness constraint (at most one row may have a give primary 
+key tuple) and act a the sole index by which row may be 
+efficiently update or deleted. This data model be familiar to 
+user of relational databases, but differs from many other dis- 
+tributed datastores such a Cassandra. MongoDB[6], Riak[8], 
+BigTable[12], etc. 
+
+As with a relational database, the user must define the 
+schema of a table at the time of creation. Attempts to in- 
+sert data into undefined column result in errors, a do vio- 
+lations of the primary key uniqueness constraint. The user 
+may at any time issue an alter table command to add or drop 
+columns, with the restriction that primary key column can- 
+not be dropped. 
+
+Our decision to explicitly specify type for column instead 
+of use a NoSQL-style “everything be bytes” be motivate by 
+two factors: 
+
+1. Explicit type allow u to use type-specific columnar en- 
+coding such a bit-packing for integers. 
+
+2. Explicit type allow u to expose SQL-like metadata to 
+other system such a commonly use business intelli- 
+gence or data exploration tools. 
+
+Unlike most relational databases, Kudu do not currently 
+offer secondary index or uniqueness constraint other than 
+the primary key. Currently, Kudu require that every table 
+have a primary key defined, though we anticipate that a future 
+version will add automatic generation of surrogate keys. 
+
+2.2 Write operation 
+
+After create a table, the user mutates the table use 
+Insert, Update, and Delete APIs. In all cases, the user 
+must fully specify a primary key – predicate-based deletion 
+or update must be handle by a higher-level access mecha- 
+nism (see section 5). 
+
+Kudu offer APIs in Java and C++, with experimental sup- 
+port for Python. The APIs allow precise control over batch- 
+ing and asynchronous error handle to amortize the cost of 
+round trip when perform bulk data operation (such a 
+data load or large updates). Currently, Kudu do not offer 
+any multi-row transactional APIs: each mutation conceptu- 
+ally executes a it own transaction, despite be automat- 
+ically batch with other mutation for good performance. 
+Modifications within a single row be always execute atomi- 
+cally across columns. 
+
+2.3 Read operation 
+
+Kudu offer only a Scan operation to retrieve data from a ta- 
+ble. On a scan, the user may add any number of predicate to 
+filter the results. Currently, we offer only two type of pred- 
+icates: comparison between a column and a constant value, 
+and composite primary key ranges. These predicate be in- 
+terpreted both by the client API and the server to efficiently 
+cull the amount of data transfer from the disk and over 
+the network. 
+
+In addition to apply predicates, the user may specify a 
+projection for a scan. A projection consists of a subset of 
+column to be retrieved. Because Kudu’s on-disk storage be 
+columnar, specify such a subset can substantially improve 
+performance for typical analytic workloads. 
+
+2.4 Other APIs 
+
+In addition to data path APIs, the Kudu client library offer 
+other useful functionality. In particular, the Hadoop ecosys- 
+tem gain much of it performance by schedule for data lo- 
+cality. Kudu provide APIs for caller to determine the map- 
+ping of data range to particular server to aid distribute 
+execution framework such a Spark, MapReduce, or Impala 
+in scheduling. 
+
+2.5 Consistency Model 
+
+Kudu provide client the choice between two consistency 
+modes. The default consistency mode be snapshot consistency. 
+A scan be guaranteed to yield a snapshot with no anomaly 
+in which causality would be violated1. As such, it also guar- 
+antees read-your-writes consistency from a single client. 
+
+By default, Kudu do not provide an external consistency 
+guarantee. That be to say, if a client performs a write, then 
+communicates with a different client via an external mecha- 
+nism (e.g. a message bus) and the other performs a write, the 
+causal dependence between the two writes be not captured. A 
+third reader may see a snapshot which contains the second 
+write without the first. 
+
+1In the current beta release of Kudu, this consistency support be 
+not yet fully implemented. However, this paper describes the archi- 
+tecture and design of the system, despite the presence of some know 
+consistency-related bugs. 
+
+2 
+
+
+
+Based on our experience support other system such a 
+HBase that also do not offer external consistency guarantees, 
+this be sufficient for many use cases. However, for user who 
+require a strong guarantee, Kudu offer the option to man- 
+ually propagate timestamps between clients: after perform 
+a write, the user may ask the client library for a timestamp to- 
+ken. This token may be propagate to another client through 
+the external channel, and pass to the Kudu API on the 
+other side, thus preserve the causal relationship between 
+writes make across the two clients. 
+
+If propagate token be too complex, Kudu optionally us 
+commit-wait a in Spanner[14]. After perform a write with 
+commit-wait enabled, the client may be delayed for a period 
+of time to ensure that any late write will be causally or- 
+dered correctly. Absent specialized time-keeping hardware, 
+this can introduce significant latency in writes (100-1000ms 
+with default NTP configurations), so we anticipate that a mi- 
+nority of user will take advantage of this option. We also note 
+that, since the publication of Spanner, several data store have 
+start to take advantage of real-time clocks. Given this, it 
+be plausible that within a few years, cloud provider will offer 
+tight global time synchronization a a differentiate service. 
+
+The assignment of operation timestamps be base on a clock 
+algorithm term HybridTime[15]. Please refer to the cite 
+article for details. 
+
+2.6 Timestamps 
+
+Although Kudu us timestamps internally to implement con- 
+currency control, Kudu do not allow the user to manually 
+set the timestamp of a write operation. This differs from sys- 
+tems such a Cassandra and HBase, which treat the times- 
+tamp of a cell a a first-class part of the data model. In 
+our experience support user of these other systems, we 
+have found that, while advanced user can make effective use 
+of the timestamp dimension, the vast majority of user find 
+this aspect of the data model confuse and a source of user 
+error, especially with regard to the semantics of back-dated 
+insertion and deletions. 
+
+We do, however, allow the user to specify a timestamp for 
+a read operation. This allows the user to perform point-in- 
+time query in the past, a well a to ensure that different 
+distribute task that together make up a single “query” (e.g. 
+a in Spark or Impala) read a consistent snapshot. 
+
+3 Architecture 
+
+3.1 Cluster role 
+
+Following the design of BigTable and GFS[18] (and their 
+open-source analogue HBase and HDFS), Kudu relies on a 
+single Master server, responsible for metadata, and an arbi- 
+trary number of Tablet Servers, responsible for data. The 
+
+master server can be replicate for fault tolerance, support- 
+ing very fast failover of all responsibility in the event of an 
+outage. Typically, all role be deployed on commodity hard- 
+ware, with no extra requirement for master nodes. 
+
+3.2 Partitioning 
+
+As in most distribute database systems, table in Kudu be 
+horizontally partitioned. Kudu, like BigTable, call these hor- 
+izontal partition tablets. Any row may be mapped to exactly 
+one tablet base on the value of it primary key, thus ensur- 
+ing that random access operation such a insert or update 
+affect only a single tablet. For large table where throughput 
+be important, we recommend on the order of 10-100 tablet 
+per machine. Each tablet can be ten of gigabytes. 
+
+Unlike BigTable, which offer only key-range-based par- 
+titioning, and unlike Cassandra, which be nearly always de- 
+ployed with hash-based partitioning, Kudu support a flexi- 
+ble array of partition schemes. When create a table, the 
+user specifies a partition schema for that table. The partition 
+schema act a a function which can map from a primary key 
+tuple into a binary partition key. Each tablet cover a con- 
+tiguous range of these partition keys. Thus, a client, when 
+perform a read or write, can easily determine which tablet 
+should hold the give key and route the request accordingly. 
+
+The partition schema be make up of zero or more hash- 
+partition rule follow by an optional range-partitioning 
+rule: 
+
+• A hash-partitioning rule consists of a subset of the pri- 
+mary key column and a number of buckets. For ex- 
+ample, a express in our SQL dialect, DISTRIBUTE BY 
+HASH(hostname, ts) INTO 16 BUCKETS. These rule 
+convert tuples into binary key by first concatenate the 
+value of the specify columns, and then compute the 
+hash code of the result string modulo the request 
+number of buckets. This result bucket number be en- 
+cod a a 32-bit big-endian integer in the result par- 
+tition key. 
+
+• A range-partitioning rule consists of an order subset 
+of the primary key columns. This rule map tuples into 
+binary string by concatenate the value of the specify 
+column use an order-preserving encoding. 
+
+By employ these partition rules, user can easily 
+trade off between query parallelism and query concurrency 
+base on their particular workload. For example, consider a 
+time series application which store row of the form (host, 
+metric, time, value) and in which insert be almost al- 
+way do with monotonically increase time values. Choos- 
+ing to hash-partition by timestamp optimally spread the in- 
+sert load across all servers; however, a query for a specific 
+metric on a specific host during a short time range must scan 
+all tablets, limit concurrency. A user might instead choose 
+
+3 
+
+
+
+to range-partition by timestamp while add separate hash 
+partition rule for the metric name and hostname, which 
+would provide a good trade-off of parallelism on write and 
+concurrency on read. 
+
+Though user must understand the concept of partition 
+to optimally use Kudu, the detail of partition key encode 
+be fully transparent to the user: encode partition key be 
+not expose in the API. Users always specify rows, partition 
+split points, and key range use structure row object or 
+SQL tuple syntax. Although this flexibility in partition 
+be relatively unique in the “NoSQL” space, it should be quite 
+familiar to user and administrator of analytic MPP database 
+management systems. 
+
+3.3 Replication 
+
+In order to provide high availability and durability while run- 
+ning on large commodity clusters, Kudu replicates all of it 
+table data across multiple machines. When create a table, 
+the user specifies a replication factor, typically 3 or 5, de- 
+pending on the application’s availability SLAs. Kudu’s mas- 
+ter strives to ensure that the request number of replica be 
+maintain at all time (see Section 3.4.2). 
+
+Kudu employ the Raft[25] consensus algorithm to repli- 
+cate it tablets. In particular, Kudu us Raft to agree upon 
+a logical log of operation (e.g. insert/update/delete) for each 
+tablet. When a client wish to perform a write, it first lo- 
+cates the leader replica (see Section 3.4.3) and sends a Write 
+RPC to this replica. If the client’s information be stale and 
+the replica be no longer the leader, it reject the request, caus- 
+ing the client to invalidate and refresh it metadata cache and 
+resend the request to the new leader. If the replica be in fact 
+still act a the leader, it employ a local lock manager to 
+serialize the operation against other concurrent operations, 
+pick an MVCC timestamp, and proposes the operation via 
+Raft to it followers. If a majority of replica accept the write 
+and log it to their own local write-ahead logs2, the write be 
+consider durably replicate and thus can be commit on 
+all replicas. Note that there be no restriction that the leader 
+must write an operation to it local log before it may be com- 
+mitted: this provide good latency-smoothing property even 
+if the leader’s disk be perform poorly. 
+
+In the case of a failure of a minority of replicas, the leader 
+can continue to propose and commit operation to the tablet’s 
+replicate log. If the leader itself fails, the Raft algorithm 
+quickly elect a new leader. By default, Kudu us a 500- 
+millisecond heartbeat interval and a 1500-millisecond election 
+timeout; thus, after a leader fails, a new leader be typically 
+elect within a few seconds. 
+
+2Kudu give administrator the option of consider a write-ahead 
+log entry commit either after it have be write to the operating 
+system buffer cache, or only after an explicit fsync operation have be 
+performed. The latter provide durability even in the event of a full data- 
+center outage, but decrease write performance substantially on spin 
+hard disks. 
+
+Kudu implement some minor improvement on the Raft 
+algorithm. In particular: 
+
+1. As propose in [19] we employ an exponential back-off al- 
+gorithm after a fail leader election. We found that, a 
+we typically commit Raft’s persistent metadata to con- 
+tend hard disk drives, such an extension be necessary 
+to ensure election convergence on busy clusters. 
+
+2. When a new leader contact a follower whose log diverges 
+from it own, Raft proposes march backward one op- 
+eration at a time until discover the point where they 
+diverged. Kudu instead immediately jump back to the 
+last know committedIndex, which be always guaranteed 
+to be present on any divergent follower. This minimizes 
+the potential number of round trip at the cost of po- 
+tentially send redundant operation over the network. 
+We found this simple to implement, and it ensures that 
+divergent operation be aborted after a single round-trip. 
+
+Kudu do not replicate the on-disk storage of a tablet, 
+but rather just it operation log. The physical storage of 
+each replica of a tablet be fully decoupled. This yield several 
+advantages: 
+
+• When one replica be undergo physical-layer back- 
+ground operation such a flush or compaction (see 
+Section 4), it be unlikely that other node be operat- 
+ing on the same tablet at the same time. Because Raft 
+may commit after an acknowledgment by a majority of 
+replicas, this reduces the impact of such physical-layer 
+operation on the tail latency experienced by client for 
+writes. In the future, we anticipate implement tech- 
+niques such a the speculative read request described in 
+[16] to further decrease tail latency for read in concur- 
+rent read/write workloads. 
+
+• During development, we discover some rare race con- 
+ditions in the physical storage layer of the Kudu tablet. 
+Because the storage layer be decouple across replicas, 
+none of these race condition result in unrecoverable 
+data loss: in all cases, we be able to detect that one 
+replica have become corrupt (or silently diverge from the 
+majority) and repair it. 
+
+3.3.1 Configuration Change 
+
+Kudu implement Raft configuration change follow the 
+one-by-one algorithm propose in [24]. In this approach, the 
+number of voter in the Raft configuration may change by at 
+most one in each configuration change. In order to grow a 3- 
+replica configuration to 5 replicas, two separate configuration 
+change (3→4, 4→5) must be propose and committed. 
+
+Kudu implement the addition of new server through a 
+process call remote bootstrap. In our design, in order to add 
+a new replica, we first add it a a new member in the Raft 
+
+4 
+
+
+
+configuration, even before notify the destination server 
+that a new replica will be copy to it. When this config- 
+uration change have be committed, the current Raft leader 
+replica trigger a StartRemoteBootstrap RPC, which cause 
+the destination server to pull a snapshot of the tablet data and 
+log from the current leader. When the transfer be complete, 
+the new server open the tablet follow the same process 
+a after a server restart. When the tablet have open the 
+tablet data and replayed any necessary write-ahead logs, it 
+have fully replicate the state of the leader at the time it be- 
+gan the transfer, and may begin respond to Raft RPCs a 
+a fully-functional replica. 
+
+In our current implementation, new server be add im- 
+mediately a VOTER replicas. This have the disadvantage that, 
+after move from a 3-server configuration to a 4-server con- 
+figuration, three out of the four server must acknowledge 
+each operation. Because the new server be in the process of 
+copying, it be unable to acknowledge operations. If another 
+server be to crash during the snapshot-transfer process, the 
+tablet would become unavailable for writes until the remote 
+bootstrap finished. 
+
+To address this issue, we plan to implement a PRE VOTER 
+replica state. In this state, the leader will send Raft update 
+and trigger remote bootstrap on the target replica, but not 
+count it a a voter when calculate the size of the configu- 
+ration’s majority. Upon detect that the PRE VOTER replica 
+have fully caught up to the current logs, the leader will auto- 
+matically propose and commit another configuration change 
+to transition the new replica to a full VOTER. 
+
+When remove replica from a tablet, we follow a similar 
+approach: the current Raft leader proposes an operation to 
+change the configuration to one that do not include the node 
+to be evicted. If this be committed, then the remain node 
+will no longer send message to the evict node, though the 
+evict node will not know that it have be removed. When 
+the configuration change be committed, the remain node 
+report the configuration change to the Master, which be re- 
+sponsible for cleaning up the orphan replica (see Section 
+3.4.2). 
+
+3.4 The Kudu Master 
+
+Kudu’s central master process have several key responsibilities: 
+
+1. Act a a catalog manager, keep track of which table 
+and tablet exist, a well a their schemas, desire replica- 
+tion levels, and other metadata. When table be created, 
+altered, or deleted, the Master coordinate these action 
+across the tablet and ensures their eventual completion. 
+
+2. Act a a cluster coordinator, keep track of which 
+server in the cluster be alive and coordinate redis- 
+tribution of data after server failures. 
+
+3. Act a a tablet directory, keep track of which tablet 
+server be host replica of each tablet. 
+
+We chose a centralized, replicate master design over a fully 
+peer-to-peer design for simplicity of implementation, debug- 
+ging, and operations. 
+
+3.4.1 Catalog Manager 
+
+The master itself host a single-tablet table which be restrict 
+from direct access by users. The master internally writes cat- 
+alog information to this tablet, while keep a full write- 
+through cache of the catalog in memory at all times. Given 
+the large amount of memory available on current commod- 
+ity hardware, and the small amount of metadata store per 
+tablet, we do not anticipate this become a scalability is- 
+sue in the near term. If scalability becomes an issue, move 
+to a page cache implementation would be a straightforward 
+evolution of the architecture. 
+
+The catalog table maintains a small amount of state for 
+each table in the system. In particular, it keep the current 
+version of the table schema, the state of the table (creating, 
+running, deleting, etc), and the set of tablet which comprise 
+the table. The master service a request to create a table by 
+first write a table record to the catalog table indicate a 
+CREATING state. Asynchronously, it selects tablet server to 
+host tablet replicas, creates the Master-side tablet metadata, 
+and sends asynchronous request to create the replica on the 
+tablet servers. If the replica creation fails or time out on a 
+majority of replicas, the tablet can be safely delete and a new 
+tablet create with a new set of replicas. If the Master fails in 
+the middle of this operation, the table record indicates that a 
+roll-forward be necessary and the master can resume where it 
+left off. A similar approach be use for other operation such a 
+schema change and deletion, where the Master ensures that 
+the change be propagate to the relevant tablet server before 
+write the new state to it own storage. In all cases, the 
+message from the Master to the tablet server be design 
+to be idempotent, such that on a crash and restart, they can 
+be safely resent. 
+
+Because the catalog table be itself persist in a Kudu 
+tablet, the Master support use Raft to replicate it persis- 
+tent state to backup master processes. Currently, the backup 
+master act only a Raft follower and do not serve client re- 
+quests. Upon become elect leader by the Raft algorithm, 
+a backup master scan it catalog table, load it in-memory 
+cache, and begin act a an active master follow the 
+same process a a master restart. 
+
+3.4.2 Cluster Coordination 
+
+Each of the tablet server in a Kudu cluster be statically con- 
+figure with a list of host name for the Kudu masters. Upon 
+startup, the tablet server register with the Masters and pro- 
+ceed to send tablet report indicate the total set of tablet 
+which they be hosting. The first such tablet report contains 
+information about all tablets. All future tablet report be in- 
+cremental, only contain report for tablet that have be 
+
+5 
+
+
+
+newly created, deleted, or modify (e.g. process a schema 
+change or Raft configuration change). 
+
+A critical design point of Kudu be that, while the Master be 
+the source of truth about catalog information, it be only an ob- 
+server of the dynamic cluster state. The tablet server them- 
+self be always authoritative about the location of tablet 
+replicas, the current Raft configuration, the current schema 
+version of a tablet, etc. Because tablet replica agree on all 
+state change via Raft, every such change can be mapped to a 
+specific Raft operation index in which it be committed. This 
+allows the Master to ensure that all tablet state update be 
+idempotent and resilient to transmission delays: the Master 
+simply compare the Raft operation index of a tablet state 
+update and discard it if the index be not newer than the 
+Master’s current view of the world. 
+
+This design choice leaf much responsibility in the hand 
+of the tablet server themselves. For example, rather than de- 
+tecting tablet server crash from the Master, Kudu instead 
+delegate that responsibility to the Raft LEADER replica of 
+any tablet with replica on the crashed machine. The leader 
+keep track of the last time it successfully communicate with 
+each follower, and if it have fail to communicate for a signifi- 
+cant period of time, it declares the follower dead and proposes 
+a Raft configuration change to evict the follower from the Raft 
+configuration. When this configuration change be successfully 
+committed, the remain tablet server will issue a tablet re- 
+port to the Master to advise it of the decision make by the 
+leader. 
+
+In order to regain the desire replication count for the 
+tablet, the Master selects a tablet server to host a new replica 
+base on it global view of the cluster. After select a server, 
+the Master suggests a configuration change to the current 
+leader replica for the tablet. However, the Master itself be 
+powerless to change a tablet configuration – it must wait for 
+the leader replica to propose and commit the configuration 
+change operation, at which point the Master be notify of the 
+configuration change’s success via a tablet report. If the Mas- 
+ter’s suggestion fail (e.g. because the message be lost) it 
+will stubbornly retry periodically until successful. Because 
+these operation be tag with the unique index of the de- 
+grade configuration, they be fully idempotent and conflict- 
+free, even if the Master issue several conflict suggestions, 
+a might happen soon after a master fail-over. 
+
+The master responds similarly to extra replica of tablets. 
+If the Master receives a tablet report which indicates that 
+a replica have be remove from a tablet configuration, it 
+stubbornly sends DeleteTablet RPCs to the remove node 
+until the RPC succeeds. To ensure eventual cleanup even in 
+the case of a master crash, the Master also sends such RPCs in 
+response to a tablet report which identifies that a tablet server 
+be host a replica which be not in the new commit Raft 
+configuration. 
+
+3.4.3 Tablet Directory 
+
+In order to efficiently perform read and write operation with- 
+out intermediate network hops, client query the Master for 
+tablet location information. Clients be “thick” and maintain 
+a local metadata cache which include their most recent in- 
+formation about each tablet they have previously accessed, 
+include the tablet’s partition key range and it Raft con- 
+figuration. At any point in time, the client’s cache may be 
+stale; if the client attempt to send a write to a server which 
+be no longer the leader for a tablet, the server will reject the 
+request. The client then contact the Master to learn about 
+the new leader. In the case that the client receives a network 
+error communicate with it presume leader, it follow the 
+same strategy, assume that the tablet have likely elect a 
+new leader. 
+
+In the future, we plan to piggy-back the current Raft config- 
+uration on the error response if a client contact a non-leader 
+replica. This will prevent extra round-trips to the master 
+after leader elections, since typically the follower will have 
+up-to-date information. 
+
+Because the Master maintains all tablet partition range in- 
+formation in memory, it scale to a high number of request 
+per second, and responds with very low latency. In a 270- 
+node cluster run a benchmark workload with thousand of 
+tablets, we measure the 99.99th percentile latency of tablet 
+location lookup RPCs at 3.2ms, with the 95th percentile at 
+374 microsecond and 75th percentile at 91 microseconds. 
+Thus, we do not anticipate that the tablet directory lookup 
+will become a scalability bottleneck at current target cluster 
+sizes. If they do become a bottleneck, we note that it be al- 
+way safe to serve stale location information, and thus this 
+portion of the Master can be trivially partition and repli- 
+cat across any number of machines. 
+
+4 Tablet storage 
+
+Within a tablet server, each tablet replica operates a an en- 
+tirely separate entity, significantly decouple from the parti- 
+tioning and replication system described in section 3.2 and 
+3.3. During development of Kudu, we found that it be con- 
+venient to develop the storage layer somewhat independently 
+from the higher-level distribute system, and in fact many 
+of our functional and unit test operate entirely within the 
+confines of the tablet implementation. 
+
+Due to this decoupling, we be explore the idea of pro- 
+viding the ability to select an underlie storage layout on a 
+per-table, per-tablet or even per-replica basis – a distribute 
+analogue of Fractured Mirrors, a propose in [26]. However, 
+we currently offer only a single storage layout, described in 
+this section. 
+
+6 
+
+
+
+4.1 Overview 
+
+The implementation of tablet storage in Kudu address sev- 
+eral goals: 
+
+1. Fast columnar scan - In order to provide analytic per- 
+formance comparable to best-of-breed immutable data 
+format such a Parquet and ORCFile[7], it’s critical that 
+the majority of scan can be service from efficiently en- 
+cod columnar data files. 
+
+2. Low-latency random update - In order to provide 
+fast access to update or read arbitrary rows, we require 
+O(lg n) lookup complexity for random access. 
+
+3. Consistency of performance - Based on our expe- 
+riences support other data storage systems, we have 
+found that user be willing to trade off peak performance 
+in order to achieve predictability. 
+
+In order to provide these characteristic simultaneously, 
+Kudu do not reuse any pre-existing storage engine, but 
+rather chooses to implement a new hybrid columnar store 
+architecture. 
+
+4.2 RowSets 
+
+Tablets in Kudu be themselves subdivide into small unit 
+call RowSets. Some RowSets exist in memory only, term 
+MemRowSets, while others exist in a combination of disk and 
+memory, term DiskRowSets. Any give live (not deleted) 
+row exists in exactly one RowSet; thus, RowSets form disjoint 
+set of rows. However, note that the primary key interval of 
+different RowSets may intersect. 
+
+At any point in time, a tablet have a single MemRowSet 
+which store all recently-inserted rows. Because these store 
+be entirely in-memory, a background thread periodically 
+flush MemRowSets to disk. The schedule of these flush 
+be described in further detail in Section 4.11. 
+
+When a MemRowSet have be select to be flushed, a 
+new, empty MemRowSet be swap in to replace it. The 
+previous MemRowSet be write to disk, and becomes one or 
+more DiskRowSets. This flush process be fully concurrent: 
+reader can continue to access the old MemRowSet while it be 
+be flushed, and update and deletes of row in the flush 
+MemRowSet be carefully tracked and roll forward into the 
+on-disk data upon completion of the flush process. 
+
+4.3 MemRowSet Implementation 
+
+MemRowSets be implement by an in-memory concurrent 
+B-tree with optimistic locking, broadly base off the design 
+of MassTree[22], with the follow changes: 
+
+1. We do not support removal of element from the tree. 
+Instead, we use MVCC record to represent deletions. 
+
+MemRowSets eventually flush to other storage, so we can 
+defer removal of these record to other part of the sys- 
+tem. 
+
+2. Similarly, we do not support arbitrary in-place update of 
+record in the tree. Instead, we allow only modification 
+which do not change the value’s size: this permit atomic 
+compare-and-swap operation to append mutation to a 
+per-record link list. 
+
+3. We link together leaf node with a next pointer, a in 
+the B+-tree[13]. This improves our sequential scan per- 
+formance, a critical operation. 
+
+4. We do not implement the full “trie of trees”, but rather 
+just a single tree, since we be less concerned about ex- 
+tremely high random access throughput compare to the 
+original application. 
+
+In order to optimize for scan performance over random ac- 
+cess, we use slightly large internal and leaf node size at 
+four cache-lines (256 bytes) each. 
+
+Unlike most data in Kudu, MemRowSets store row in a 
+row-wise layout. This still provide acceptable performance, 
+since the data be always in memory. To maximize through- 
+put despite the choice of row storage, we utilize SSE2 mem- 
+ory prefetch instruction to prefetch one leaf node ahead of 
+our scanner, and JIT-compile record projection operation 
+use LLVM[5]. These optimization provide significant per- 
+formance boost relative to the naive implementation. 
+
+In order to form the key for insertion into the B-tree, we 
+encode each row’s primary key use an order-preserving en- 
+cod a described in Section 3.2. This allows efficient tree 
+traversal use only memcmp operation for comparison, and 
+the sort nature of the MemRowSet allows for efficient scan 
+over primary key range or individual key lookups. 
+
+4.4 DiskRowSet Implementation 
+
+When MemRowSets flush to disk, they become DiskRowSets. 
+While flush a MemRowSet, we roll the DiskRowSet after 
+each 32 MB of IO. This ensures that no DiskRowSet be too 
+large, thus allow efficient incremental compaction a de- 
+scribed late in Section 4.10. Because a MemRowSet be in 
+sort order, the flush DiskRowSets will themselves also be 
+in sort order, and each roll segment will have a disjoint 
+interval of primary keys. 
+
+A DiskRowSet be make up of two main components: base 
+data and delta stores. The base data be a column-organized 
+representation of the row in the DiskRowSet. Each column 
+be separately write to disk in a single contiguous block of 
+data. The column itself be subdivide into small page to al- 
+low for granular random reads, and an embed B-tree index 
+allows efficient seek to each page base on it ordinal offset 
+within the rowset. Column page be encode use a variety 
+of encodings, such a dictionary encoding, bitshuffle[23], or 
+
+7 
+
+
+
+front coding, and be optionally compress use generic bi- 
+nary compression scheme such a LZ4, gzip, or bzip2. These 
+encoding and compression option may be specify explic- 
+itly by the user on a per-column basis, for example to desig- 
+nate that a large infrequently-accessed text column should be 
+gzipped, while a column that typically store small integer 
+should be bit-packed. Several of the page format support 
+by Kudu be common with those support by Parquet, and 
+our implementation share much code with Impala’s Parquet 
+library. 
+
+In addition to flush column for each of the user-specified 
+column in the table, we also write a primary key index col- 
+umn, which store the encode primary key for each row. We 
+also flush a chunked Bloom filter[10] which can be use to 
+test for the possible presence of a row base on it encode 
+primary key. 
+
+Because columnar encoding be difficult to update in place, 
+the column within the base data be consider immutable 
+once flushed. Instead, update and deletes be tracked 
+through structure term delta stores. Delta store be ei- 
+ther in-memory DeltaMemStores, or on-disk DeltaFiles. A 
+DeltaMemStore be a concurrent B-tree which share the im- 
+plementation described above. A DeltaFile be a binary-typed 
+column block. In both cases, delta store maintain a map- 
+ping from (row offset, timestamp) tuples to RowChange- 
+List records. The row offset be simply the ordinal index of a 
+row within the RowSet – for example, the row with the low- 
+est primary key have offset 0. The timestamp be the MVCC 
+timestamp assign when the operation be originally writ- 
+ten. The RowChangeList be a binary-encoded list of change 
+to a row, for example indicate SET column id 3 = ‘foo’ 
+or DELETE. 
+
+When service an update to data within a DiskRowSet, 
+we first consult the primary key index column. By use it 
+embed B-tree index, we can efficiently seek to the page 
+contain the target row. Using page-level metadata, we can 
+determine the row offset for the first cell within that page. By 
+search within the page (eg via in-memory binary search) 
+we can then calculate the target row’s offset within the entire 
+DiskRowSet. Upon determine this offset, we insert a new 
+delta record into the rowset’s DeltaMemStore. 
+
+4.5 Delta Flushes 
+
+Because the DeltaMemStore be an in-memory store, it have fi- 
+nite capacity. The same background process which schedule 
+flush of MemRowSets also schedule flush of DeltaMem- 
+Stores. When flush a DeltaMemStore, a new empty store 
+be swap in while the exist one be write to disk and 
+becomes a DeltaFile. A DeltaFile be a simple binary column 
+which contains an immutable copy of the data that be pre- 
+viously in memory. 
+
+4.6 INSERT path 
+
+As described previously, each tablet have a single MemRowSet 
+which be hold recently insert data; however, it be not suffi- 
+cient to simply write all insert directly to the current Mem- 
+RowSet, since Kudu enforces a primary key uniqueness con- 
+straint. In other words, unlike many NoSQL stores, Kudu 
+differentiates INSERT from UPSERT. 
+
+In order to enforce the uniqueness constraint, Kudu must 
+consult all of the exist DiskRowSets before insert the 
+new row. Because there may be hundred or thousand of 
+DiskRowSets per tablet, it be important that this be do effi- 
+ciently, both by cull the number of DiskRowSets to consult 
+and by make the lookup within a DiskRowSet efficient. 
+
+In order to cull the set of DiskRowSets to consult on an 
+INSERT operation, each DiskRowSet store a Bloom filter of 
+the set of key present. Because new key be never insert 
+into an exist DiskRowSet, this Bloom filter be static data. 
+We chunk the Bloom filter into 4KB pages, each correspond- 
+ing to a small range of keys, and index those page use an 
+immutable B-tree structure. These page a well a their in- 
+dex be cached in a server-wide LRU page cache, ensure 
+that most Bloom filter access do not require a physical disk 
+seek. 
+
+Additionally, for each DiskRowSet, we store the minimum 
+and maximum primary key, and use these key bound to in- 
+dex the DiskRowSets in an interval tree. This further cull 
+the set of DiskRowSets to consult on any give key lookup. 
+A background compaction process, described in Section 4.10 
+reorganizes DiskRowSets to improve the effectiveness of the 
+interval tree-based culling. 
+
+For any DiskRowSets that be not able to be culled, we 
+must fall back to look up the key to be insert within it 
+encode primary key column. This be do via the embed- 
+ded B-tree index in that column, which ensures a logarithmic 
+number of disk seek in the bad case. Again, this data ac- 
+ce be perform through the page cache, ensure that for 
+hot area of key space, no physical disk seek be needed. 
+
+4.7 Read path 
+
+Similar to system like X100[11], Kudu’s read path always 
+operates in batch of row in order to amortize function call 
+cost and provide good opportunity for loop unroll and 
+SIMD instructions. Kudu’s in-memory batch format consists 
+of a top-level structure which contains pointer to small 
+block for each column be read. Thus, the batch itself be 
+columnar in memory, which avoids any offset calculation cost 
+when copying from columnar on-disk store into the batch. 
+
+When reading data from a DiskRowSet, Kudu first deter- 
+mine if a range predicate on the scan can be use to cull 
+the range of row within this DiskRowSet. For example, if 
+the scan have set a primary key low bound, we perform a 
+seek within the primary key column in order to determine a 
+low bound row offset; we do the same with any upper bound 
+
+8 
+
+
+
+key. This convert the key range predicate into a row offset 
+range predicate, which be simpler to satisfy a it require no 
+expensive string comparisons. 
+
+Next, Kudu performs the scan one column at a time. First, 
+it seek the target column to the correct row offset (0, if no 
+predicate be provided, or the start row, if it previously de- 
+termined a low bound). Next, it copy cell from the source 
+column into our row batch use the page-encoding specific 
+decoder. Last, it consult the delta store to see if any late 
+update have replace cell with newer versions, base on the 
+current scan’s MVCC snapshot, apply those change to 
+our in-memory batch a necessary. Because delta be store 
+base on numerical row offset rather than primary keys, this 
+delta application process be extremely efficient: it do not re- 
+quire any per-row branching or expensive string comparisons. 
+
+After perform this process for each row in the projection, 
+it return the batch results, which will likely be copy into an 
+RPC response and sent back to the client. The tablet server 
+maintains stateful iterators on the server side for each scanner 
+so that successive request do not need to re-seek, but rather 
+can continue from the previous point in each column file. 
+
+4.8 Lazy Materialization 
+
+If predicate have be specify for the scanner, we perform 
+lazy materialization[9] of column data. In particular, we pre- 
+fer to read column which have associate range predicate 
+before reading any other columns. After reading each such 
+column, we evaluate the associate predicate. In the case 
+that the predicate filter all row in this batch, we short cir- 
+cuit the reading of other columns. This provide a significant 
+speed boost when apply selective predicates, a the major- 
+ity of data from the other select column will never be read 
+from disk. 
+
+4.9 Delta Compaction 
+
+Because delta be not store in a columnar format, the scan 
+speed of a tablet will degrade a ever more delta be ap- 
+ply to the base data. Thus, Kudu’s background mainte- 
+nance manager periodically scan DiskRowSets to find any 
+case where a large number of delta (as identify by the 
+ratio between base data row count and delta count) have ac- 
+cumulated, and schedule a delta compaction operation which 
+merges those delta back into the base data columns. 
+
+In particular, the delta compaction operation identifies the 
+common case where the majority of delta only apply to a 
+subset of columns: for example, it be common for a SQL batch 
+operation to update just one column out of a wide table. In 
+this case, the delta compaction will only rewrite that single 
+column, avoid IO on the other unmodified columns. 
+
+4.10 RowSet Compaction 
+
+In addition to compact delta into base data, Kudu also pe- 
+riodically compact different DiskRowSets together in a pro- 
+ce call RowSet compaction. This process performs a key- 
+base merge of two or more DiskRowSets, result in a sort 
+stream of output rows. The output be write back to new 
+DiskRowSets, again roll every 32 MB, to ensure that no 
+DiskRowSet in the system be too large. 
+
+RowSet compaction have two goals: 
+
+1. We take this opportunity to remove delete rows. 
+
+2. This process reduces the number of DiskRowSets that 
+overlap in key range. By reduce the amount by which 
+RowSets overlap, we reduce the number of RowSets 
+which be expect to contain a randomly select key 
+in the tablet. This value act a an upper bound for 
+the number of Bloom filter lookups, and thus disk seeks, 
+expect to service a write operation within the tablet. 
+
+4.11 Scheduling maintenance 
+
+As described in the section above, Kudu have several different 
+background maintenance operation that it performs to re- 
+duce memory usage and improve performance of the on-disk 
+layout. These operation be perform by a pool of mainte- 
+nance thread that run within the tablet server process. To- 
+ward the design goal of consistent performance, these thread 
+run all the time, rather than be trigger by specific event 
+or conditions. Upon the completion of one maintenance op- 
+eration, a scheduler process evaluates the state of the on-disk 
+storage and pick the next operation to perform base on a 
+set of heuristic meant to balance memory usage, write-ahead 
+log retention, and the performance of future read and write 
+operations. 
+
+In order to select DiskRowSets to compact, the mainte- 
+nance scheduler solves an optimization problem: give an IO 
+budget (typically 128 MB), select a set of DiskRowSets such 
+that compact them would reduce the expect number of 
+seeks, a described above. This optimization turn out to be 
+a series of instance of the well-known integer knapsack prob- 
+lem, and be able to be solve efficiently in a few milliseconds. 
+
+Because the maintenance thread be always run small 
+unit of work, the operation can react quickly to change in 
+workload behavior. For example, when insertion workload in- 
+creases, the scheduler quickly reacts and flush in-memory 
+store to disk. When the insertion workload reduces, the 
+server performs compaction in the background to increase 
+performance for future writes. This provide smooth tran- 
+sitions in performance, make it easy for developer and 
+operator to perform capacity planning and estimate the la- 
+tency profile of their workloads. 
+
+9 
+
+
+
+5 Hadoop Integration 
+
+5.1 MapReduce and Spark 
+
+Kudu be built in the context of the Hadoop ecosystem, 
+and we have prioritize several key integration with other 
+Hadoop components. In particular, we provide binding for 
+MapReduce job to either input or output data to Kudu ta- 
+bles. These binding can be easily use in Spark[28] a well. 
+A small glue layer bind Kudu table to higher-level Spark 
+concept such a DataFrames and Spark SQL tables. 
+
+These binding offer native support for several key features: 
+
+• Locality - internally, the input format query the Kudu 
+master process to determine the current location for 
+each tablet, allow for data-local processing. 
+
+• Columnar Projection - the input format provide a 
+simple API allow the user to select which column be 
+require for their job, thus minimize the amount of IO 
+required. 
+
+• Predicate pushdown - the input format offer a simple 
+API to specify predicate which will be evaluate server- 
+side before row be pass to the job. This predicate 
+push-down increase performance and can be easily ac- 
+cessed through higher-level interface such a SparkSQL. 
+
+5.2 Impala 
+
+Kudu be also deeply integrate with Cloudera Impala[20]. In 
+fact, Kudu provide no shell or SQL parser of it own: the 
+only support for SQL operation be via it integration with 
+Impala. The Impala integration include several key features: 
+
+• Locality - the Impala planner us the Kudu Java API to 
+inspect tablet location information and distributes back- 
+end query processing task to the same node which store 
+the data. In typical queries, no data be transfer over 
+the network from Kudu to Impala. We be currently in- 
+vestigating further optimization base on share mem- 
+ory transport to make the data transfer even more effi- 
+cient. 
+
+• Predicate pushdown support - the Impala planner 
+have be modify to identify predicate which be able 
+to be push down to Kudu. In many cases, push 
+a predicate allows significant reduction in IO, because 
+Kudu lazily materializes column only after predicate 
+have be passed. 
+
+• DDL extension - Impala’s DDL statement such a 
+CREATE TABLE have be extend to support specify- 
+ing Kudu partition schemas, replication factors, and 
+primary key definitions. 
+
+Q1 Q2 Q3 Q4 Q5 Q6 Q7 Q8 
+HDFS 4.1 10.4 7.6 9.2 17.5 3.5 12.7 31.5 
+Kudu 4.3 9.1 6.1 7.5 16.0 1.4 13.8 10.5 
+
+Q9 Q10 Q11 Q12 Q13 Q14 Q15 Q16 
+HDFS 49.7 6.9 3.3 8.5 6.1 3.3 4.2 2.8 
+Kudu 47.7 3.8 3.4 3.0 5.5 1.4 3.9 2.4 
+
+Q17 Q18 Q19 Q20 Q21 Q22 Geomean 
+HDFS 23.4 14.8 19.4 6.1 22.4 3.6 8.8 
+Kudu 17.7 19.0 17.8 7.0 12.0 3.6 6.7 
+
+Table 1: TPC-H query times: Impala on Kudu v Impala on 
+Parquet/HDFS (seconds, low be better) 
+
+• DML extension - Because Kudu be the first mutable 
+store in the Hadoop ecosystem that be suitable for fast 
+analytics, Impala previously do not support mutation 
+statement such a UPDATE and DELETE. These statement 
+have be implement for Kudu tables. 
+
+Impala’s modular architecture allows a single query to 
+transparently join data from multiple different storage com- 
+ponents. For example, a text log file on HDFS can be join 
+against a large dimension table store in Kudu. 
+
+6 Performance evaluation 
+
+6.1 Comparison with Parquet 
+
+To evaluate the performance of Kudu for analytic workloads, 
+we load the industry-standard TPC-H data set at scale fac- 
+tor 100 on a cluster of 75 nodes, each with 64GB of memory, 
+12 spin disks, and dual 6-core Xeon E5-2630L processor 
+run at 2GHz. Because the total memory on the cluster be 
+much large than the data to be queried, all query operate 
+fully against cached data; however, all data be fully persist 
+in the columnar DiskRowSet storage of Kudu rather than be- 
+ing left in memory stores. 
+
+We use Impala 2.2 to run the full set of 22 TPC-H query 
+against the same data set store in Parquet a well a on 
+Kudu. For the Kudu tables, we hash-partitioned each table 
+by it primary key into 256 buckets, with the exception of 
+the very small nation and region dimension tables, which 
+be store in a single tablet each. All data be load use 
+CREATE TABLE AS SELECT statement from within Impala. 
+
+While we have not yet perform an in-depth benchmark 
+include concurrent workloads, we compare the wall time 
+of each TPC-H query between the two systems. The result 
+be summarize in Table 1. Across the set of queries, Kudu 
+perform on average 31% faster than Parquet. We believe 
+that Kudu’s performance advantage be due to two factors: 
+
+1. Lazy materialization - Several of the query in TPC- 
+H include a restrictive predicate on large table such a 
+
+10 
+
+
+
+lineitem. Kudu support lazy materialization, avoid 
+IO and CPU cost on other column in the case where 
+the predicate do not match. The current implementa- 
+tion of Parquet in Impala do not support this feature. 
+
+2. CPU efficiency - The Parquet reader in Impala have not 
+be fully optimized, and currently invokes many per-row 
+function calls. These branch limit it CPU efficiency. 
+
+We expect that our advantage over Parquet will eventually 
+be erode a the Parquet implementation continue to be op- 
+timized. Additionally, we expect that Parquet will perform 
+good on disk-resident workload a it issue large 8MB IO 
+accesses, a oppose to the small page-level access per- 
+form by Kudu. 
+
+While the performance of Kudu compare with columnar 
+format warrant further investigation, it be clear that Kudu 
+be able to achieve similar scan speed to immutable storage 
+while provide mutable characteristics. 
+
+6.2 Comparison with Phoenix 
+
+Another implementation of SQL in the Hadoop ecosystem be 
+Apache Phoenix[4]. Phoenix provide a SQL query layer on 
+top of HBase. Although Phoenix be not primarily target at 
+analytic workloads, we perform a small number of compar- 
+isons to illustrate the order-of-magnitude difference in per- 
+formance between Kudu and HBase for scan-heavy analytic 
+workloads. 
+
+To eliminate scalability effect and compare raw scan per- 
+formance, we ran these comparison on a small cluster, con- 
+sisting of 9 worker node plus one master node, each with 
+48GB of RAM, 3 data disks, and dual 4-core Xeon L5630 
+processor at 2.13GHz. We use Phoenix 4.3 and HBase 1.0. 
+
+In this benchmark, we load the same TPC-H lineitem 
+table (62GB in CSV format) into Phoenix use the pro- 
+vided CsvBulkLoadTool MapReduce job. We configure the 
+Phoenix table to use 100 hash partitions, and create an equal 
+number of tablet within Kudu. In both Kudu and Phoenix, 
+we use the DOUBLE type for non-integer numeric columns, 
+since Kudu do not currently support the DECIMAL type. We 
+configure HBase with default block cache settings, result- 
+ing in 9.6GB of on-heap cache per server. Kudu be config- 
+ured with only 1GB of in-process block cache, instead rely 
+on the OS-based buffer cache to avoid physical disk IO. We 
+use the default HBase table attribute provide by Phoenix: 
+FAST DIFF encoding, no compression, and one historical ver- 
+sion per cell. On Impala, we use a per-query option to dis- 
+able runtime code generation in query where it be not ben- 
+eficial, eliminate a source of constant overhead unrelated to 
+the storage engine. 
+
+After load the data, we perform explicit major com- 
+pactions to ensure 100% HDFS block locality, and ensure 
+that the table’s region (analogous to Kudu tablets) be 
+equally spread across the 9 worker nodes. The 62GB data set 
+
+Q1 scan 6 column [TPC-H Q1] 
+Q2 scan no column SELECT COUNT(*) FROM lineitem; 
+
+Q3 non-key predicate 
+SELECT COUNT(*) FROM 
+
+lineitem WHERE l quantity = 
+
+48 
+
+Q4 key lookup 
+SELECT COUNT(*) FROM 
+
+lineitem WHERE l orderkey = 
+
+2000 
+
+Table 2: Queries use to compare Impala-Kudu v Phoenix- 
+HBase 
+
+Load Q1 Q2 Q3 Q4 
+Phoenix-HBase 2152s* 219 76 131 0.04s 
+
+Impala-Kudu 1918s 13.2 1.7 0.7 0.15s 
+Impala-Parquet 155s 9.3 1.4 1.5s 1.37ss 
+
+Table 3: Phoenix-HBase v Impala-Kudu. Load time for 
+Phoenix do not include the time require for a major com- 
+paction to ensure data locality, which require an additional 
+20 minute to complete. 
+
+expand to approximately 570GB post-replication in HBase, 
+whereas the data in Kudu be 227GB post-replication3. 
+HBase region server and Kudu tablet server be allocate 
+24GB of RAM, and we ran each service alone in the cluster 
+for it benchmark. We verify during both workload that no 
+hard disk read be generated, to focus on CPU efficiency, 
+though we project that on a disk-resident workload, Kudu 
+will increase it performance edge due to it columnar layout 
+and good storage efficiency. 
+
+In order to focus on scan speed rather than join perfor- 
+mance, we focus only on TPCH Q1, which read only the 
+lineitem table. We also ran several other simple queries, 
+list in Table 2, in order to quantify the performance dif- 
+ference between the Impala-Kudu system and the Phoenix- 
+HBase system on the same hardware. We ran each query 
+10 time and report the median runtime. Across the ana- 
+lytic queries, Impala-Kudu outperform Phoenix-HBase by 
+between 16x and 187x. For short scan of primary key ranges, 
+both Impala-Kudu and Phoenix-HBase return sub-second 
+results, with Phoenix win out due to low constant fac- 
+tor during query planning. The result be summarize in 
+Table 3. 
+
+6.3 Random access performance 
+
+Although Kudu be not design to be an OLTP store, one 
+of it key goal be to be suitable for lighter random-access 
+workloads. To evaluate Kudu’s random-access performance, 
+we use the Yahoo Cloud Serving Benchmark (YCSB)[?] on 
+
+3In fact, our current implementation of CREATE TABLE AS SELECT 
+do not enable dictionary compression. With this compression enabled, 
+the Kudu table size be cut in half again. 
+
+11 
+
+
+
+Workload Description 
+Load Load the table 
+
+A 50% random-read, 50% update 
+B 95% random-read, 5% update 
+C 100% random read 
+D 95% random read, 5% insert 
+
+Table 4: YCSB Workloads 
+
+the same 10-node cluster use in Section 6.2. We built YCSB 
+from it master branch4 and add a binding to run against 
+Kudu. For these benchmarks, we configure both Kudu and 
+HBase to use up to 24 GB of RAM. HBase automatically 
+allocate 9.6 GB for the block cache and the remainder of the 
+heap for it in-memory stores. For Kudu, we allocate only 
+1GB for the block cache, prefer to rely on Linux buffer 
+caching. We perform no other tuning. For both Kudu and 
+HBase, we pre-split the table into 100 tablet or regions, and 
+ensure that they be spread evenly across the nodes. 
+
+We configure YCSB to load a data set with 100 million 
+rows, each row hold 10 data column with 100 byte each. 
+Because Kudu do not have the concept of a special row key 
+column, we add an explicit key column in the Kudu schema. 
+For this benchmark, the data set fit entirely in RAM; in the 
+future we hope to do further benchmark on flash-resident or 
+disk-resident workloads, but we assume that, give the in- 
+crease capacity of inexpensive RAM, most latency-sensitive 
+online workload will primarily fit in memory. 
+
+Results for the five YCSB workload be summarize in 
+Table 4. We ran the workload in sequence by first load the 
+table with data, then run workload A through D in that 
+order, with no pause in between. Each workload ran for 10 
+million operations. For load data, we use 16 client thread 
+and enable client-side buffering to send large batch of data 
+to the backend storage engines. For all other workloads, we 
+use 64 client thread and disabled client-side buffering. 
+
+We ran this full sequence two time for each storage engine, 
+delete and reload the table in between. In the second 
+run, we substitute a uniform access distribution for work- 
+load A through C instead of the default Zipfian (power-law) 
+distribution. Workload D us a special access distribution 
+which insert row randomly, and random-reads those which 
+have be recently inserted. 
+
+We do not run workload E, which performs short range 
+scans, because the Kudu client currently lack the ability to 
+specify a limit on the number of row returned. We do not 
+run workload F , because it relies on an atomic compare-and- 
+swap primitive which Kudu do not yet support. When these 
+feature be add to Kudu, we plan to run these workload 
+a well. 
+
+Figure 1 present the throughput report by YCSB for 
+each of the workloads. In nearly all workloads, HBase out- 
+
+4git hash 1f8cc5abdcad206c37039d9fbaea7cbf76089b48 
+
+Figure 1: Operation throughput of YCSB random-access 
+workloads, compare Kudu vs. HBase 
+
+performs Kudu in term of throughput. In particular, Kudu 
+performs poorly in the Zipfian update workloads, where the 
+CPU time spent in read be dominate by apply long chain 
+of mutation store in delta store 5. HBase, on the other 
+hand, have long target this type of online workload and per- 
+form comparably in both access distributions. 
+
+Due to time limitation in prepare this paper for the first 
+Kudu beta release, we do not have sufficient data to report on 
+longer-running workloads, or to include a summary of latency 
+percentiles. We anticipate update this paper a result be- 
+come available. 
+
+7 Acknowledgements 
+
+Kudu have benefit from many contributor outside of the 
+author of this paper. In particular, thanks to Chris Leroy, 
+Binglin Chang, Guangxiang Du, Martin Grund, Eli Collins, 
+Vladimir Feinberg, Alex Feinberg, Sarah Jelinek, Misty 
+Stanley-Jones, Brock Noland, Michael Crutcher, Justin Er- 
+ickson, and Nong Li. 
+
+References 
+
+[1] Apache Avro. http://avro.apache.org. 
+
+[2] Apache HBase. http://hbase.apache.org. 
+
+[3] Apache Parquet. http://parquet.apache.org. 
+
+[4] Apache Phoenix. http://phoenix.apache.org. 
+
+5We have identify several potential optimization in this code path, 
+tracked in KUDU − 749. 
+
+12 
+
+
+
+[5] LLVM. http://www.llvm.org. 
+
+[6] MongoDB. http://www.mongodb.org. 
+
+[7] Orcfile. https://cwiki.apache.org/confluence/display/Hive/LanguageManual+ORC. 
+
+[8] Riak. https://github.com/basho/riak. 
+
+[9] D. Abadi, D. Myers, D. DeWitt, and S. Madden. Mate- 
+rialization strategy in a column-oriented dbms. In Data 
+Engineering, 2007. ICDE 2007. IEEE 23rd International 
+Conference on, page 466–475, April 2007. 
+
+[10] B. H. Bloom. Space/time trade-off in hash cod with 
+allowable errors. Commun. ACM, 13(7):422–426, July 
+1970. 
+
+[11] P. Boncz, M. Zukowski, and N. Nes. Monetdb/x100: 
+Hyper-pipelining query execution. In In CIDR, 2005. 
+
+[12] F. Chang, J. Dean, S. Ghemawat, W. C. Hsieh, D. A. 
+Wallach, M. Burrows, T. Chandra, A. Fikes, and R. E. 
+Gruber. Bigtable: A distribute storage system for struc- 
+tured data. ACM Trans. Comput. Syst., 26(2):4:1–4:26, 
+June 2008. 
+
+[13] D. Comer. Ubiquitous b-tree. ACM Comput. Surv., 
+11(2):121–137, June 1979. 
+
+[14] J. C. Corbett, J. Dean, M. Epstein, A. Fikes, C. Frost, 
+J. J. Furman, S. Ghemawat, A. Gubarev, C. Heiser, 
+P. Hochschild, W. Hsieh, S. Kanthak, E. Kogan, H. Li, 
+A. Lloyd, S. Melnik, D. Mwaura, D. Nagle, S. Quinlan, 
+R. Rao, L. Rolig, Y. Saito, M. Szymaniak, C. Taylor, 
+R. Wang, and D. Woodford. Spanner: Google’s globally- 
+distribute database. In Proceedings of the 10th USENIX 
+Conference on Operating Systems Design and Implemen- 
+tation, OSDI’12, page 251–264, Berkeley, CA, USA, 
+2012. USENIX Association. 
+
+[15] T. L. David Alves and V. Garg. Hybridtime - accessible 
+global consistency with high clock uncertainty. Technical 
+report, UT Austin, Cloudera Inc., April 2014. 
+
+[16] J. Dean and L. A. Barroso. The tail at scale. Commun. 
+ACM, 56(2):74–80, Feb. 2013. 
+
+[17] J. Dean and S. Ghemawat. Mapreduce: Simplified data 
+processing on large clusters. Commun. ACM, 51(1):107– 
+113, Jan. 2008. 
+
+[18] S. Ghemawat, H. Gobioff, and S.-T. Leung. The google 
+file system. SIGOPS Oper. Syst. Rev., 37(5):29–43, Oct. 
+2003. 
+
+[19] H. Howard, M. Schwarzkopf, A. Madhavapeddy, and 
+J. Crowcroft. Raft refloated: Do we have consensus? 
+SIGOPS Oper. Syst. Rev., 49(1):12–21, Jan. 2015. 
+
+[20] M. Kornacker, A. Behm, V. Bittorf, T. Bobrovytsky, 
+C. Ching, A. Choi, J. Erickson, M. Grund, D. Hecht, 
+M. Jacobs, I. Joshi, L. Kuff, D. Kumar, A. Leblang, 
+N. Li, I. Pandis, H. Robinson, D. Rorke, S. Rus, J. Rus- 
+sell, D. Tsirogiannis, S. Wanderman-Milne, and M. Yo- 
+der. Impala: A modern, open-source SQL engine for 
+Hadoop. In CIDR 2015, Seventh Biennial Conference on 
+Innovative Data Systems Research, Asilomar, CA, USA, 
+January 4-7, 2015, Online Proceedings. www.cidrdb.org, 
+2015. 
+
+[21] A. Lakshman and P. Malik. Cassandra: A decentralize 
+structure storage system. SIGOPS Oper. Syst. Rev., 
+44(2):35–40, Apr. 2010. 
+
+[22] Y. Mao, E. Kohler, and R. T. Morris. Cache craftiness 
+for fast multicore key-value storage. In Proceedings of the 
+7th ACM European Conference on Computer Systems, 
+EuroSys ’12, page 183–196, New York, NY, USA, 2012. 
+ACM. 
+
+[23] K. Masui. Bitshuffle. https://github.com/kiyo- 
+masui/bitshuffle. 
+
+[24] D. Ongaro. Consensus: Bridging Theory and Practice. 
+PhD thesis, Stanford University, 2014. 
+
+[25] D. Ongaro and J. Ousterhout. In search of an under- 
+standable consensus algorithm. In Proceedings of the 
+2014 USENIX Conference on USENIX Annual Technical 
+Conference, USENIX ATC’14, page 305–320, Berkeley, 
+CA, USA, 2014. USENIX Association. 
+
+[26] R. Ramamurthy, D. J. DeWitt, and Q. Su. A case for 
+fracture mirrors. The VLDB Journal, 12(2):89–101, 
+Aug. 2003. 
+
+[27] K. Shvachko, H. Kuang, S. Radia, and R. Chansler. The 
+Hadoop Distributed File System. In Proceedings of the 
+2010 IEEE 26th Symposium on Mass Storage Systems 
+and Technologies (MSST), MSST ’10, page 1–10, Wash- 
+ington, DC, USA, 2010. IEEE Computer Society. 
+
+[28] M. Zaharia, M. Chowdhury, M. J. Franklin, S. Shenker, 
+and I. Stoica. Spark: Cluster compute with work 
+sets. In Proceedings of the 2Nd USENIX Conference on 
+Hot Topics in Cloud Computing, HotCloud’10, page 10– 
+10, Berkeley, CA, USA, 2010. USENIX Association. 
+
+13 
+
+

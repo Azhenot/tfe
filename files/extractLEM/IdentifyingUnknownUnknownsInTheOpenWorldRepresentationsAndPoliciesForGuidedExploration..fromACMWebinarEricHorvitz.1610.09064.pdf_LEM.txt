@@ -1,0 +1,2023 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Identifying Unknown Unknowns in the Open World: 
+Representations and Policies for Guided Exploration 
+
+Himabindu Lakkaraju∗, Ece Kamar+, Rich Caruana+, Eric Horvitz+ 
+∗Stanford University, +Microsoft Research 
+
+∗himalv@cs.stanford.edu, + {eckamar, rcaruana, horvitz}@microsoft.com 
+
+Abstract 
+
+Predictive model deployed in the real world may assign in- 
+correct label to instance with high confidence. Such error 
+or unknown unknown be root in model incompleteness, 
+and typically arise because of the mismatch between training 
+data and the case encounter at test time. As the model be 
+blind to such errors, input from an oracle be need to iden- 
+tify these failures. In this paper, we formulate and address the 
+problem of inform discovery of unknown unknown of any 
+give predictive model where unknown unknown occur due 
+to systematic bias in the training data. We propose a model- 
+agnostic methodology which us feedback from an oracle to 
+both identify unknown unknown and to intelligently guide 
+the discovery. We employ a two-phase approach which first 
+organizes the data into multiple partition base on the fea- 
+ture similarity of instance and the confidence score assign 
+by the predictive model, and then utilizes an explore-exploit 
+strategy for discover unknown unknown across these par- 
+titions. We demonstrate the efficacy of our framework by 
+vary the underlie cause of unknown unknown across 
+various applications. To the best of our knowledge, this pa- 
+per present the first algorithmic approach to the problem of 
+discover unknown unknown of predictive models. 
+
+Introduction 
+Predictive model be widely employ in a variety of do- 
+main range from judiciary and health care to autonomous 
+driving. As we increasingly rely on these model for high- 
+stake decisions, identify and characterize their unex- 
+pected failure in the open world be critical. We categorize 
+error of a predictive model as: know unknown and un- 
+know unknown (Attenberg, Ipeirotis, and Provost 2015). 
+Known unknown be those data point for which the model 
+make low confidence prediction and errs. On the other 
+hand, unknown unknown correspond to those point for 
+which the model be highly confident about it prediction 
+but be actually wrong. Since the model lack awareness of 
+it unknown unknowns, approach developed for address- 
+ing know unknown (e.g., active learn (Settles 2009)) 
+cannot be use for discover unknown unknowns. 
+
+Unknown unknown can arise when data that be use for 
+training a predictive model be not representative of the sam- 
+ples encounter at test time when the model be deployed. 
+This mismatch could be a result of unmodeled bias in the 
+collection of training data or difference between the train 
+
+Figure 1: Unknown unknown in an image classification 
+task. Training data comprise only of image of black dog 
+and of white and brown cats. A predictive model train on 
+this data incorrectly label a white dog (test image) a a cat 
+with high confidence. 
+
+and test distribution due to temporal, spatial or other factor 
+such a a subtle shift in task definition. To illustrate, consider 
+an image classification task where the goal be to predict if a 
+give image corresponds to a cat or a dog (Figure 1). Let 
+u assume that the training data be comprise of image of 
+black dogs, and white and brown cats, and the feature set 
+include detail such a nose shape, presence or absence of 
+whiskers, color, and shape of the eyes. A predictive model 
+train on such data might learn to make prediction solely 
+base on color despite the presence of other discriminative 
+feature because color can perfectly separate the two class 
+in the training data. However, during test time, such a model 
+would classify an image of a white dog a a cat with high 
+confidence. The image of white dog are, therefore, un- 
+know unknown with regard to such a predictive model. 
+
+We formulate and address the problem of inform dis- 
+covery of unknown unknown of any give predictive model 
+when deployed in the wild. More specifically, we seek to 
+identify unknown unknown which occur a a result of sys- 
+tematic bias in the training data. We formulate this a 
+an optimization problem where unknown unknown be dis- 
+cover by query an oracle for true label of select 
+instance under a fix budget which limit the number of 
+query to the oracle. The formulation assumes no knowl- 
+
+ar 
+X 
+
+iv 
+:1 
+
+61 
+0. 
+
+09 
+06 
+
+4v 
+3 
+
+[ 
+c 
+
+.A 
+I] 
+
+1 
+0 
+
+D 
+ec 
+
+2 
+01 
+
+6 
+
+
+
+edge of the functional form or the associate training data of 
+the predictive model and treat it a a black box which out- 
+put a label and a confidence score (or a proxy) for a give 
+data point. These choice be motivate by real-world sce- 
+narios in domain such a healthcare and judiciary, where 
+predictive model be be deployed in setting where end 
+user have no access to either the model detail or the asso- 
+ciated training data (e.g., COMPAS risk assessment tool for 
+sentence (Brennan, Dieterich, and Ehret 2009)). Identify- 
+ing the blind spot of predictive model in such high-stakes 
+setting be critical a undetected unknown unknown can be 
+catastrophic. In criminal justice, bias and blindspots can 
+lead to the inappropriate sentence or incarceration of peo- 
+ple charge with crime or unintentional racial bias (Craw- 
+ford 2016). To the best of our knowledge, this be the first 
+work provide an algorithmic approach to address this 
+problem. 
+
+Developing an algorithmic solution for the discovery of 
+unknown unknown introduces a number of challenges: 1) 
+Since unknown unknown can occur in any portion of the 
+feature space, how do we develop strategy which can ef- 
+fectively and efficiently search the space? 2) As confidence 
+score associate with model prediction be typically not 
+informative for identify unknown unknowns, how can we 
+make use of the feedback from an oracle to guide the dis- 
+covery of unknown unknowns? 3) How can we effectively 
+manage the trade-off between search in neighborhood 
+where we previously found unknown unknown and exam- 
+ining unexplored region of the search space? 
+
+To address the problem at hand, we propose a two-step 
+approach which first partition the test data such that in- 
+stance with similar feature value and confidence score 
+assign by the predictive model be grouped together, and 
+then employ an explore-exploit strategy for discover un- 
+know unknown across these partition base on the feed- 
+back from an oracle. The first step, which we refer to a De- 
+scriptive Space Partitioning (DSP), be guide by an objective 
+function which encourages partition of the search space 
+such that instance within each partition be maximally sim- 
+ilar in term of their feature value and confidence scores. 
+DSP also provide interpretable explanation of the gener- 
+ated partition by associate a comprehensible and compact 
+description with each partition. As we late demonstrate in 
+our experimental results, these interpretable explanation be 
+very useful in understand the property of unknown un- 
+knowns discover by our framework. We show that our ob- 
+jective be NP-hard and outline a greedy solution which be a 
+ln N approximation, where N be the number of data point 
+in the search space. The second step of our methodology 
+facilitates an effective exploration of the partition gener- 
+ated by DSP while exploit the feedback from an oracle. 
+We propose a multi-armed bandit algorithm, Bandit for Un- 
+know Unknowns (UUB), which exploit problem-specific 
+characteristic to efficiently discover unknown unknowns. 
+
+The propose methodology build on the intuition that un- 
+know unknown occur due to systematic bias be of- 
+ten concentrate in certain specific portion of the feature 
+space and do not occur randomly (Attenberg, Ipeirotis, and 
+Provost 2015). For instance, the example in Figure 1 illus- 
+
+trates a scenario where systematic bias in the training data 
+cause the predictive model to wrongly infer color a the dis- 
+tinguishing feature. Consequently, image follow a spe- 
+cific pattern (i.e., all of the image of white dogs) turn out 
+to be unknown unknown for the predictive model. Another 
+key assumption that be crucial to the design of effective algo- 
+rithmic solution for the discovery of unknown unknown be 
+that available evidential feature be informative enough to 
+characterize different subset of unknown unknowns. If such 
+feature be not available in the data, it would not be pos- 
+sible to leverage the property of previously discover un- 
+know unknown to find new ones. Consequently, learn 
+algorithm design to discover unknown unknown would 
+not be able to perform any good than blind search (no free 
+lunch theorem (Wolpert and Macready 1997)). 
+
+We empirically evaluate the propose framework on the 
+task of discover unknown unknown occur due to a 
+variety of factor such a bias training data and domain 
+adaptation across various diverse tasks, such a sentiment 
+classification, subjectivity detection, and image classifica- 
+tion. We experiment with a variety of base predictive mod- 
+els, range from decision tree to neural networks. The re- 
+sults demonstrate the effectiveness of the framework and it 
+constituent component for the discovery of unknown un- 
+knowns across different experimental conditions, provide 
+evidence that the method can be readily apply to discover 
+unknown unknown in different real-world settings. 
+
+Problem Formulation 
+Given a black-box predictive modelM which take a input 
+a data point x with feature F = {f1, f2, · · · fL}, and re- 
+turn a class label c′ ∈ C and a confidence score s ∈ [0, 1], 
+our goal be to find the unknown unknown ofMw.r.t a give 
+test setD use a limited number of queries,B, to the oracle, 
+and, more broadly, to maximize the utility associate with 
+the discover unknown unknowns. The discovery process 
+be guide by a utility function, which not only incentivizes 
+the discovery of unknown unknowns, but also account for 
+the cost associate with query the oracle (e.g., monetary 
+and time cost of label in crowdsourcing). Recall that, 
+in this work, we focus on identify unknown unknown 
+arise due to systematic bias in the training data. It be im- 
+portant to note that our formulation not only treat the pre- 
+dictive model a a black-box but also assumes no knowledge 
+about the data use to train the predictive model. 
+
+Although our methodology be generic enough to find un- 
+know unknown associate with all the class in the data, 
+we formulate the problem for a particular class c, a critical 
+class, where false positive be costly and need to be dis- 
+cover (Elkan 2001). Based on the decision of the system 
+designer regard critical class c and confidence threshold 
+τ , our search space for unknown unknown discovery con- 
+stitutes all of those data point in D which be assign the 
+critical class c by modelM with confidence high than τ . 
+
+Our approach take the follow inputs: 1) A set of N 
+instances, X = {x1, x2 · · ·xN} ⊆ D, which be confi- 
+dently assign to the critical class c by the modelM, and 
+the correspond confidence scores, S = {s1, s2 · · · sN}, 
+assign to these point byM, 2) An oracle o which take 
+
+
+
+a input a data point x and return it true label o(x) a well 
+a the cost incur to determine the true label of x, cost(x) 
+3) A budget B on the number of time the oracle can be 
+queried. 
+
+Our utility function, u(x(t)), for query the label of 
+data point x(t) at the tth step of exploration be define as: 
+
+u(x(t)) = 1{o(xt)6=c} − γ × cost(x(t)) (1) 
+
+where 1{o(xt)6=c} be an indicator function which return 
+1 if x(t) be identify a an unknown unknown, and a 0 
+otherwise. cost(x(t)) ∈ [0, 1] be the cost incur by the 
+oracle to determine the label of x(t). Both the indicator and 
+the cost function in Equation 1 be initially unknown and 
+observe base on oracle’s feedback on x(t). γ ∈ [0, 1] be a 
+tradeoff parameter which can be provide by the end user. 
+
+Problem Statement: Find a sequence of B instance 
+{x(1), x(2) · · ·x(B)} ⊆ X for which the cumulative util- 
+
+ity 
+B∑ 
+t=1 
+
+u(x(t)) be maximum. 
+
+Methodology 
+In this section, we present our two-step framework design 
+to address the problem of inform discovery of unknown 
+unknown which occur due to systematic bias in the train- 
+ing data. We begin this section by highlight the assump- 
+tions require for our algorithmic solution to be effective: 
+
+1. Unknown unknown arise due to bias in training data 
+typically occur in certain specific portion of the feature 
+space and not at random. For instance, in our image clas- 
+sification example, the systematic bias of not include 
+white dog image in the training data result in a specific 
+category of unknown unknown which be all clumped 
+together in the feature space and follow a specific pat- 
+tern. Attenberg et. al. (Attenberg, Ipeirotis, and Provost 
+2015) observe this assumption to hold in practice and 
+leveraged human intuition to find systematic pattern of 
+unknown unknowns. 
+
+2. We also assume that the feature available in the data 
+can effectively characterize different kind of unknown 
+unknowns, but the bias in the training data prevent 
+the predictive model from leverage these discriminate 
+feature for prediction. If such feature be not available 
+in the data, it would not be possible to utilize the char- 
+acteristics of previously discover unknown unknown 
+to find new ones. Consequently, no learn algorithm 
+would perform good than blind search if this assump- 
+tion do not hold (no free lunch theorem (Wolpert and 
+Macready 1997)). 
+
+Below we discus our methodology in detail. First we 
+present Descriptive Space Partitioning (DSP), which in- 
+duce a similarity preserve partition on the set X . Then, 
+we present a novel multi-armed bandit algorithm, which we 
+refer to a Bandit for Unknown Unknowns (UUB), for sys- 
+tematically search for unknown unknown across these 
+partition while leverage feedback from an oracle. 
+
+Descriptive Space Partitioning 
+Our approach exploit the aforementioned intuition that 
+blind spot arise due to systematic bias in the data do 
+not occur at random, but be instead concentrate in specific 
+portion of the feature space. The first step of our approach, 
+DSP, partition the instance in X such that instance which 
+be grouped together be similar to each other w.r.t the fea- 
+ture space F and be assign similar confidence score 
+by the model M. Partitioning X enables our bandit algo- 
+rithm, UUB, to discover region with high concentration of 
+unknown unknowns. 
+
+Algorithm 1 Greedy Algorithm for Partitioning 
+1: Input: Set of instance X , Confidence score S, Patterns Q, 
+
+Metric function {g1 · · · g5}, Weights λ 
+2: Procedure: 
+3: P = ∅, E = X 
+4: while E 6= ∅ do: 
+5: 
+
+p = arg max 
+q∈Q 
+
+|E ∩ cover by(q)| 
+g(q) 
+
+where 
+
+g(q) = λ1g1(q)− λ2g2(q) + λ3g3(q)− λ4g4(q) + λ5g5(q) 
+
+6: P = P ∪ p , Q = Q \ p , E = E \ cover by(p) 
+7: end while 
+8: return P 
+
+The intuition behind our partition approach be that two 
+instance a and a′ ∈ X be likely to be judged use a sim- 
+ilar logic by model M if they share similar feature value 
+and be assign to the same class c with comparable confi- 
+dence score byM. In such cases, if a be identify a an un- 
+know unknown, a′ be likely to be an unknown unknown a 
+well1. Based on this intuition, we propose an objective func- 
+tion which encourages group of instance in X that be 
+similar w.r.t the criterion outline above, and facilitates sep- 
+aration of dissimilar instances. The propose objective also 
+associate a concise, comprehensible description with each 
+partition, which be useful for understand the exploration 
+behavior of our framework and the kind of unknown un- 
+knowns ofM (details in the Experimental Evaluation Sec- 
+tion). 
+
+DSP take a input a set of candidate pattern Q = 
+{q1, q2, · · · } where each qi be a conjunction of (feature, op- 
+erator, value) tuples where operator ∈ {=, 6=,≤, <,≥, >}. 
+Such pattern can be obtain by run an off-the-shelf 
+frequent pattern mining algorithm such a Apriori (Agrawal, 
+Srikant, and others 1994) on X . Each pattern cover a set of 
+one or more instance in X . For each pattern q, the set of 
+instance that satisfy q be represent by cover by(q), the 
+centroid of such instance be denote by x̄q , and their mean 
+confidence score be s̄q . 
+
+The partition objective minimizes dissimilarity of in- 
+stance within each partition and maximizes them across 
+
+1Note that this be not always the case, a we will see in the next 
+section. 
+
+
+
+partitions. In particular, we define goodness of each pat- 
+tern q in Q a the combination of follow metrics, where 
+d and d′ be standard distance measure define over feature 
+vector of instance and their confidence score respectively: 
+
+Intra-partition feature distance: 
+
+g1(q) = 
+∑ 
+
+{x∈X : x ∈ cover by(q)} 
+
+d(x, x̄q) 
+
+Inter-partition feature distance: 
+
+g2(q) = 
+∑ 
+
+{x∈X : x ∈ cover by(q)} 
+
+∑ 
+{q′∈Q: q′ 6=q} 
+
+d(x, x̄q′) 
+
+Intra-partition confidence score distance: 
+
+g3(q) = 
+∑ 
+
+{si: xi∈X ∧xi ∈ cover by(q)} 
+
+d′(si, s̄q) 
+
+Inter-partition confidence score distance: 
+
+g4(q) = 
+∑ 
+
+{si: xi∈X ∧ 
+xi ∈ cover by(q)} 
+
+∑ 
+{q′∈Q: q′ 6=q} 
+
+d′(si, s̄q′) 
+
+Pattern Length: g5(q) = size(q), the number of 
+(feature, operator, value) tuples in pattern q, include to 
+favor concise descriptions. 
+
+Given the set of instance X , correspond confidence 
+score S, a collection of pattern Q, and weight vector λ 
+use to combine g1 through g5, our goal be to find a set of 
+pattern P ⊆ Q such that it cover all the point in X and 
+minimizes the follow objective: 
+
+min 
+∑ 
+q∈Q 
+
+fq(λ1g1(q)− λ2g2(q) + λ3g3(q) 
+
+−λ4g4(q) + λ5g5(q)) (2) 
+
+s.t. 
+∑ 
+
+q: x∈covered by(q) 
+
+fq ≥ 1 ∀x ∈ X , where fq ∈ {0, 1} 
+
+∀q ∈ Q 
+
+where fq corresponds to an indicator variable associate 
+with pattern q which determines if the pattern q have be 
+add to the solution set (fq = 1) or not (fq = 0). 
+
+The aforementioned formulation be identical to that of 
+a weight set cover problem which be NP-hard (Johnson 
+1974). It have be show that a greedy solution provide a ln 
+N approximation to the weight set cover problem (John- 
+son 1974; Feige 1998) where N be the size of search space. 
+Algorithm 1 applies a similar strategy which greedily se- 
+lects pattern with maximum coverage-to-weight ratio at 
+each step, thus result in a ln N approximation guaran- 
+tee. This process be repeat until no instance in X be left 
+uncovered. If an instance in X be cover by multiple parti- 
+tions, tie be broken by assign it to a partition with the 
+closest centroid. 
+
+Our partition approach be inspire by a class of clus- 
+tering technique commonly refer to a conceptual clus- 
+tering (Michalski and Stepp 1983; Fisher 1987) or de- 
+scriptive cluster (Weiss 2006; Li, Peng, and Wu 2008; 
+Kim, Rudin, and Shah 2014; Lakkaraju and Leskovec 2016). 
+
+Algorithm 2 Explore-Exploit Algorithm for Unknown Un- 
+knowns 
+1: Input: 
+2: Set of partition (arms) {1, 2 · · ·K}, Oracle o, Budget B 
+3: Procedure: 
+4: for t from 1 to B do: 
+5: if t ≤ K then: 
+6: Choose arm At = t 
+7: else 
+8: Choose arm At = arg max 
+
+1≤i≤K 
+ūt(i) + bt(i) 
+
+9: end if 
+10: Sample an instance x(t) from partition pAt and query the 
+
+oracle for it true label 
+11: Observe true label of x(t) and the cost of query the or- 
+
+acle and compute u(x(t)) use Equation (1). 
+12: end for 
+
+13: return 
+B∑ 
+
+t=1 
+
+u(x(t)) 
+
+We make the follow contribution to this line of research: 
+We propose a novel objective function, whose component 
+have not be jointly consider before. In contrast to pre- 
+vious solution which employ post processing technique or 
+use Bayesian frameworks, we propose a simple, yet elegant 
+solution which offer theoretical guarantees. 
+
+Multi-armed Bandit for Unknown Unknowns 
+The output of the first step of our approach, DSP, be a set 
+of K partition P = {p1, p2 · · · pK} such that each pj cor- 
+responds to a set of data point which be similar w.r.t the 
+feature space F and have be assign similar confidence 
+score by the modelM. The partition scheme, however, 
+do not guarantee that all data point in a partition share the 
+same characteristic of be unknown unknown (or not be- 
+ing unknown unknown). It be important to note that share 
+similar feature value and confidence score do not ensure 
+that the data point in a partition be indistinguishable a far 
+a the model logic be concerned. This be due to the fact that 
+the modelM be a black-box and we do not actually observe 
+the underlie functional form and/or feature importance 
+weight be use by M. Consequently, each partition 
+have an unobservable concentration of unknown unknown in- 
+stances. The goal of the second step of our approach be to 
+compute an exploration policy over the partition generate 
+by DSP such that it maximizes the cumulative utility of the 
+discovery of unknown unknown (as define in the Problem 
+Formulation section). 
+
+We formalize this problem a a multi-armed bandit prob- 
+lem and propose an algorithm for decide which partition 
+to query at each step (See Algorithm 2). In this formaliza- 
+tion, each partition pj corresponds to an arm j of the ban- 
+dit. At each step, the algorithm chooses a partition and then 
+randomly sample a data point from that partition without 
+replacement and query it true label from the oracle. Since 
+query the data point reveals whether it be an unknown un- 
+known, the point be exclude from future steps. 
+
+In the first K steps, the algorithm sample a point from 
+each partition. Then, at each step t, the exploration decision 
+
+
+
+be guide by a combination of ūt(i), the empirical mean 
+utility (reward) of the partition i at time t, and bt(i), which 
+represent the uncertainty over the estimate of ūt(i). 
+
+Our problem set have the characteristic that the ex- 
+pected utility of each arm be non-stationary; query a data 
+point from a partition change the concentration of unknown 
+unknown in the partition and consequently change the ex- 
+pected utility of that partition in future steps. Therefore, sta- 
+tionary MAB algorithm such a UCB (Auer, Cesa-Bianchi, 
+and Fischer 2002) be not suitable. A variant of UCB, dis- 
+count UCB, address the non-stationary setting and can 
+be use a follow to compute ūt(i) and bt(i) (Garivier and 
+Moulines 2008). 
+
+ūt(i) = 
+1 
+
+Nt(ϑit, i) 
+
+t∑ 
+j=1 
+
+ϑij,t u(x(j)) 1Aj=i 
+
+bt(i) = 
+
+√√√√√2 log K∑i=1Nt(ϑit, i) 
+Nt(ϑit, i) 
+
+, Nt(ϑit, i) = 
+t∑ 
+
+j=1 
+
+ϑij,t 1Aj=i 
+
+The main idea of discount UCB be to weight recent ob- 
+servations more to account for the non-stationary nature of 
+the utility function. If ϑij,t denotes the discounting factor 
+apply at time t to the reward obtain from arm i at time 
+j < t, ϑij,t = γ 
+
+t−j in the case of discount UCB, where 
+γ ∈ (0, 1). Garivier et. al. establish a low bound on the 
+regret in the presence of abrupt change in the reward dis- 
+tributions of the arm and also show that discount UCB 
+match this low bound upto a logarithmic factor (Garivier 
+and Moulines 2008). 
+
+The discounting factor of discount UCB be design to 
+handle arbitrary change in the utility distribution, whereas 
+the way the utility of a partition change in our set have a 
+certain structure: The utility estimate of arm i only change 
+by a bound quantity when the arm be queried. Using this 
+observation, we can customize the calculation of ϑij,t for our 
+set and eliminate the need to set up the value of γ, which 
+affect the quality of decision make by discount UCB. 
+We compute ϑij,t a the ratio of the number of data point in 
+the partition i at time j to the number of data point in the 
+partition i at time t: 
+
+ϑij,t = (Ni − 
+t∑ 
+
+l=1 
+
+1Al=i) 
+/ 
+
+(Ni − 
+j∑ 
+
+l=1 
+
+1Al=i) (3) 
+
+The value of ϑij,t be inversely proportional to the number of 
+pull of arm i during the interval (j, t). ϑij,t be 1, if the arm i 
+be not pull during this interval, indicate that the expect 
+utility of i remain unchanged. We refer to the version of 
+Algorithm 2 that us the discounting factor specific to our 
+set (Eqn. 3) a Bandit for Unknown Unknowns (UUB). 
+
+Experimental Evaluation 
+We now present detail of the experimental evaluation of 
+constituent component of our framework a well a the en- 
+tire pipeline. 
+
+Datasets and Nature of Biases: We evaluate the perfor- 
+mance of our methodology across four different data set 
+in which the underlie cause of unknown unknown vary 
+from bias in training data to domain adaptation: 
+(1) Sentiment Snippets: A collection of 10K sentiment snip- 
+pets/sentences express opinion on various movie (Pang 
+and Lee 2005). Each snippet (sentence) corresponds to a 
+data point and be label a positive or negative. We split the 
+data equally into train and test sets. We then bias the training 
+data by randomly remove sub-groups of negative snippet 
+from it. We consider positive sentiment a the critical class 
+for this data. 
+(2) Subjectivity: A set of 10K subjective and objective snip- 
+pet extract from Rotten Tomatoes webpage (Pang and 
+Lee 2004). We consider the objective class in this dataset 
+a the critical class, split the data equally into train and test 
+sets, and introduce bias in the same way a described above. 
+(3) Amazon Reviews: A random sample of 50K review of 
+book and electronics collect from Amazon (McAuley, 
+Pandey, and Leskovec 2015). We use this data set to study 
+unknown unknown introduce by domain adaptation; we 
+train the predictive model on the electronics review and 
+then test them on the book reviews. Similar to the sentiment 
+snippet data set, the positive sentiment be the critical class. 
+(4) Image Data: A set of 25K cat and dog image (Kaggle 
+2013). We use this data set to ass whether our framework 
+can recognize unknown unknown that occur when seman- 
+tically meaningful sub-groups be miss from the training 
+data. To this end, we split the data equally into train and test 
+and bias the training data such that it comprises only of im- 
+age of dog which be black, and cat which be not black. 
+We set the class label cat to be the critical class in our ex- 
+periments. 
+Experimental Setting: We use bag of word feature to 
+train the predictive model for all of our textual data sets. 
+As the feature for the images, we use super-pixels ob- 
+tained use the standard algorithm (Ribeiro, Singh, and 
+Guestrin 2016). Images be represent with a feature vec- 
+tor comprise of 1’s and 0’s indicate the presence or ab- 
+sence of the correspond super pixels. We experiment 
+with multiple predictive models: decision trees, SVMs, lo- 
+gistic regression, random forest and neural network. Due 
+to space constraints, this section present result for deci- 
+sion tree a modelM but detailed result for all the other 
+model be include in the Appendix. We set the thresh- 
+old for confidence score τ to 0.65 to construct our search 
+space X for each data set. We consider two setting for 
+the cost function (refer Eqn. 1): The cost be set to 1 for 
+all instance (uniform cost) in the image dataset and it be 
+set to [(length(x)−minlength)/(maxlength−minlength)] 
+(variable cost) for all textual data. length(x) denotes the 
+number of word in a snippet (or review) x; minlength and 
+maxlength denote the minimum and maximum number of 
+word in any give snippet (or review). Note that these cost 
+function be only available to the oracle. The tradeoff pa- 
+rameter γ be set to 0.2. The parameter of DSP {λ1, · · ·λ5} 
+be estimate by set aside a a validation set 5% of the 
+test instance assign to the critical class by the predictive 
+models. We search the parameter space use coordinate de- 
+
+
+
+Sentiment Subjectivity Amazon Reviews Image Data 
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+1.2 
+E 
+
+n 
+tr 
+
+o 
+p 
+
+y 
+DSP 
+
+kmeans-both 
+
+kmeans-conf 
+
+kmeans-features 
+
+Figure 2: Evaluating partition strategy use entropy 
+(smaller value be better). 
+
+scent to find parameter which result in the minimum value 
+of the objective function define in Eqn. 2. We set the bud- 
+get B to 20% of all the instance in the set X through out 
+our experiments. Further, the result present for UUB be 
+all average across 100 runs. 
+
+Evaluating the Partitioning Scheme 
+The effectiveness of our framework relies on the notion that 
+our partition scheme, DSP, creates partition such that 
+unknown unknown be concentrate in a specific subset of 
+partition a oppose to be evenly spread out across them. 
+If unknown unknown be distribute evenly across all the 
+partitions, our bandit algorithm cannot perform good than a 
+strategy which randomly chooses a partition at each step of 
+the exploration process. We, therefore, measure the quality 
+of partition create by DSP by measure the entropy of 
+the distribution of unknown unknown across the partition 
+in P . For each partition p ∈ P , we count the number of 
+unknown unknowns, Up base on the true label which be 
+only know to the oracle. We then compute entropy of P a 
+follows: 
+
+Entropy(P) = − 
+∑ 
+p∈P 
+
+Up∑ 
+p′∈P 
+
+Up′ 
+log2( 
+
+Up∑ 
+p′∈P 
+
+Up′ 
+) 
+
+Smaller entropy value be desire a they indicate high 
+concentration of unknown unknown in few partitions. 
+
+Figure 2 compare the entropy of the partition generate 
+by DSP with cluster generate by k-means algorithm us- 
+ing only feature in F (kmeans-features), only confidence 
+score in S (kmeans-conf) and both (kmeans-both) by first 
+cluster use confidence score and then use features. 
+The entropy value for DSP be consistently small com- 
+par to alternative approach use kmeans across all the 
+datasets. This can be explain by the fact that DSP jointly 
+optimizes inter and intra-partition distance over both fea- 
+tures and confidence scores. As show in Figure 2, the en- 
+tropy value be much high when k-means considers only 
+feature or only confidence score indicate the importance 
+of jointly reason about them. 
+
+We also compare the entropy value obtain for DSP a 
+well a other k-means base approach to an upper bound 
+compute with random partitioning. For each of the algo- 
+rithms (DSP and other k-means base approaches), we de- 
+
+0 100 200 300 400 500 
+
+No. of Queries to the Oracle 
+
+0 
+
+50 
+
+100 
+
+150 
+
+200 
+
+250 
+
+C 
+u 
+
+m 
+u 
+
+la 
+ti 
+v 
+e 
+
+R 
+e 
+
+g 
+re 
+
+t 
+
+Random 
+
+Greedy 
+
+Epsilon Greedy 
+
+UCB1 
+
+UCB-f 
+
+Sliding Window UCB (50) 
+
+Discounted UCB (0.2) 
+
+Discounted UCB (0.5) 
+
+Discounted UCB (0.8) 
+
+UUB 
+
+(a) 
+
+0 100 200 300 400 500 
+
+No. of Queries to the Oracle 
+
+0 
+
+50 
+
+100 
+
+150 
+
+200 
+
+250 
+
+300 
+
+C 
+u 
+
+m 
+u 
+
+la 
+ti 
+v 
+e 
+
+R 
+e 
+
+g 
+re 
+
+t 
+
+Random 
+
+Least Average Similarity 
+
+Least Maximum Similarity 
+
+Most Uncertain 
+
+UUB 
+
+(b) 
+
+Figure 3: (a) Evaluating the bandit framework on image 
+data, (b) Evaluating the complete pipeline on image data 
+(decision tree a predictive model). 
+
+sign a correspond random partition scheme which 
+randomly re-assigns all the data point in the set X to parti- 
+tions while keep the number of partition and the number 
+of data point within each partition same a that of the cor- 
+respond algorithm. We observe that the entropy value 
+obtain for DSP and all the other baseline be consistently 
+small than those of the correspond random partition 
+schemes. Also, the entropy value for DSP be about 32- 
+37% low compare to it random counterpart across all of 
+the datasets. 
+
+Evaluating the Bandit Algorithm 
+We measure the performance of our multi-armed bandit al- 
+gorithm UUB in term of a standard evaluation metric in the 
+MAB literature call cumulative regret. Cumulative regret 
+of a policy π be compute a the difference between the total 
+reward collect by an optimal policy π∗, which at each step 
+play the arm with the high expect utility (or reward) 
+and the total reward collect by the policy π. Small val- 
+ues of cumulative regret indicate good policies. The utility 
+function define in Eqn. 1 determines the reward associate 
+with each instance. 
+
+We compare the performance of our algorithm, UUB, 
+with that of several baseline algorithm such a random, 
+greedy, �-greedy strategy (Chapelle and Li 2011), UCB, 
+UCBf (Slivkins and Upfal 2008), slide window and dis- 
+count UCB (Garivier and Moulines 2008) for various val- 
+ues of the discounting factor γ = {0.2, 0.5, 0.8}. All al- 
+
+
+
+Figure 4: Illustration of the methodology on image data. 
+
+gorithms take a input the partition create by DSP. Fig- 
+ure 3(a) show the cumulative regret of each of these algo- 
+rithms on the image data set. Results for the other data set 
+can be see in the Appendix. The figure show that UUB 
+achieves the small cumulative regret compare to other 
+baseline on the image data set. Similarly, UUB be the best 
+perform algorithm on the sentiment snippet and subjec- 
+tivity snippet data sets, whereas discount UCB (γ = 0.5) 
+achieves slightly small regret than UUB on the Amazon 
+review data set. The experiment also highlight a disadvan- 
+tage of the discount UCB algorithm a it performance be 
+sensitive to the choice of the discounting factor γ, where a 
+UUB be parameter free. Further, both UCB and it variant 
+UCBf which be design for stationary and slowly chang- 
+ing reward distribution respectively have high cumulative 
+regret than UUB and discount UCB indicate that they 
+be not a effective in our setting. 
+
+Evaluating the Overall Methodology 
+In the previous section, we compare the performance of 
+UUB to other bandit method when they be give the same 
+data partition to explore. In this section, we evaluate the 
+performance of our complete pipeline (DSP + UUB). Due 
+to the lack of exist baseline which address the problem 
+at hand, we compare the performance of our framework to 
+other end-to-end heuristic method we devise a baselines. 
+Due to space constraints, we present result only for the im- 
+age dataset. Results for other data set can be see in the 
+Appendix. 
+
+We compare the cumulative regret of our framework 
+to that of a variety of baselines: 1) Random sampling: 
+Randomly select B instance from set X for query the 
+oracle. 2) Least average similarity: For each instance in X , 
+compute the average Euclidean distance w.r.t all the data 
+point in the training set and choose B instance with the 
+large distance. 3) Least maximum similarity: Compute 
+minimum Euclidean distance of each instance in X from 
+the training set and choose B instance with the high 
+distances. 4) Most uncertain: Rank the instance in X 
+
+in increase order of the confidence score assign by 
+the model M and pick the top B instances. The least 
+average similarity and least maximum similarity baseline 
+be related to research on outlier detection (Chandola, 
+Banerjee, and Kumar 2007). Furthermore, the baseline 
+title most uncertain be similar to the uncertainty sample 
+query strategy use in active learn literature. Note 
+that the least average similarity and the least maximum 
+similarity baseline assume access to the data use to train 
+the predictive model unlike our framework which make no 
+such assumptions. Figure 3(b) show the cumulative regret 
+of our framework and the baseline for the image data. It 
+can be see that UUB achieves the least cumulative regret 
+of all the strategy across all data sets. It be interest to 
+note that the least average similarity and the least maximum 
+similarity approach perform bad than UUB in spite 
+of have access to additional information in the form of 
+training data. 
+
+Qualitative Analysis Figure 4 present an illustrative ex- 
+ample of how our methodology explores three of the par- 
+titions generate for the image data set. Our partition 
+framework associate the super pixel show in the Figure 
+with each partition. Examining the super pixel reveals that 
+partition 1, 2 and 3 correspond to the image of white chi- 
+huahuas (dog), white cats, and brown dog respectively. The 
+plot show the number of time the arm correspond to 
+these partition have be played by our bandit algorithm. 
+The figure show that partition 2 be chosen few time com- 
+par to partition 1 and 3 — because white cat image be 
+part of the training data use by the predictive model and 
+there be not many unknown unknown in this partition. On 
+the other hand, white and brown dog be not part of the 
+training data and our bandit algorithm explores these parti- 
+tions often. Figure 4 also indicates that partition 1 be ex- 
+plored often during the initial play but not late on. This be 
+because there be few data point in that partition and the 
+algorithm have exhaust all of them after a certain number 
+of plays. 
+
+Related Work 
+In this section, we review prior research relevant to the 
+discovery of unknown unknowns. 
+
+Unknown Unknowns The problem of model incom- 
+pleteness and the challenge of grapple with unknown 
+unknown in the real world have be come to the fore a a 
+critical topic in discussion about the utility of AI technolo- 
+gy (Horvitz 2008). Attenberg et. al. introduce the idea 
+of harness human input to identify unknown unknown 
+but their study left the task of exploration and discovery 
+completely to human without any assistance (Attenberg, 
+Ipeirotis, and Provost 2015). In contrast, we propose an 
+algorithmic framework in which the role of the oracle be 
+simpler and more realistic: The oracle be only query 
+for label of select instance chosen by our algorithmic 
+framework. 
+
+
+
+Dataset Shift A common cause of unknown unknown be 
+dataset shift, which represent the mismatch between train- 
+ing and test distribution (Quionero-Candela et al. 2009; 
+Jiang and Zhai 2007). Multiple approach have be 
+propose to address dataset shift, include importance 
+weight of training instance base on similarity to 
+test set (Shimodaira 2000), online learn of prediction 
+model (Cesa-Bianchi and Lugosi 2006), and learn 
+model robust to adversarial action (Teo et al. 2007; 
+Graepel and Herbrich 2004; Decoste and Schölkopf 2002). 
+These approach cannot be apply to our set a they 
+make one or more of the follow assumption which limit 
+their applicability to real-world settings: 1) the model be not 
+a black box 2) the data use to train the predictive model be 
+accessible 3) the model can be adaptively retrained. Further, 
+the goal of this work be different a we study the problem 
+of discover unknown unknown of model which be 
+already deployed. 
+
+Active Learning Active learn technique aim to build 
+highly accurate predictive model while require few 
+label instances. These approach typically involve 
+query an oracle for label of certain select instance 
+and utilize the obtain label to adaptively retrain the 
+predictive model (Settles 2009). Various query strate- 
+gy have be propose to choose the instance to be 
+label (e.g., uncertainty sample (Lewis and Gale 1994; 
+Settles 2009), query by committee (Seung, Opper, and Som- 
+polinsky 1992), expect model change (Settles, Craven, 
+and Ray 2008), expect error reduction (Zhu, Lafferty, and 
+Ghahramani 2003), expect variance reduction (Zhang and 
+Oles 2000)). Active learn framework be design 
+to be employ during the learn phase of a predictive 
+model and be therefore not readily applicable to our set 
+where the goal be to find blind spot of a black box model 
+which have already be deployed. Furthermore, query 
+strategy employ in active learn be guide towards 
+the discovery of know unknowns, utilize information 
+from the predictive model to determine which instance 
+should be label by the oracle. These approach be not 
+suitable for the discovery of unknown unknown a the 
+model be not aware of unknown unknown and it lack 
+meaningful information towards their discovery. 
+
+Outlier Detection Outlier detection involves identify in- 
+dividual data point (global outliers) or group of data point 
+(collective outliers) which either do not conform to a tar- 
+get distribution or be dissimilar compare to majority of 
+the instance in the data (Han, Pei, and Kamber 2011; 
+Chandola, Banerjee, and Kumar 2007). Several parametric 
+approach (Agarwal 2007; Abraham and Box 1979; Eskin 
+2000) be propose to address the problem of outlier de- 
+tection. These method make assumption about the under- 
+lie data distribution, and characterize those point with 
+a small likelihood of be generate from the assume 
+distribution, a outliers. Non-parametric approach (Es- 
+kin 2000; Eskin et al. 2002; Fawcett and Provost 1997) 
+which make few assumption about the distribution of the 
+data such a histogram base methods, distance and density 
+
+base method be also propose to address this problem. 
+Though unknown unknown of any give predictive model 
+can be regard a collective outlier w.r.t the data use to 
+train that model, the aforementioned approach be not ap- 
+plicable to our set a we assume no access to the training 
+data. 
+
+Discussion & Conclusions 
+We present an algorithmic approach to discover un- 
+know unknown of predictive models. The approach as- 
+sumes no knowledge of the functional form or the associ- 
+ated training data of the predictive models, thus, allow 
+the method to be use to build insight about the behavior of 
+deployed predictive models. In order to guide the discovery 
+of unknown unknowns, we partition the search space and 
+then use bandit algorithm to identify partition with large 
+concentration of unknown unknowns. To this end, we pro- 
+pose novel algorithm both for partition the search space 
+a well a sift through the generate partition to discover 
+unknown unknowns. 
+
+We see several research direction ahead, include op- 
+portunities to employ alernate objective functions. For in- 
+stance, the budget B could be define in term of the total 
+cost of query the oracle instead of the number of query 
+to the oracle. Our method can also be extend to more 
+sophisticated setting where the utility of some type of un- 
+know unknown decrease with time a sufficient example 
+of the type be discover (e.g., after inform the engineer- 
+ing team about the discover problem). In many settings, 
+the oracle can be approximate via the acquisition of la- 
+bel from crowdworkers, and the label noise of the crowd 
+might be address by incorporate repeat label into 
+our framework. 
+
+The discovery of unknown unknown can help system 
+designer when deploy predictive model in numerous 
+ways. The partition scheme that we have explore pro- 
+vides interpretable description of each of the generate par- 
+titions. These description could help a system designer 
+to readily understand the characteristic of the discover 
+unknown unknown and devise strategy to prevent error 
+or recover from them (e.g., silence the model when a 
+query fall into a particular partition where unknown un- 
+knowns be discover previously). Discovered unknown 
+unknown can further be use to retrain the predictive model 
+which in turn can recognize it mistake and even correct 
+them. 
+
+Formal machinery that can shine light on limitation of 
+our model and system will be critical in move AI solu- 
+tions into the open world–especially for high-stakes, safety 
+critical applications. We hope that this work on an algo- 
+rithmic approach to identify unknown unknown in pre- 
+dictive model will stimulate additional research on incom- 
+pleteness in our model and systems. 
+
+Acknowledgments 
+Himabindu Lakkaraju carry out this research during an in- 
+ternship at Microsoft Research. The author would like to 
+
+
+
+thank Lihong Li, Janardhan Kulkarni, and the anonymous 
+reviewer for their insightful comment and feedback. 
+
+References 
+[Abraham and Box 1979] Abraham, B., and Box, G. E. 1979. 
+
+Bayesian analysis of some outlier problem in time series. 
+Biometrika 66(2):229–236. 
+
+[Agarwal 2007] Agarwal, D. 2007. Detecting anomaly in cross- 
+classify streams: a bayesian approach. Knowledge and informa- 
+tion system 11(1):29–44. 
+
+[Agrawal, Srikant, and others 1994] Agrawal, R.; Srikant, R.; et al. 
+1994. Fast algorithm for mining association rules. In VLDB. 
+
+[Attenberg, Ipeirotis, and Provost 2015] Attenberg, J.; Ipeirotis, P.; 
+and Provost, F. 2015. Beat the machine: Challenging human to 
+find a predictive model’s unknown unknowns. J. Data and Infor- 
+mation Quality 6(1):1:1–1:17. 
+
+[Auer, Cesa-Bianchi, and Fischer 2002] Auer, P.; Cesa-Bianchi, N.; 
+and Fischer, P. 2002. Finite-time analysis of the multiarmed bandit 
+problem. Machine learn 47(2-3):235–256. 
+
+[Brennan, Dieterich, and Ehret 2009] Brennan, T.; Dieterich, W.; 
+and Ehret, B. 2009. Evaluating the predictive validity of the com- 
+pa risk and need assessment system. Criminal Justice and Be- 
+havior 36(1):21–40. 
+
+[Cesa-Bianchi and Lugosi 2006] Cesa-Bianchi, N., and Lugosi, G. 
+2006. Prediction, learning, and games. Cambridge university 
+press. 
+
+[Chandola, Banerjee, and Kumar 2007] Chandola, V.; Banerjee, 
+A.; and Kumar, V. 2007. Outlier detection: A survey. 
+
+[Chapelle and Li 2011] Chapelle, O., and Li, L. 2011. An empirical 
+evaluation of thompson sampling. In NIPS, 2249–2257. 
+
+[Crawford 2016] Crawford, K. 2016. Artificial intelli- 
+gence’s white guy problem. New York Times. http: 
+//www.nytimes.com/2016/06/26/opinion/sunday/ 
+artificial-intelligences-white-guy-problem. 
+html. 
+
+[Decoste and Schölkopf 2002] Decoste, D., and Schölkopf, B. 
+2002. Training invariant support vector machines. Machine learn- 
+ing 46(1-3):161–190. 
+
+[Elkan 2001] Elkan, C. 2001. The foundation of cost-sensitive 
+learning. In IJCAI. 
+
+[Eskin et al. 2002] Eskin, E.; Arnold, A.; Prerau, M.; Portnoy, L.; 
+and Stolfo, S. 2002. A geometric framework for unsupervised 
+anomaly detection. In Applications of data mining in computer 
+security. Springer. 77–101. 
+
+[Eskin 2000] Eskin, E. 2000. Anomaly detection over noisy data 
+use learn probability distributions. In ICML, 255–262. 
+
+[Fawcett and Provost 1997] Fawcett, T., and Provost, F. 1997. 
+Adaptive fraud detection. Data mining and knowledge discovery 
+1(3):291–316. 
+
+[Feige 1998] Feige, U. 1998. A threshold of ln n for approximate 
+set cover. Journal of the ACM 45(4):634–652. 
+
+[Fisher 1987] Fisher, D. H. 1987. Knowledge acquisition via incre- 
+mental conceptual clustering. Machine learn 2(2):139–172. 
+
+[Garivier and Moulines 2008] Garivier, A., and Moulines, E. 2008. 
+On upper-confidence bound policy for non-stationary bandit 
+problems. arXiv preprint arXiv:0805.3415. 
+
+[Graepel and Herbrich 2004] Graepel, T., and Herbrich, R. 2004. 
+Invariant pattern recognition by semidefinite program ma- 
+chines. In NIPS, 33. 
+
+[Han, Pei, and Kamber 2011] Han, J.; Pei, J.; and Kamber, M. 
+2011. Data mining: concept and techniques. Elsevier. 
+
+[Horvitz 2008] Horvitz, E. 2008. Artificial intelligence in the 
+open world. Presidential Address, AAAI. http://bit.ly/ 
+2gCN7t9. 
+
+[Jiang and Zhai 2007] Jiang, J., and Zhai, C. 2007. A two-stage 
+approach to domain adaptation for statistical classifiers. In CIKM, 
+401–410. 
+
+[Johnson 1974] Johnson, D. S. 1974. Approximation algorithm for 
+combinatorial problems. Journal of computer and system science 
+9(3):256–278. 
+
+[Kaggle 2013] Kaggle. 2013. Dogs v cat dataset. https:// 
+www.kaggle.com/c/dogs-vs-cats/data. 
+
+[Kim, Rudin, and Shah 2014] Kim, B.; Rudin, C.; and Shah, J. A. 
+2014. The bayesian case model: A generative approach for case- 
+base reason and prototype classification. In NIPS, 1952–1960. 
+
+[Lakkaraju and Leskovec 2016] Lakkaraju, H., and Leskovec, J. 
+2016. Confusions over time: An interpretable bayesian model to 
+characterize trend in decision making. In NIPS, 3261–3269. 
+
+[Lakkaraju et al. 2016] Lakkaraju, H.; Kamar, E.; Caruana, R.; and 
+Horvitz, E. 2016. Discovering blind spot of predictive models: 
+Representations and policy for guide exploration. https:// 
+arxiv.org/abs/1610.09064. 
+
+[Lewis and Gale 1994] Lewis, D. D., and Gale, W. A. 1994. A 
+sequential algorithm for training text classifiers. In SIGIR, 3–12. 
+
+[Li, Peng, and Wu 2008] Li, Z.; Peng, H.; and Wu, X. 2008. A 
+new descriptive cluster algorithm base on nonnegative matrix 
+factorization. In IEEE International Conference on Granular Com- 
+puting, 407–412. 
+
+[McAuley, Pandey, and Leskovec 2015] McAuley, J.; Pandey, R.; 
+and Leskovec, J. 2015. Inferring network of substitutable and 
+complementary products. In KDD, 785–794. 
+
+[Michalski and Stepp 1983] Michalski, R. S., and Stepp, R. E. 
+1983. Learning from observation: Conceptual clustering. In Ma- 
+chine learning: An artificial intelligence approach. Springer. 331– 
+363. 
+
+[Pang and Lee 2004] Pang, B., and Lee, L. 2004. A sentimen- 
+tal education: Sentiment analysis use subjectivity summarization 
+base on minimum cuts. In ACL, 271. 
+
+[Pang and Lee 2005] Pang, B., and Lee, L. 2005. Seeing stars: 
+Exploiting class relationship for sentiment categorization with re- 
+spect to rating scales. In ACL, 115–124. 
+
+[Quionero-Candela et al. 2009] Quionero-Candela, J.; Sugiyama, 
+M.; Schwaighofer, A.; and Lawrence, N. D. 2009. Dataset Shift in 
+Machine Learning. The MIT Press. 
+
+[Ribeiro, Singh, and Guestrin 2016] Ribeiro, M. T.; Singh, S.; and 
+Guestrin, C. 2016. ” why should i trust you?”: Explaining the 
+prediction of any classifier. In KDD. 
+
+[Settles, Craven, and Ray 2008] Settles, B.; Craven, M.; and Ray, 
+S. 2008. Multiple-instance active learning. In NIPS, 1289–1296. 
+
+[Settles 2009] Settles, B. 2009. Active learn literature sur- 
+vey. Computer Sciences Technical Report 1648, University of 
+Wisconsin–Madison. 
+
+[Seung, Opper, and Sompolinsky 1992] Seung, H. S.; Opper, M.; 
+and Sompolinsky, H. 1992. Query by committee. In COLT, 287– 
+294. 
+
+[Shimodaira 2000] Shimodaira, H. 2000. Improving predictive in- 
+ference under covariate shift by weight the log-likelihood func- 
+tion. Journal of statistical planning and inference 90(2):227–244. 
+
+http://www.nytimes.com/2016/06/26/opinion/sunday/artificial-intelligences-white-guy-problem.html 
+http://www.nytimes.com/2016/06/26/opinion/sunday/artificial-intelligences-white-guy-problem.html 
+http://www.nytimes.com/2016/06/26/opinion/sunday/artificial-intelligences-white-guy-problem.html 
+http://www.nytimes.com/2016/06/26/opinion/sunday/artificial-intelligences-white-guy-problem.html 
+http://arxiv.org/abs/0805.3415 
+http://bit.ly/2gCN7t9 
+http://bit.ly/2gCN7t9 
+https://www.kaggle.com/c/dogs-vs-cats/data 
+https://www.kaggle.com/c/dogs-vs-cats/data 
+https://arxiv.org/abs/1610.09064 
+https://arxiv.org/abs/1610.09064 
+
+
+[Slivkins and Upfal 2008] Slivkins, A., and Upfal, E. 2008. Adapt- 
+ing to a change environment: the brownian restless bandits. In 
+COLT, 343–354. 
+
+[Teo et al. 2007] Teo, C. H.; Globerson, A.; Roweis, S. T.; and 
+Smola, A. J. 2007. Convex learn with invariances. In NIPS, 
+1489–1496. 
+
+[Weiss 2006] Weiss, D. 2006. Descriptive cluster a a method 
+for explore text collections. Ph.D. Dissertation. 
+
+[Wolpert and Macready 1997] Wolpert, D. H., and Macready, W. G. 
+1997. No free lunch theorem for optimization. IEEE transaction 
+on evolutionary computation 1(1):67–82. 
+
+[Zhang and Oles 2000] Zhang, T., and Oles, F. 2000. The value of 
+unlabeled data for classification problems. In ICML, 1191–1198. 
+
+[Zhu, Lafferty, and Ghahramani 2003] Zhu, X.; Lafferty, J.; and 
+Ghahramani, Z. 2003. Combining active learn and semi- 
+supervise learn use gaussian field and harmonic functions. 
+In ICML workshop on The Continuum from Labeled to Unlabeled 
+Data in Machine Learning and Data Mining. 
+
+
+
+Appendix 
+
+0 50 100 150 200 250 300 350 400 
+
+No. of Queries to the Oracle 
+
+0 
+
+50 
+
+100 
+
+150 
+
+200 
+
+250 
+
+C 
+u 
+m 
+
+u 
+la 
+
+ti 
+v 
+e 
+R 
+
+e 
+g 
+re 
+
+t 
+
+Random 
+
+Greedy 
+
+Epsilon Greedy 
+
+UCB1 
+
+UCB-f 
+
+Sliding window UCB (50) 
+
+Discounted UCB (0.2) 
+
+Discounted UCB (0.5) 
+
+Discounted UCB (0.8) 
+
+UUB 
+
+(a) 
+
+0 50 100 150 200 250 300 350 400 
+
+No. of Queries to the Oracle 
+
+0 
+
+50 
+
+100 
+
+150 
+
+200 
+
+250 
+
+C 
+u 
+m 
+
+u 
+la 
+
+ti 
+v 
+e 
+R 
+
+e 
+g 
+re 
+
+t 
+
+Random 
+
+Least Average Similarity 
+
+Least Maximum Similarity 
+
+Most Uncertain 
+
+UUB 
+
+(b) 
+
+Figure 5: (a) Evaluating the Bandit Framework on Senti- 
+ment Snippets, (b) Evaluating the Complete Pipeline on Sen- 
+timent Snippets [Decision tree a Predictive Model] 
+
+0 50 100 150 200 250 300 
+
+No. of Queries to the Oracle 
+
+0 
+
+50 
+
+100 
+
+150 
+
+200 
+
+250 
+
+C 
+u 
+m 
+
+u 
+la 
+
+ti 
+v 
+e 
+R 
+
+e 
+g 
+re 
+
+t 
+
+Random 
+
+Greedy 
+
+Epsilon Greedy 
+
+UCB1 
+
+UCB-f 
+
+Sliding window UCB (50) 
+
+Discounted UCB (0.2) 
+
+Discounted UCB (0.5) 
+
+Discounted UCB (0.8) 
+
+UUB 
+
+(a) 
+
+0 50 100 150 200 250 300 
+
+No. of Queries to the Oracle 
+
+0 
+
+50 
+
+100 
+
+150 
+
+200 
+
+250 
+
+C 
+u 
+m 
+
+u 
+la 
+
+ti 
+v 
+e 
+R 
+
+e 
+g 
+re 
+
+t 
+
+Random 
+
+Least Average Similarity 
+
+Least Maximum Similarity 
+
+Most Uncertain 
+
+UUB 
+
+(b) 
+
+Figure 6: (a) Evaluating the Bandit Framework on Subjec- 
+tivity Dataset, (b) Evaluating the Complete Pipeline on Sub- 
+jectivity Dataset [Decision tree a Predictive Model] 
+
+
+
+0 200 400 600 800 1000 
+
+No. of Queries to the Oracle 
+
+0 
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+C 
+
+u 
+m 
+
+u 
+la 
+
+ti 
+v 
+e 
+R 
+
+e 
+g 
+re 
+
+t 
+
+Random 
+
+Greedy 
+
+Epsilon Greedy 
+
+UCB1 
+
+UCB-f 
+
+Sliding window UCB (50) 
+
+Discounted UCB (0.2) 
+
+Discounted UCB (0.5) 
+
+Discounted UCB (0.8) 
+
+UUB 
+
+(a) 
+
+0 200 400 600 800 1000 
+
+No. of Queries to the Oracle 
+
+0 
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+C 
+u 
+m 
+
+u 
+la 
+
+ti 
+v 
+e 
+R 
+
+e 
+g 
+re 
+
+t 
+
+Random 
+
+Least Average Similarity 
+
+Least Maximum Similarity 
+
+Most Uncertain 
+
+UUB 
+
+(b) 
+
+Figure 7: (a) Evaluating the Bandit Framework on Ama- 
+zon Reviews Dataset, (b) Evaluating the Complete Pipeline 
+on Amazon Reviews Dataset [Decision tree a Predictive 
+Model] 
+
+0 100 200 300 400 500 
+
+No. of Queries to the Oracle 
+
+0 
+
+50 
+
+100 
+
+150 
+
+200 
+
+250 
+
+300 
+
+350 
+
+C 
+u 
+m 
+
+u 
+la 
+
+ti 
+v 
+e 
+R 
+
+e 
+g 
+re 
+
+t 
+
+Random 
+
+Least Average Similarity 
+
+Least Maximum Similarity 
+
+Most Uncertain 
+
+UUB 
+
+Figure 8: Evaluating the Complete Pipeline on Image 
+Dataset [Logistic Regression a Predictive Model] 
+
+0 50 100 150 200 250 300 
+
+No. of Queries to the Oracle 
+
+0 
+
+50 
+
+100 
+
+150 
+
+200 
+
+250 
+
+C 
+u 
+m 
+
+u 
+la 
+
+ti 
+v 
+e 
+R 
+
+e 
+g 
+re 
+
+t 
+
+Random 
+
+Least Average Similarity 
+
+Least Maximum Similarity 
+
+Most Uncertain 
+
+UUB 
+
+Figure 9: Evaluating the Complete Pipeline on Subjectivity 
+Dataset [Random Forests a Predictive Model] 
+
+0 50 100 150 200 250 300 350 400 
+
+No. of Queries to the Oracle 
+
+0 
+
+20 
+
+40 
+
+60 
+
+80 
+
+100 
+
+120 
+
+140 
+
+160 
+
+180 
+
+C 
+u 
+m 
+
+u 
+la 
+
+ti 
+v 
+e 
+R 
+
+e 
+g 
+re 
+
+t 
+
+Random 
+
+Least Average Similarity 
+
+Least Maximum Similarity 
+
+Most Uncertain 
+
+UUB 
+
+Figure 10: Evaluating the Complete Pipeline on Sentiment 
+Snippets [SVM a Predictive Model] 
+
+0 200 400 600 800 1000 
+
+No. of Queries to the Oracle 
+
+0 
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+600 
+
+700 
+
+C 
+u 
+m 
+
+u 
+la 
+
+ti 
+v 
+e 
+R 
+
+e 
+g 
+re 
+
+t 
+
+Random 
+
+Least Average Similarity 
+
+Least Maximum Similarity 
+
+Most Uncertain 
+
+UUB 
+
+Figure 11: Evaluating the Complete Pipeline on Amazon re- 
+view [Neural Network (Multi layer perceptron with 5 hid- 
+den layers) a Predictive Model] 
+
+
+
+0 50 100 150 200 250 300 350 400 
+
+No. of Queries to the Oracle 
+
+68.0 
+
+68.5 
+
+69.0 
+
+69.5 
+
+70.0 
+
+70.5 
+
+71.0 
+
+71.5 
+
+72.0 
+
+72.5 
+
+A 
+cc 
+
+u 
+ra 
+
+cy 
+o 
+
+f 
+th 
+
+e 
+P 
+
+re 
+d 
+ic 
+
+ti 
+v 
+e 
+M 
+
+o 
+d 
+e 
+l 
+
+Figure 12: Retraining the Predictive Model with Discovered 
+Unknown Unknowns on Amazon review [Decision tree be 
+the Predictive Model] 
+
+
+Introduction 
+Problem Formulation 
+Methodology 
+Descriptive Space Partitioning 
+Multi-armed Bandit for Unknown Unknowns 
+
+Experimental Evaluation 
+Evaluating the Partitioning Scheme 
+Evaluating the Bandit Algorithm 
+Evaluating the Overall Methodology 
+
+Related Work 
+Discussion & Conclusions 
+Acknowledgments 
+Appendix 
+

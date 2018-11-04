@@ -1,0 +1,1064 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Under review a a conference paper at ICLR 2017 
+
+GRADIENTS OF COUNTERFACTUALS 
+
+Mukund Sundararajan, Ankur Taly & Qiqi Yan 
+Google Inc. 
+Mountain View, CA 94043, USA 
+{mukunds,ataly,qiqiyan}@google.com 
+
+ABSTRACT 
+
+Gradients have be use to quantify feature importance in machine learn mod- 
+els. Unfortunately, in nonlinear deep networks, not only individual neuron but 
+also the whole network can saturate, and a a result an important input feature can 
+have a tiny gradient. We study various networks, and observe that this phenomenon 
+be indeed widespread, across many inputs. 
+
+We propose to examine interior gradients, which be gradient of counterfactual 
+input construct by scale down the original input. We apply our method to the 
+GoogleNet architecture for object recognition in images, a well a a ligand-based 
+virtual screen network with categorical feature and an LSTM base language 
+model for the Penn Treebank dataset. We visualize how interior gradient good 
+capture feature importance. Furthermore, interior gradient be applicable to a 
+wide variety of deep networks, and have the attribution property that the feature 
+importance score sum to the the prediction score. 
+
+Best of all, interior gradient can be compute just a easily a gradients. In 
+contrast, previous method be complex to implement, which hinders practical 
+adoption. 
+
+1 INTRODUCTION 
+
+Practitioners of machine learn regularly inspect the coefficient of linear model a a measure of 
+feature importance. This process allows them to understand and debug these models. The natural 
+analog of these coefficient for deep model be the gradient of the prediction score with respect 
+to the input. For linear models, the gradient of an input feature be equal to it coefficient. For deep 
+nonlinear models, the gradient can be thought of a a local linear approximation (Simonyan et al. 
+(2013)). Unfortunately, (see the next section), the network can saturate and a a result an important 
+input feature can have a tiny gradient. 
+
+While there have be other work (see Section 2.8) to address this problem, these technique involve 
+instrument the network. This instrumentation currently involves significant developer effort be- 
+cause they be not primitive operation in standard machine learn libraries. Besides, these tech- 
+niques be not simple to understand—they invert the operation of the network in different ways, and 
+have their own peculiarities—for instance, the feature importance be not invariant over network 
+that compute the exact same function (see Figure 14). 
+
+In contrast, the method we propose build on the very familiar, primitive concept of the gradient—all 
+it involves be inspect the gradient of a few carefully chosen counterfactual input that be scale 
+version of the initial input. This allows anyone who know how to extract gradients—presumably 
+even novice practitioner that be not very familiar with the network’s implementation—to debug 
+the network. Ultimately, this seem essential to ensure that deep network perform predictably 
+when deployed. 
+
+1 
+
+ar 
+X 
+
+iv 
+:1 
+
+61 
+1. 
+
+02 
+63 
+
+9v 
+2 
+
+[ 
+c 
+
+.L 
+G 
+
+] 
+1 
+
+5 
+N 
+
+ov 
+2 
+
+01 
+6 
+
+
+
+Under review a a conference paper at ICLR 2017 
+
+(a) Original image. 
+
+(b) Ablated image. 
+
+Figure 1: Pixel importance use gradient at the image. 
+
+2 OUR TECHNIQUE 
+
+2.1 GRADIENTS DO NOT REFLECT FEATURE IMPORTANCE 
+
+Let u start by investigate the performance of gradient a a measure of feature importance. We 
+use an object recognition network built use the GoogleNet architecture (Szegedy et al. (2014)) a 
+a run example; we refer to this network by it codename Inception. (We present application 
+of our technique to other network in Section 3.) The network have be train on the ImageNet 
+object recognition dataset (Russakovsky et al. (2015)). It be be 22 layer deep with a softmax layer on 
+top for classify image into one of the 1000 ImageNet object classes. The input to the network be 
+a 224× 224 size RGB image. 
+Before evaluate the use of gradient for feature importance, we introduce some basic notation that 
+be use throughout the paper. 
+
+We represent a 224× 224 size RGB image a a vector in R224×224×3. Let IncpL : R224×224×3 → 
+[0, 1] be the function represent by the Inception network that computes the softmax score for the 
+object class label L. Let 5IncpL(img) be the gradient of IncpL at the input image img. Thus, 
+the vector 5IncpL(img) be the same size a the image and lie in R224×224×3. As a shorthand, we 
+write5IncpLi,j,c(img) for the gradient of a specific pixel (i, j) and color channel c ∈ {R,G,B}. 
+
+We compute the gradient of IncpL (with respect to the image) for the highest-scoring object class, 
+and then aggregate the gradients5IncpL(img) along the color dimension to obtain pixel importance 
+scores.1 
+
+∀i, j : PLi,j(img) ::= Σc∈{R,G,B}| 5 Incp 
+L 
+i,j,c(img)| (1) 
+
+Next, we visualize pixel importance score by scale the intensity of the pixel in the original 
+image in proportion to their respective scores; thus, high the score brighter would be the pixel. 
+Figure 1a show a visualization for an image for which the high score object class be “reflex 
+camera” with a softmax score of 0.9938. 
+
+1 These pixel importance score be similar to the gradient-based saliency map define by Simonyan et al. 
+(2013) with the difference be in how the gradient be aggregate along the color channel. 
+
+2 
+
+
+
+Under review a a conference paper at ICLR 2017 
+
+Intuitively, one would expect the the high gradient pixel for this classification to be one fall 
+on the camera or those provide useful context for the classification (e.g., the lens cap). However, 
+most of the highlight pixel seem to be on the left or above the camera, which to a human seem 
+not essential to the prediction. This could either mean that (1) the highlight pixel be somehow 
+important for the internal computation perform by the Inception network, or (2) gradient of the 
+image fail to appropriately quantify pixel importance. 
+
+Let u consider hypothesis (1). In order to test it we ablate part of the image on the left and above 
+the camera (by zero out the pixel intensities) and run the ablate image through the Inception 
+network. See Figure 1b. The top predict category still remains “reflex camera” with a softmax 
+score of 0.9966 — slightly high than before. This indicates that the ablate portion be indeed 
+irrelevant to the classification. On compute gradient of the ablate image, we still find that most 
+of the high gradient pixel lie outside of the camera. This suggests that for this image, it be in fact 
+hypothesis (2) that hold true. Upon study more image (see Figure 4), we find that the gradient 
+often fail to highlight the relevant pixel for the predict object label. 
+
+2.2 SATURATION 
+
+In theory, it be easy to see that the gradient may not reflect feature importance if the prediction 
+function flattens in the vicinity of the input, or equivalently, the gradient of the prediction function 
+with respect to the input be tiny in the vicinity of the input vector. This be what we call saturation, 
+which have also be report in previous work (Shrikumar et al. (2016), Glorot & Bengio (2010)). 
+
+We analyze how widespread saturation be in the Inception network by inspect the behavior of 
+the network on counterfactual image obtain by uniformly scale pixel intensity from zero 
+to their value in an actual image. Formally, give an input image img ∈ R224×224×3, the set of 
+counterfactual image be 
+
+{α img | 0 ≤ α ≤ 1} (2) 
+
+Figure 2a show the trend in the softmax output of the high score class, for thirty randomly 
+chosen image form the ImageNet dataset. More specifically, for each image img, it show the trend 
+in IncpL(α img) a α varies from zero to one with L be the label of high score object class 
+for img. It be easy to see that the trend flattens (saturates) for all image α increases. Notice that 
+saturation be present even for image whose final score be significantly below 1.0. Moreover, for a 
+majority of images, saturation happens quite soon when α = 0.2. 
+
+One may argue that since the output of the Inception network be the result of apply the softmax 
+function to a vector of activation values, the saturation be expect due to the squash property of 
+the softmax function. However, a show in Figure 2b, we find that even the pre-softmax activation 
+score for the high score class saturate. 
+
+In fact, to our surprise, we found that the saturation be inherently present in the Inception network and 
+the output of the intermediate layer also saturate. We plot the distance between the intermediate 
+layer neuron activation for a scale down input image and the actual input image with respect to 
+the scale parameter, and find that the trend flattens. Due to lack of space, we provide these plot 
+in Figure 12 in the appendix. 
+
+It be quite clear from these plot that saturation be widespread across image in the Inception network, 
+and there be a lot more activity in the network for counterfactual image at relatively low value of 
+the scale parameter α. This observation form the basis of our technique for quantify feature 
+importance. 
+
+Note that it be well know that the saturation of gradient prevent the model from converge to 
+a good quality minimum (Glorot & Bengio (2010)). So one may expect good quality model to 
+not have saturation and hence for the (final) gradient to convey feature importance. Clearly, our 
+observation on the Inception model show that this be not the case. It have good prediction accuracy, 
+but also exhibit saturation (see Figure 2). Our hypothesis be that the gradient of important feature 
+be not saturate early in the training process. The gradient only saturate after the feature have 
+be learn adequately, i.e., the input be far away from the decision boundary. 
+
+3 
+
+
+
+Under review a a conference paper at ICLR 2017 
+
+2.3 INTERIOR GRADIENTS 
+
+We study the importance of input feature in a prediction make for an input by examine the gra- 
+dients of the counterfactuals obtain by scale the input; we call this set of gradient interior 
+gradients. 
+
+While the method of examine gradient of counterfactual input be broadly applicable to a wide 
+range of networks, we first explain it in the context of Inception. Here, the counterfactual image 
+input we consider be obtain by uniformly scale pixel intensity from zero to their value in 
+the actual image (this be the same set of counterfactuals that be use to study saturation). The 
+interior gradient be the gradient of these images. 
+
+InteriorGrads(img) ::= {5Incp(α img) | 0 ≤ α ≤ 1} (3) 
+
+These interior gradient explore the behavior of the network along the entire scale curve depict 
+in Figure 2a, rather than at a specific point. We can aggregate the interior gradient along the color 
+dimension to obtain interior pixel importance score use equation 1. 
+
+InteriorPixelImportance(img) ::= {P(α img) | 0 ≤ α ≤ 1} (4) 
+
+We individually visualize the pixel importance score for each scale parameter α by scale the 
+intensity of the pixel in the actual image in proportion to their scores. The visualization show 
+how the importance of each pixel evolves a we scale the image, with the last visualization be 
+identical to one generate by gradient at the actual image. In this regard, the interior gradient offer 
+strictly more insight into pixel importance than just the gradient at the actual image. 
+
+Figure 3 show the visualization for the “reflex camera” image from Figure 1a for various value of 
+the scale parameter α. The plot in the top right corner show the trend in the absolute magnitude 
+of the average pixel importance score. The magnitude be significantly large at low value of α and 
+nearly zero at high value — the latter be a consequence of saturation. Note that each visualization 
+be only indicative of the relative distribution of the importance score across pixel and not the 
+absolute magnitude of the scores, i.e., the late snapshot be responsible for tiny increase in the 
+score a the chart in the top right depicts. 
+
+The visualization show that at low value of α, the pixel that lie on the camera be most impor- 
+tant, and a α increases, the region above the camera gain importance. Given the high magnitude 
+of gradient at low value of α, we consider those gradient to be the primary driver of the final 
+prediction score. They be more indicative of feature importance in the prediction compare to the 
+gradient at the actual image (i.e., when α = 1). 
+
+The visualization of the interior pixel gradient can also be view together a a single animation 
+that chain the visualization in sequence of the scale parameter. This animation offer a concise 
+yet complete summary of how pixel importance move around the image a the scale parameter 
+increase from zero to one. 
+
+Rationale. While measure saturation via counterfactuals seem natural, use them for quanti- 
+fying feature importance deserves some discussion. The first thing one may try to identify feature 
+importance be to examine the deep network like one would with human author code. This seem 
+hard; just a deep network employ distribute representation (such a embeddings), they perform 
+convolute (pun intended) distribute reasoning. So instead, we choose to probe the network with 
+several counterfactual input (related to the input at hand), hop to trigger all the internal work- 
+ings of the network. This process would help summarize the effect of the network on the protagonist 
+input; the assumption be that the input be human understandable. Naturally, it help to work with 
+gradient in this process a via back propagation, they induce an aggregate view over the function 
+compute by the neurons. 
+
+Interior gradient use counterfactual input to artifactually induce a procedure on how the network 
+attention move across the image a it compute the final prediction score. From the animation, 
+we gather that the network focus on strong and distinctive pattern in the image at low value 
+of the scale parameter, and subtle and weak pattern in the image at high values. Thus, we 
+speculate that the network’s computation can be loosely abstract by a procedure that first recognize 
+distinctive feature of the image to make an initial prediction, and then fine tune (these be small 
+score jump a the chart in Figure 3 shows) the prediction use weaker pattern in the image. 
+
+4 
+
+
+
+Under review a a conference paper at ICLR 2017 
+
+(a) Softmax score for top label (b) Pre-softmax score for top label 
+
+Figure 2: Saturation in Inception 
+
+Input image and trend of the pixel importance score obtain from interior gradients. 
+
+α = 0.02 α = 0.04 α = 0.06 α = 0.08 α = 0.1 
+
+α = 0.2 α = 0.4 α = 0.6 α = 0.8 α = 1.0 
+
+Figure 3: Visualization of interior gradients. Notice that the visualization at low value of the 
+scale parameter (α) be sharper and much good at surface important feature of the input image. 
+
+2.4 CUMULATING INTERIOR GRADIENTS 
+
+A different summarization of the interior gradient can be obtain by cumulate them. While there 
+be a few way of cumulate counterfactual gradients, the approach we take have the nice attribution 
+property (Proposition 1) that the feature importance score approximately add up to the prediction 
+score. The feature importance score be thus also refer to a attributions. 
+
+Notice that the set of counterfactual image {α img | 0 ≤ α ≤ 1} fall on a straight line path in 
+R224×224×3. Interior gradient — which be the gradient of these counterfactual image — can 
+be cumulate by integrate them along this line. We call the result gradient a integrate 
+gradients. In what follows, we formalize integrate gradient for an arbitrary function F : Rn → 
+[0, 1] (representing a deep network), and an arbitrary set of counterfactual input fall on a path in 
+Rn. 
+
+5 
+
+
+
+Under review a a conference paper at ICLR 2017 
+
+Let x ∈ Rn be the input at hand, and γ = (γ1, . . . , γn) : [0, 1]→ Rn be a smooth function specify 
+the set of counterfactuals; here, γ(0) be the baseline input (for Inception, a black image), and γ(1) 
+be the actual input (for Inception, the image be studied). Specifically, {γ(α) | 0 ≤ α ≤ 1} be the 
+set of counterfactuals (for Inception, a series of image that interpolate between the black image and 
+the actual input). 
+
+The integrate gradient along the ith dimension for an input x ∈ Rn be define a follows. 
+
+IntegratedGradsi(x) ::= 
+
+∫ 1 
+α=0 
+
+∂F (γ(α)) 
+∂γi(α) 
+
+∂γi(α) 
+∂α dα (5) 
+
+where ∂F (x)∂xi be the gradient of F along the i 
+th dimension at x. 
+
+A nice technical property of the integrate gradient be that they add up to the difference between the 
+output of F at the final counterfactual γ(1) and the baseline counterfactual γ(0). This be formalize 
+by the proposition below, which be an instantiation of the fundamental theorem of calculus for path 
+integrals. 
+
+Proposition 1 If F : Rn → R be differentiable almost everywhere 2, and γ : [0, 1] → Rn be smooth 
+then 
+
+Σni=1IntegratedGradsi(x) = F (γ(1))− F (γ(0)) 
+
+For most deep networks, it be possible to choose counterfactuals such that the prediction at the base- 
+line counterfactual be near zero (F (γ(0)) ≈ 0). For instance, for the Inception network, the coun- 
+terfactual define by the scale path satisfies this property a Incp(0224×224×3) ≈ 0. In such cases, 
+it follow from the Proposition that the integrate gradient form an attribution of the prediction 
+output F (x), i.e., they almost exactly distribute the output to the individual input features. 
+
+The additivity property provide a form of sanity check for the integrate gradient and ensures 
+that we do not under or over attribute to features. This be a common pitfall for attribution scheme 
+base on feature ablations, wherein, an ablation may lead to small or a large change in the prediction 
+score depend on whether the ablate feature interacts disjunctively or conjunctively to the rest of 
+the features. This additivity be even more desirable when the network score be numerically critical, 
+i.e., the score be not use purely in an ordinal sense. In this case, the attribution (together with 
+additivity) guarantee that the attribution be in the unit of the score, and account for all of the 
+score. 
+
+We note that these path integral of gradient have be use to perform attribution in the context 
+of small non-linear polynomial (Sun & Sundararajan (2011)), and also within the cost-sharing 
+literature in economics where function at hand be a cost function that model the cost of a project 
+a a function of the demand of various participants, and the attribution correspond to cost-shares. 
+The specific path we use corresponds to a cost-sharing method call Aumann-Shapley (Aumann & 
+Shapley (1974)). 
+
+Computing integrate gradients. The integrate gradient can be efficiently approximate by Rie- 
+mann sum, wherein, we simply sum the gradient at point occur at sufficiently small interval 
+along the path of counterfactuals. 
+
+IntegratedGradsapproxi (x) ::= Σ 
+m 
+k=1 
+
+∂F (γ(k/m)) 
+∂γi(α) 
+
+(γ( km )− γ( 
+k−1 
+m )) (6) 
+
+Here m be the number of step in the Riemman approximation of the integral. Notice that the 
+approximation simply involves compute the gradient in a for loop; compute the gradient be 
+central to deep learn and be a pretty efficient operation. The implementation should therefore 
+be straightforward in most deep learn frameworks. For instance, in TensorFlow (ten), it es- 
+sentially amount to call tf.gradients in a loop over the set of counterfactual input (i.e., 
+γ( km ) for k = 1, . . . ,m), which could also be batched. Going forward, we abuse the term “inte- 
+grate gradients” to refer to the approximation described above. 
+
+2Formally, this mean that the partial derivative of F along each input dimension satisfies Lebesgue’s inte- 
+grability condition, i.e., the set of discontinuous point have measure zero. Deep network built out of Sigmoids, 
+ReLUs, and pool operator should satisfy this condition. 
+
+6 
+
+
+
+Under review a a conference paper at ICLR 2017 
+
+Integrated gradient for Inception. We compute the integrate gradient for the Inception network 
+use the counterfactuals obtain by scale the input image; γ(α) = α img where img be the input 
+image. Similar to the interior gradients, the integrate gradient can also be aggregate along the 
+color channel to obtain pixel importance score which can then be visualize a discuss earlier. 
+Figure 4 show these visualization for a bunch of images. For comparison, it also present the 
+correspond visualization obtain from the gradient at the actual image. From the visualizations, 
+it seem quite evident that the integrate gradient be good at capture important features. 
+
+Attributions be independent of network implementation. Two network may be functionally 
+equivalent3 despite have very different internal structures. See Figure 14 in the appendix for an 
+example. Ideally, feature attribution should only be determine by the functionality of the network 
+and not it implementation. Attributions generate by integrate gradient satisfy this property by 
+definition since they be base only on the gradient of the function represent by the network. 
+
+In contrast, this simple property do not hold for all feature attribution method know to us, 
+including, DeepLift (Shrikumar et al. (2016)), Layer-wise relevance propagation (LRP) (Binder 
+et al. (2016)), Deconvolution network (DeConvNets) (Zeiler & Fergus (2014)), and Guided back- 
+propagation (Springenberg et al. (2014)) (a counter-example be give in Figure 14). We discus these 
+method in more detail in Section 2.8 
+
+2.5 EVALUATING OUR APPROACH 
+
+We discus an evaluation of integrate gradient a a measure of feature importance, by compare 
+them against (final) gradients. 
+
+Pixel ablations. The first evaluation be base on a method by Samek et al. (2015). Here we ablate4 
+the top 5000 pixel (10% of the image) by importance score, and compute the score drop for the 
+high score object class. The ablation be perform 100 pixel at a time, in a sequence of 50 
+steps. At each perturbation step k we measure the average drop in score up to step k. This quantity 
+be refer to a area over the perturbation curve (AOPC) by Samek et al. (2015). 
+
+Figure 5 show the AOPC curve with respect to the number of perturbation step for integrate 
+gradient and gradient at the image. AOPC value at each step represent the average over a dataset 
+of 150 randomly chosen images. It be clear that ablate the top pixel identify by integrate 
+gradient lead to a large score drop that those identify by gradient at the image. 
+
+Having say that, we note an important issue with the technique. The image result from pixel 
+perturbation be often unnatural, and it could be that the score drop simply because the network have 
+never see anything like it in training. 
+
+Localization. The second evaluation be to consider image with human-drawn bound box 
+around objects, and compute the percentage of pixel attribution inside the bound box. We use the 
+2012 ImageNet object localization challenge dataset to get a set of human-drawn bound boxes. 
+We run our evaluation on 100 randomly chosen image satisfy the follow property — (1) 
+the total size of the bound box(es) be less than two third of the image size, and (2) ablate the 
+bound box significantly drop the prediction score for the object class. (1) be for ensure that 
+the box be not so large that the bulk of the attribution fall inside them by definition, and (2) be 
+for ensure that the boxed part of the image be indeed responsible for the prediction score for the 
+image. We find that on 82 image the integrate gradient technique lead to a high fraction of 
+the pixel attribution inside the box than gradient at the actual image. The average difference in the 
+percentage pixel attribution inside the box for the two technique be 8.4%. 
+
+While these result be promising, we note the follow caveat. Integrated gradient be meant to 
+capture pixel importance with respect to the prediction task. While for most objects, one would 
+expect the pixel locate on the object to be most important for the prediction, in some case the 
+
+3Formally, two network F and G be functionally equivalent if and only if ∀ x : F (x) = G(x). 
+4Ablation in our set amount to zero out (or blacking out) the intensity for the R, G, B channels. We 
+
+view this a a natural mechanism for remove the information carry by the pixel (than, say, randomize the 
+pixel’s intensity a propose by Samek et al. (2015), especially since the black image be a natural baseline for 
+vision tasks. 
+
+7 
+
+
+
+Under review a a conference paper at ICLR 2017 
+
+context in which the object occurs may also contribute to the prediction. The cabbage butterfly 
+image from Figure 4 be a good example of this where the pixel on the leaf be also surface by the 
+integrate gradients. 
+
+Eyeballing. Ultimately, it be hard to come up with a perfect evaluation technique. So we do spend 
+a large amount of time apply and eyeball the result of our technique to various networks— 
+the one present in this paper, a well a some network use within products. For the Inception 
+network, we welcome you to eyeball more visualization in Figure 11 in the appendix and also at: 
+https://github.com/ankurtaly/Attributions. While we found our method to beat 
+gradient at the image for the most part, this be clearly a subjective process prone to interpretation 
+and cherry-picking, but be also ultimately the measure of the utility of the approach—debugging 
+inherently involves the human. 
+
+Finally, also note that we do not compare against other whitebox attribution technique (e.g., 
+DeepLift (Shrikumar et al. (2016))), because our focus be on black-box technique that be easy to 
+implement, so compare against gradient seem like a fair comparison. 
+
+2.6 DEBUGGING NETWORKS 
+
+Despite the widespread application of deep neural network to problem in science and technology, 
+their internal working largely remain a black box. As a result, human have a limited ability to 
+understand the prediction make by these networks. This be view a hindrance in scenario where 
+the bar for precision be high, e.g., medical diagnosis, obstacle detection for robots, etc. (dar (2016)). 
+Quantifying feature importance for individual prediction be a first step towards understand the 
+behavior of the network; at the very least, it help debug misclassified inputs, and sanity check the 
+internal workings. We present evidence to support this below. 
+
+We use feature importance to debug misclassifications make by the Inception network. In particular, 
+we consider image from the ImageNet dataset where the groundtruth label for the image not in 
+the top five label predict by the Inception network. We use interior gradient to compute pixel 
+importance score for both the Inception label and the groundtruth label, and visualize them to gain 
+insight into the cause for misclassification. 
+
+Figure 6 show the visualization for two misclassified images. The top image genuinely have two 
+objects, one correspond to the groundtruth label and other correspond to the Inception label. 
+We find that the interior gradient for each label be able to emphasize the correspond objects. 
+Therefore, we suspect that the misclassification be in the rank logic for the label rather than 
+the recognition logic for each label. For the bottom image, we observe that the interior gradient 
+be largely similar. Moreover, the cricket get emphasize by the interior gradient for the mantis 
+(Inception label). Thus, we suspect this to be a more serious misclassification, stem from the 
+recognition logic for the mantis. 
+
+2.7 DISCUSSION 
+
+Faithfullness. A natural question be to ask why gradient of counterfactuals obtain by scale 
+the input capture feature importance for the original image. First, from study the visualization 
+in Figure 4, the result look reasonable in that the highlight pixel capture feature representative 
+of the predict class a a human would perceive them. Second, we confirm that the network too 
+seem to find these feature representative by perform ablations. It be somewhat natural to expect 
+that the Inception network be robust to to change in input intensity; presumably there be some low 
+brightness image in the training set. 
+
+However, these counterfactuals seem reasonable even for network where such scale do not cor- 
+respond to a natural concept like intensity, and when the counterfactuals fall outside the training set; 
+for instance in the case of the ligand-based virtual screen network (see Section 3.1). We speculate 
+that the reason why these counterfactuals make sense be because the network be built by compose 
+ReLUs. As one scale the input start from a suitable baseline, various neuron activate, and the 
+scale process that do a somewhat thorough job of explore all these event that contribute to 
+the prediction for the input. There be an analogous argument for other operator such a max pool, 
+average pool, and softmax—here the trigger event arent discrete but the argument be analogous. 
+
+8 
+
+https://github.com/ankurtaly/Attributions 
+
+
+Under review a a conference paper at ICLR 2017 
+
+Limitations of Approach. We discus some limitation of our technique; in a sense these be 
+limitation of the problem statement and apply equally to other technique that attribute to base 
+input features. 
+
+• Inability to capture Feature interactions: The model could perform logic that effec- 
+tively combine feature via a conjunction or an implication-like operations; for instance, 
+it could be that a molecule bind to a site if it have a certain structure that be essentially a 
+conjunction of certain atom and certain bond between them. Attributions or importance 
+score have no way to represent these interactions. 
+
+• Feature correlations: Feature correlation be a bane to the understandability of all ma- 
+chine learn models. If there be two feature that frequently co-occur, the model be free 
+to assign weight to either or both features. The attribution would then respect this weight 
+assignment. But, it could be that the specific weight assignment chosen by the model be 
+not human-intelligible. Though there have be approach to feature selection that reduce 
+feature correlation (Yu & Liu (2003)), it be unclear how they apply to deep model on 
+dense input. 
+
+2.8 RELATED WORK 
+
+Over the last few years, there have be a vast amount work on demystify the inner working 
+of deep networks. Most of this work have be on network train on computer vision tasks, and 
+deal with understand what a specific neuron computes (Erhan et al. (2009); Le (2013)) and 
+interpret the representation capture by neuron during a prediction (Mahendran & Vedaldi 
+(2015); Dosovitskiy & Brox (2015); Yosinski et al. (2015)). 
+
+Our work instead focus on understand the network’s behavior on a specific input in term of the 
+base level input features. Our technique quantifies the importance of each feature in the prediction. 
+Known approach for accomplish this can be divide into three categories. 
+
+Gradient base methods. The first approach be to use gradient of the input feature to quantify 
+feature importance (Baehrens et al. (2010); Simonyan et al. (2013)). This approach be the easy to 
+implement. However, a discuss earlier, naively use the gradient at the actual input do not 
+accurate quantify feature importance a gradient suffer from saturation. 
+
+Score back-propagation base methods. The second set of approach involve back-propagating 
+the final prediction score through each layer of the network down to the individual features. 
+These include DeepLift (Shrikumar et al. (2016)), Layer-wise relevance propagation (LRP) (Binder 
+et al. (2016)), Deconvolution network (DeConvNets) (Zeiler & Fergus (2014)), and Guided back- 
+propagation (Springenberg et al. (2014)). These method largely differ in the backpropagation logic 
+for various non-linear activation functions. While DeConvNets, Guided back-propagation and LRP 
+rely on the local gradient at each non-linear activation function, DeepLift relies on the deviation in 
+the neuron’s activation from a certain baseline input. 
+
+Similar to integrate gradients, the DeepLift and LRP also result in an exact distribution of the 
+prediction score to the input features. However, a show by Figure 14, the attribution be not 
+invariant across functionally equivalent networks. Besides, the primary advantage of our method 
+over all these method be it ease of implementation. The aforesaid method require knowledge of 
+the network architecture and the internal neuron activation for the input, and involve implement 
+a somewhat complicate back-propagation logic. On the other hand, our method be agnostic to the 
+network architecture and relies only on compute gradient which can do efficiently in most 
+deep learn frameworks. 
+
+Model approximation base methods. The third approach, propose first by Ribeiro et al. 
+(2016a;b), be to locally approximate the behavior of the network in the vicinity of the input be- 
+ing explain with a simpler, more interpretable model. An appeal aspect of this approach be that 
+it be completely agnostic to the structure of the network and only deal with it input-output behav- 
+ior. The approximation be learn by sample the network’s output in the vicinity of the input at 
+hand. In this sense, it be similar to our approach of use counterfactuals. Since the counterfactuals 
+be chosen somewhat arbitrarily, and the approximation be base purely on the network’s output at 
+
+9 
+
+
+
+Under review a a conference paper at ICLR 2017 
+
+Figure 4: Comparing integrate gradient with gradient at the image. Left-to-right: original 
+input image, label and softmax score for the high score class, visualization of integrate gradi- 
+ents, visualization of gradient at the image. Notice that the visualization obtain from integrate 
+gradient be good at reflect distinctive feature of the image. 
+
+the counterfactuals, the faithfullness question be far more crucial in this setting. The method be also 
+expensive to implement a it require training a new model locally around the input be explained. 
+
+3 APPLICATIONS TO OTHER NETWORKS 
+
+The technique of quantify feature importance by inspect gradient of counterfactual input be 
+generally applicable across deep networks. While for network perform vision tasks, the coun- 
+terfactual input be obtain by scale pixel intensities, for other network they may be obtain 
+by scale an embed representation of the input. 
+
+10 
+
+
+
+Under review a a conference paper at ICLR 2017 
+
+Figure 5: AOPC (Samek et al. (2015)) for integrate gradient and gradient at image. 
+
+Figure 6: Interior gradient of misclassified images. Left-to-right: Original image, Softmax score 
+for the top label assign by the Inception network and the groundtruth label provide by ImageNet, 
+visualization of integrate gradient w.r.t. Inception label, visualization of integrate gradient w.r.t. 
+groundtruth label. 
+
+As a proof of concept, we apply the technique to the molecular graph convolution network 
+of Kearnes et al. (2016) for ligand-based virtual screen and an LSTM model (Zaremba et al. 
+(2014)) for the language model of the Penn Treebank dataset (Marcus et al. (1993)). 
+
+3.1 LIGAND-BASED VIRTUAL SCREENING 
+
+The Ligand-Based Virtual Screening problem be to predict whether an input molecule be active 
+against a certain target (e.g., protein or enzyme). The process be meant to aid the discovery of 
+new drug molecules. Deep network built use molecular graph convolution have recently be 
+propose by Kearnes et al. (2016) for solve this problem. 
+
+Once a molecule have be identify a active against a target, the next step for medicinal chemist 
+be to identify the molecular features—formally, pharmacophores5—that be responsible for the ac- 
+tivity. This be akin to quantify feature importance, and can be achieve use the method of 
+integrate gradients. The attribution obtain from the method help with identify the dominant 
+molecular features, and also help sanity check the behavior of the network by shed light on 
+it inner workings. With regard to the latter, we discus an anecdote late in this section on how 
+attribution surface an anomaly in W1N2 network architecture propose by Kearnes et al. (2016). 
+
+Defining the counterfactual inputs. The first step in compute integrate gradient be to define 
+the set of counterfactual inputs. The network require an input molecule to be encode by hand a 
+a set of atom and atom-pair feature describe the molecule a an undirected graph. Atoms be 
+
+5A pharmacophore be the ensemble of steric and electronic feature that be necessary to ensure the a molecule 
+be active against a specific biological target to trigger (or to block) it biological response. 
+
+11 
+
+
+
+Under review a a conference paper at ICLR 2017 
+
+featurized use a one-hot encode specify the atom type (e.g., C, O, S, etc.), and atom-pairs be 
+featurized by specify either the type of bond (e.g., single, double, triple, etc.) between the atoms, 
+or the graph distance between them 6 
+
+The counterfactual input be obtain by scale down the molecule feature down to zero vectors, 
+i.e., the set {αFeatures(mol) | 0 ≤ α ≤ 1} where Features(mol) be an encode of the molecule 
+into atom and atom-pair features. 
+
+The careful reader might notice that these counterfactual input be not valid featurizations of 
+molecules. However, we argue that they be still valid input for the network. First, all opera- 
+tor in the network (e.g., ReLUs, Linear filters, etc.) treat their input a continuous real number 
+rather than discrete zero and ones. Second, all field of the counterfactual input be bound be- 
+tween zero and one, therefore, we don’t expect them to appear spurious to the network. We discus 
+this further in section 2.7 
+
+In what follows, we discus the behavior of a network base on the W2N2-simple architecture 
+propose by Kearnes et al. (2016). On inspect the behavior of the network over counterfactual 
+inputs, we observe saturation here a well. Figure 13a show the trend in the softmax score for the 
+task PCBA-588342 for twenty five active molecule a we vary the scale parameter α from zero 
+to one. While the overall saturate region be small, saturation do exist near vicinity of the input 
+(0.9 ≤ α ≤ 1). Figure 13b in the appendix show that the total feature gradient varies significantly 
+along the scale path; thus, just the gradient at the molecule be fully indicative of the behavior of 
+the network. 
+
+Visualizing integrate gradients. We cumulate the gradient of these counterfactual input to 
+obtain an attribution of the prediction score to each atom and atom-pair feature. Unlike image 
+inputs, which have dense features, the set of input feature for molecule be sparse. Consequently, 
+the attribution be sparse and can be inspect directly. Figure 7 show heatmaps for the atom and 
+atom-pair attribution for a specific molecule. 
+
+Using the attributions, one can easily identify the atom and atom-pairs that that have a strongly pos- 
+itive or strongly negative contribution. Since the attribution add up to the final prediction score (see 
+Proposition 1), the attribution magnitude can be use for accounting the contribution of each fea- 
+ture. For instance, the atom-pairs that have a bond between them contribute cumulatively contribute 
+46% of the prediction score, while all other atom pair cumulatively contribute −3%. 
+We present the attribution for 100 molecule active against a specific task to a few chemists. 
+The chemist be able to immediately spot dominant functional group (e.g., aromatic rings) be 
+surface by the attributions. A next step could be cluster the aggregate the attribution across a large 
+set of molecule active against a specific task to identify a common denominator of feature share 
+by all active molecules. 
+
+Identifying Dead Features. We now discus how attribution help u spot an anomaly in the 
+W1N2 architecture. On apply the integrate gradient method to the W1N2 network, we found 
+that several atom in the same molecule receive the exact same attribution. For instance, for the 
+molecule in Figure 7, we found that several carbon atom at position 2, 3, 14, 15, and 16 receive 
+the same attribution of 0.0043 despite be bond to different atoms, for e.g., Carbon at position 3 
+be bond to an Oxygen whereas Carbon at position 2 be not. This be surprising a one would expect 
+two atom with different neighborhood to be treat differently by the network. 
+
+On investigate the problem further we found that since the W1N2 network have only one convo- 
+lution layer, the atom and atom-pair feature be not fully convolved. This cause all atom that 
+have the same atom type, and same number of bond of each type to contribute identically to the 
+network. This be not the case for network that have two or more convolutional layers. 
+
+Despite the aforementioned problem, the W1N2 network have good predictive accuracy. One hy- 
+pothesis for this be that the atom type and their neighborhood be tightly correlated; for instance 
+an outgo double bond from a Carbon be always to another Carbon or Oxygen atom. As a result, 
+give the atom type, an explicit encode of the neighborhood be not need by the network. This 
+
+6This featurization be refer to a “simple” input featurization in Kearnes et al. (2016). 
+
+12 
+
+
+
+Under review a a conference paper at ICLR 2017 
+
+Figure 7: Attribution for a molecule under the W2N2 network (Kearnes et al. (2016)). The 
+molecule be active on task PCBA-58432. 
+
+also suggests that equivalent predictive accuracy can be achieve use a simpler “bag of atoms” 
+type model. 
+
+3.2 LANGUAGE MODELING 
+
+To apply our technique for language modeling, we study word-level language model of the 
+Penn Treebank dataset (Marcus et al. (1993)), and apply an LSTM-based sequence model base 
+on Zaremba et al. (2014). For such a network, give a sequence of input words, and the softmax 
+prediction for the next word, we want to identify the importance of the precede word for the 
+score. 
+
+As in the case of the Inception model, we observe saturation in this LSTM network. To describe 
+the setup, we choose 20 randomly chosen section of the test data, and for each of them inspect the 
+prediction score of the next word use the first 10 words. Then we give each of the 10 input word 
+a weight of α ∈ [0, 1], which be apply to scale their embed vectors. In Figure 8, we plot the 
+prediction score a a function of α. For all except one curves, the curve start near zero at α = 0, 
+move around in the middle, stabilizes, and turn flat around α = 1. For the interest special case 
+where softmax score be non-zero at α = 0, it turn out that that the word be predict represent 
+out of vocabulary words. [!h] 
+
+In Table 9 and Table 10 we show two comparison of gradient to integrate gradients. Due to 
+saturation, the magnitude of gradient be so small compare to the prediction score that it be 
+difficult to make sense of them. In comparison, (approximate) integrate gradient have a total 
+amount close to the prediction, and seem to make sense. For example, in the first example, the 
+integrate gradient attribute the prediction score of “than“ to the precede word “more”. This 
+make sense a “than” often follow right after “more“ in English. On the other hand, standard 
+gradient give a slightly negative attribution that betrays our intuition. In the second example, in 
+predict the second “ual”, integrate gradient be clearly the high for the first occurrence of 
+“ual”, which be the only word that be highly predictive of the second “ual”. On the other hand, 
+standard gradient be not only tiny, but also similar in magnitude for multiple words. 
+
+4 CONCLUSION 
+
+We present Interior Gradients, a method for quantify feature importance. The method can be 
+apply to a variety of deep network without instrument the network, in fact, the amount of 
+code require be fairly tiny. We demonstrate that it be possible to have some understand of the 
+
+13 
+
+
+
+Under review a a conference paper at ICLR 2017 
+
+Figure 8: Softmax score of the next word in the LSTM language model (Section 3.2) 
+
+Sentence the shareholder claimed more than $ N million in loss 
+Integrated gradient -0.1814 -0.1363 0.1890 0.6609 
+Gradients 0.0007 -0.0021 0.0054 -0.0009 
+
+Figure 9: Prediction for than: 0.5307, total integrate gradient: 0.5322 
+
+Sentence and N minute after the ual trading 
+Integrated gradient (*1e-3) 0.0707 0.1286 0.3619 1.9796 -0.0063 4.1565 0.2213 
+Gradients (*1e-3) 0.0066 0.0009 0.0075 0.0678 0.0033 0.0474 0.0184 
+Sentence (Cont.) halt come news that the ual group 
+Integrated gradient (*1e-3) -0.8501 -0.4271 0.4401 -0.0919 0.3042 
+Gradients (*1e-3) -0.0590 -0.0059 0.0511 0.0041 0.0349 
+
+Figure 10: Prediction for ual: 0.0062, total integrate gradient: 0.0063 
+
+performance of the network without a detailed understand of it implementation, opening up the 
+possibility of easy and wide application, and lower the bar on the effort need to debug deep 
+networks. 
+
+We also wonder if Interior Gradients be useful within training a a measure against saturation, or 
+indeed in other place that gradient be used. 
+
+ACKNOWLEDGMENTS 
+
+We would like to thank Patrick Riley and Christian Szegedy for their helpful feedback on the tech- 
+nique and on draft of this paper. 
+
+REFERENCES 
+
+TensorFlow. https://www.tensorflow.org/. 
+
+Explainable Artificial Intelligence. http://www.darpa.mil/attachments/ 
+DARPA-BAA-16-53.pdf, 2016. 
+
+14 
+
+https://www.tensorflow.org/ 
+http://www.darpa.mil/attachments/DARPA-BAA-16-53.pdf 
+http://www.darpa.mil/attachments/DARPA-BAA-16-53.pdf 
+
+
+Under review a a conference paper at ICLR 2017 
+
+R. J. Aumann and L. S. Shapley. Values of Non-Atomic Games. Princeton University Press, Prince- 
+ton, NJ, 1974. 
+
+David Baehrens, Timon Schroeter, Stefan Harmeling, Motoaki Kawanabe, Katja Hansen, and Klaus- 
+Robert Müller. How to explain individual classification decisions. Journal of Machine Learning 
+Research, pp. 1803–1831, 2010. 
+
+Alexander Binder, Grégoire Montavon, Sebastian Bach, Klaus-Robert Müller, and Wojciech Samek. 
+Layer-wise relevance propagation for neural network with local renormalization layers. CoRR, 
+2016. URL http://arxiv.org/abs/1604.00825. 
+
+Alexey Dosovitskiy and Thomas Brox. Inverting visual representation with convolutional networks, 
+2015. URL http://arxiv.org/abs/1506.02753. 
+
+Dumitru Erhan, Yoshua Bengio, Aaron Courville, and Pascal Vincent. Visualizing higher-layer 
+feature of a deep network. Technical Report 1341, University of Montreal, 2009. 
+
+Xavier Glorot and Yoshua Bengio. Understanding the difficulty of training deep feedforward neural 
+networks. In Artificial Intelligence and Statistics (AISTATS10), 2010. 
+
+Steven Kearnes, Kevin McCloskey, Marc Berndl, Vijay Pande, and Patrick Riley. Molecular graph 
+convolutions: move beyond fingerprints. Journal of Computer-Aided Molecular Design, pp. 
+595–608, 2016. 
+
+Quoc V. Le. Building high-level feature use large scale unsupervised learning. In International 
+Conference on Acoustics, Speech, and Signal Processing (ICASSP), pp. 8595–8598, 2013. 
+
+Aravindh Mahendran and Andrea Vedaldi. Understanding deep image representation by invert 
+them. In Conference on Computer Vision and Pattern Recognition (CVPR), pp. 5188–5196, 2015. 
+
+Mitchell P. Marcus, Beatrice Santorini, and Mary Ann Marcinkiewicz. Building a large annotate 
+corpus of english: The penn treebank. Computational Linguistics, pp. 313–330, 1993. 
+
+Marco Túlio Ribeiro, Sameer Singh 0001, and Carlos Guestrin. ”why should I trust you?”: Ex- 
+plain the prediction of any classifier. In 22nd ACM International Conference on Knowledge 
+Discovery and Data Mining, pp. 1135–1144. ACM, 2016a. 
+
+Marco Túlio Ribeiro, Sameer Singh 0001, and Carlos Guestrin. Model-agnostic interpretability of 
+machine learning. CoRR, 2016b. URL http://arxiv.org/abs/1606.05386. 
+
+Olga Russakovsky, Jia Deng, Hao Su, Jonathan Krause, Sanjeev Satheesh, Sean Ma, Zhiheng 
+Huang, Andrej Karpathy, Aditya Khosla, Michael Bernstein, Alexander C. Berg, and Li Fei-Fei. 
+ImageNet Large Scale Visual Recognition Challenge. International Journal of Computer Vision 
+(IJCV), pp. 211–252, 2015. 
+
+Wojciech Samek, Alexander Binder, Grégoire Montavon, Sebastian Bach, and Klaus-Robert Müller. 
+Evaluating the visualization of what a deep neural network have learned. CoRR, 2015. URL 
+http://arxiv.org/abs/1509.06321. 
+
+Avanti Shrikumar, Peyton Greenside, Anna Shcherbina, and Anshul Kundaje. Not just a black 
+box: Learning important feature through propagate activation differences. CoRR, 2016. URL 
+http://arxiv.org/abs/1605.01713. 
+
+Karen Simonyan, Andrea Vedaldi, and Andrew Zisserman. Deep inside convolutional networks: Vi- 
+sualising image classification model and saliency maps. CoRR, 2013. URL http://arxiv. 
+org/abs/1312.6034. 
+
+Jost Tobias Springenberg, Alexey Dosovitskiy, Thomas Brox, and Martin A. Riedmiller. Striving for 
+simplicity: The all convolutional net. CoRR, 2014. URL http://arxiv.org/abs/1412. 
+6806. 
+
+Yi Sun and Mukund Sundararajan. Axiomatic attribution for multilinear functions. In 12th ACM 
+Conference on Electronic Commerce (EC), pp. 177–178, 2011. 
+
+15 
+
+http://arxiv.org/abs/1604.00825 
+http://arxiv.org/abs/1506.02753 
+http://arxiv.org/abs/1606.05386 
+http://arxiv.org/abs/1509.06321 
+http://arxiv.org/abs/1605.01713 
+http://arxiv.org/abs/1312.6034 
+http://arxiv.org/abs/1312.6034 
+http://arxiv.org/abs/1412.6806 
+http://arxiv.org/abs/1412.6806 
+
+
+Under review a a conference paper at ICLR 2017 
+
+Christian Szegedy, Wei Liu, Yangqing Jia, Pierre Sermanet, Scott E. Reed, Dragomir Anguelov, 
+Dumitru Erhan, Vincent Vanhoucke, and Andrew Rabinovich. Going deeper with convolutions. 
+CoRR, abs/1409.4842, 2014. URL http://arxiv.org/abs/1409.4842. 
+
+Jason Yosinski, Jeff Clune, Anh Mai Nguyen, Thomas Fuchs, and Hod Lipson. Understanding 
+neural network through deep visualization. CoRR, 2015. URL http://arxiv.org/abs/ 
+1506.06579. 
+
+Lei Yu and Huan Liu. Feature selection for high-dimensional data: A fast correlation-based filter 
+solution. In 20th International Conference on Machine Learning (ICML), pp. 856–863, 2003. 
+URL http://www.aaai.org/Papers/ICML/2003/ICML03-111.pdf. 
+
+Wojciech Zaremba, Ilya Sutskever, and Oriol Vinyals. Recurrent neural network regularization. 
+CoRR, 2014. URL http://arxiv.org/abs/1409.2329. 
+
+Matthew D. Zeiler and Rob Fergus. Visualizing and understand convolutional networks. In 13th 
+European Conference on Computer Vision (ECCV), pp. 818–833, 2014. 
+
+16 
+
+http://arxiv.org/abs/1409.4842 
+http://arxiv.org/abs/1506.06579 
+http://arxiv.org/abs/1506.06579 
+http://www.aaai.org/Papers/ICML/2003/ICML03-111.pdf 
+http://arxiv.org/abs/1409.2329 
+
+
+Under review a a conference paper at ICLR 2017 
+
+A APPENDIX 
+
+Figure 11: More visualization compare integrate gradient with gradient at the image. 
+Left-to-right: original input image, label and softmax score for the high score class, visualiza- 
+tion of integrate gradients, visualization of gradient at the image. 
+
+17 
+
+
+
+Under review a a conference paper at ICLR 2017 
+
+Layer mixed5b Layer mixed4d 
+
+Layer mixed4b Layer mixed3b 
+
+Figure 12: Saturation in intermediate layer of Inception. For each layer we plot the L2 and 
+Cosine distance between the activation vector for a scale down image and the actual input image, 
+with respect to the scale parameter. Each plot show the trend for 30 randomly chosen image 
+from the ImageNet dataset. Notice that trend in all plot flatten a the scale parameter increases. 
+For the deepest Inception layer mixed5b, the Cosine distance to the activation vector at the image 
+be less than 0.01 when α > 0.6, which be really tiny give that this layer have 50176 neurons. 
+
+(a) Softmax score for task (b) Sum of the feature gradient 
+
+Figure 13: Saturation in the W2N2 network (Kearnes et al. (2016)). Plots for the softmax score 
+for task PCBA-58834, and the sum of the feature gradient w.r.t. the same task for twenty molecules. 
+All molecule be active against the task 
+
+18 
+
+
+
+Under review a a conference paper at ICLR 2017 
+
+(a) 
+
+Integrated gradient x1 = 0.25, x2 = 0.25 
+DeepLift x1 = 0.53 , x2 = 
+
+1 
+3 
+
+Layer-wise relevance propagation x1 = 0.53 , x2 = 
+1 
+3 
+
+DeConvNet x1 = 1.25, x2 = 0.75 
+Guided backpropagation x1 = 1.25, x2 = 0.75 
+
+(b) 
+
+Integrated gradient x1 = 0.25, x2 = 0.25 
+DeepLift x1 = 0.25, x2 = 0.25 
+Layer-wise relevance propagation x1 = 0.25, x2 = 0.25 
+DeConvNet x1 = 1.0, x2 = 1.0 
+Guided backpropagation x1 = 1.0, x2 = 1.0 
+
+Figure 14: Attributions for two functionally equivalent network use integrate gradients, 
+DeepLift (Shrikumar et al. (2016)), Layer-wise relevance propagation (Binder et al. (2016)), De- 
+ConvNets (Zeiler & Fergus (2014)), and Guided backpropagation (Springenberg et al. (2014)). The 
+input be x1 = 1.0, x2 = 1.0. The reference input for the DeepLift method be x1 = 0, x2 = 0. All 
+method except integrate gradient provide different attribution for the two networks. 
+
+19 
+
+
+1 Introduction 
+2 Our Technique 
+2.1 Gradients Do Not Reflect Feature Importance 
+2.2 Saturation 
+2.3 Interior Gradients 
+2.4 Cumulating Interior Gradients 
+2.5 Evaluating Our Approach 
+2.6 Debugging network 
+2.7 Discussion 
+2.8 Related work 
+
+3 Applications to Other Networks 
+3.1 Ligand-Based Virtual Screening 
+3.2 Language Modeling 
+
+4 Conclusion 
+A Appendix 
+

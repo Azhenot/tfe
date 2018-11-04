@@ -1,0 +1,6579 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Counterfactual Fairness 
+
+
+Counterfactual Fairness 
+
+Matt J. Kusner * 1 2 Joshua R. Loftus * 1 3 Chris Russell * 1 4 Ricardo Silva 1 5 
+
+Abstract 
+Machine learn have mature to the point to 
+where it be now be consider to automate 
+decision in loan lending, employee hiring, and 
+predictive policing. In many of these scenario 
+however, previous decision have be make that 
+be unfairly bias against certain subpopulation 
+(e.g., those of a particular race, gender, or sex- 
+ual orientation). Because this past data be of- 
+ten biased, machine learn predictor must ac- 
+count for this to avoid perpetuate discrimina- 
+tory practice (or incidentally make new ones). 
+In this paper, we develop a framework for mod- 
+eling fairness in any dataset use tool from 
+counterfactual inference. We propose a defini- 
+tion call counterfactual fairness that capture 
+the intuition that a decision be fair towards an 
+individual if it give the same prediction in (a) 
+the observe world and (b) a world where the in- 
+dividual have always belong to a different de- 
+mographic group, other background cause of 
+the outcome be equal. We demonstrate our 
+framework on two real-world problems: fair pre- 
+diction of law school success, and fair model 
+of an individual’s criminality in police data. 
+
+1. Introduction 
+Machine learn have spread to field a diverse a credit 
+score (Khandani et al., 2010), crime prediction (Bren- 
+nan et al., 2009), and loan assessment (Mahoney & Mo- 
+hen, 2007). As machine learn enters these new area it 
+be necessary for the modeler to think beyond the simple ob- 
+jective of maximize prediction accuracy, and to consider 
+the societal impact of their work. 
+
+For many of these applications, it be crucial to ask if the pre- 
+diction of a model be fair. For instance, imagine a bank 
+wish to predict if an individual should be give a loan 
+
+*Equal contribution, author order decide randomly 1Alan 
+Turing Institute 2University of Warwick 3University of Cam- 
+bridge 4University of Edinburgh 5University College Lon- 
+don. Correspondence to: <mkusner@turing.ac.uk>, 
+<jloftus@turing.ac.uk>, <crussell@turing.ac.uk>, <ri- 
+cardo.silva@ucl.ac.uk>. 
+
+to buy a house. The bank wish to use historical repay- 
+ment data, alongside individual data. If they simply learn 
+a model that predicts whether the loan will be paid back, it 
+may unjustly favor applicant of particular subgroups, due 
+to past and present prejudices. The Obama Administration 
+release a report describe this which urge data scientist 
+to analyze “how technology can deliberately or inadver- 
+tently perpetuate, exacerbate, or mask discrimination”.1 
+
+As a result, there have be immense interest in design al- 
+gorithms that make fair prediction (Bolukbasi et al., 2016; 
+Calders & Verwer, 2010; Dwork et al., 2012; Grgic-Hlaca 
+et al., 2016; Hardt et al., 2016; Joseph et al., 2016; Kami- 
+ran & Calders, 2009; 2012; Kamishima et al., 2011; Klein- 
+berg et al., 2016; Louizos et al., 2015; Zafar et al., 2015; 
+2016; Zemel et al., 2013; Zliobaite, 2015). In large part, 
+the initial work on fairness in machine learn have fo- 
+cused on formalize fairness into quantitative definition 
+and use them to solve a discrimination problem in a cer- 
+tain dataset. Unfortunately, for a practitioner, law-maker, 
+judge, or anyone else who be interested in implement al- 
+gorithms that control for discrimination, it can be difficult 
+to decide which definition of fairness to choose for the task 
+at hand. Indeed, we demonstrate that depend on the re- 
+lationship between a sensitive attribute and the data, certain 
+definition of fairness can actually increase discrimination. 
+
+We describe how technique from causal inference can be 
+effective tool for design fair algorithm and argue, a 
+in (DeDeo, 2014), that it be essential to properly address 
+causality. Specifically, we leverage the causal framework 
+of Pearl et al. (2009) to model the relationship between sen- 
+sitive attribute and data. Our contribution be a follows: 
+
+1. We model question of fairness within a causal frame- 
+work. This allows u to directly model how unfairness 
+affect the data at hand. 
+
+2. We introduce counterfactual fairness, which enforces 
+that a distribution over possible prediction for an in- 
+dividual should remain unchanged, in a world where 
+an individual’s sensitive attribute have be different 
+from birth. 
+
+3. We analyze how enforce exist definition of fair- 
+
+1https://obamawhitehouse.archives.gov/blog/2016/05/04/big- 
+risks-big-opportunities-intersection-big-data-and-civil-rights 
+
+ar 
+X 
+
+iv 
+:1 
+
+70 
+3. 
+
+06 
+85 
+
+6v 
+1 
+
+[ 
+st 
+
+at 
+.M 
+
+L 
+] 
+
+2 
+0 
+
+M 
+ar 
+
+2 
+01 
+
+7 
+
+
+
+Counterfactual Fairness 
+
+ness for different data may correspond or be in conflict 
+with counterfactual fairness. In particular, we show 
+that depend on the underlie state of the world 
+some definition of fairness may be inappropriate. 
+
+4. We devise technique for learn predictor that be 
+counterfactually fair and demonstrate their use in sev- 
+eral examples. 
+
+2. Fairness 
+Our goal in this paper be to design automate algorithm 
+that make fair prediction across various demographic 
+groups. This unfairness can arise in several ways: 
+
+Historically bias distributions: Individuals with dif- 
+ferent protect attribute A may have many different 
+attribute due to current and historic bias (e.g., racial 
+inequality cause by thing like colonialism, slavery, 
+a history of discrimination in hire and housing etc.). 
+
+Selection unfairness: The training data could contain se- 
+lection bias. For instance, if we be use a dataset 
+describe who paid loan back in full in order to train 
+a loan prediction algorithm, it may be that loan be 
+unfairly distributed. Since we can’t see whether peo- 
+ple will pay back a loan if they didn’t receive one, our 
+algorithm may be bias by this sampling. 
+
+Prediction unfairness: The learn classifier could use 
+either protect attribute such a race or correlate 
+attribute a features, and learn a bias predictor. 
+
+There have be a wealth of recent work towards fair al- 
+gorithms. These include fairness through unawareness 
+(Grgic-Hlaca et al., 2016), demographic parity/disparate 
+impact (Zafar et al., 2015), individual fairness (Dwork 
+et al., 2012; Joseph et al., 2016; Louizos et al., 2015; Zemel 
+et al., 2013), and equality of opportunity (Hardt et al., 2016; 
+Zafar et al., 2016). 
+
+Definition 1 (Fairness Through Unawareness (FTU)). An 
+algorithm be fair so long a any sensitive attribute A be 
+not explicitly use in the decision-making process. Any 
+mapping Ŷ : X → Y that excludes A (or other unfair 
+attributes, see Grgic-Hlaca et al. (2016)) satisfies this. 
+
+Initially propose a a baseline method, the approach have 
+found favor recently with more general approach such a 
+Grgic-Hlaca et al. (2016). The approach have a compelling 
+simplicity, and construct a predictor Ŷ base on a feature 
+vector X that excludes A, and in the case of Grgic-Hlaca 
+et al. (2016) other attribute label a unfair. 
+
+Definition 2 (Individual Fairness (IF)). An algorithm be 
+fair if it give similar prediction to similar individuals. 
+
+Formally, if individual i and j be similar apart from their 
+protect attribute Ai, Aj then 
+
+Ŷ (X(i), A(i)) ≈ Ŷ (X(j), A(j)). 
+
+This approach can be understood loosely a a continuous 
+analog of FTU. As described in (Dwork et al., 2012), the 
+notion of similarity must be carefully chosen and this no- 
+tion of fairness will not correct for the historical bias de- 
+scribed above. 
+
+Definition 3 (Demographic Parity (DP)). An algorithm be 
+fair if it prediction be independent of the sensitive at- 
+tribute A across the population. A prediction Ŷ satisfies 
+this definition if, 
+
+P (Ŷ |A = 0) = P (Ŷ |A = 1). 
+
+Definition 4 (Equal Opportunity (EO)). An algorithm be 
+fair if it be equally accurate for each value of the sensitive 
+attribute A. A prediction Ŷ satisfies this if, 
+
+P (Ŷ = 1|A = 0, Y = 1) = P (Ŷ = 1|A = 1, Y = 1). 
+
+While these definition address the notion of algorithmic 
+fairness, they guarantee that historic bias in the data be 
+preserved. As show by Kleinberg et al. (2016), EO and 
+DP be mutually exclusive notion of fairness. 
+
+3. Causal Models and Counterfactuals 
+We follow the framework of Pearl (2000), and define a 
+causal model a a triple (U, V, F ) of set such that 
+
+• U be a set of latent background variables2, which be 
+generate by factor outside of our control, and in gen- 
+eral do not depend on any protect attribute A (un- 
+less this be explicitly specified); 
+
+• V be a set of endogenous variables, where each mem- 
+ber be determine by other variable in U ∪ V ; 
+
+• F be a set of function {f1, . . . , fn}, one for each 
+Vi ∈ V , such that Vi = fi(pai, Upai), pai ⊆ V \{Vi} 
+and Upai ⊆ U . Such equation be also know a 
+structural equation (Bollen, 1989). 
+
+The notation “pai” refers to the “parents” of Vi and be moti- 
+vated by the assumption that the model factorizes accord 
+to a direct acyclic graph (DAG). That is, we can define 
+a direct graph G = (U ∪ V, E) where each node be an 
+element of U ∪ V , and each edge from some Z ⊆ U ∪ V 
+
+2These be sometimes call exogenous variables, but the fact 
+that member of U might depend on each other be not relevant to 
+what follows. 
+
+
+
+Counterfactual Fairness 
+
+to Vi indicates that Z ∈ pai ∪ Upai . By construction, G be 
+acyclic. 
+
+The model be causal in that, give a distribution p(U) over 
+the background variable U , you can derive the distribu- 
+tion of a subset Z ⊆ V follow an intervention on the 
+complementary subset V \Z. Here, an intervention on the 
+variable Vi of value v refers to the substitution of equation 
+Vi = fi(pai, Upai) with the equation Vi = v. This capture 
+the idea of an agent, external to the system, modify it by 
+forcefully assign value v to Vi. This occurs in a random- 
+ized control trial where the value of Vi be overridden by 
+a treatment set it to v, a value chosen at random, and 
+thus independent of any other causes. 
+
+In contrast with the independence constraint give by a 
+DAG, the full specification of F require much strong 
+assumption but also lead to much strong claims. In 
+particular, it allows for the calculation of counterfactual 
+quantities. In brief, consider the follow counterfactual 
+statement, “the value of Y if Z have take value z”, for two 
+endogenous variable Z and Y in a causal model. By as- 
+sumption, the state of any endogenous variable be fully de- 
+termined by the background variable and structural equa- 
+tions. The counterfactual be model a the solution for Y 
+for a give U = u where the equation for Z be replace 
+with Z = z. We denote it by YZ←z(u) (Pearl, 2000), and 
+sometimes a Yz if the context of the notation be clear. 
+
+Counterfactual inference, a specify by a causal model 
+(U, V, F ) give evidence W , be the computation of proba- 
+bilities P (YZ←z(U) |W =w), whereW , Z and Y be sub- 
+set of V . Inference proceeds in three steps, a explain 
+in more detail in Chapter 4 of Pearl et al. (2016): 
+
+1. Abduction: for a give prior on U , compute the pos- 
+terior distribution of U give the evidence W = w; 
+
+2. Action: substitute the equation for Z with the in- 
+terventional value z, result in the modify set of 
+equation Fz; 
+
+3. Prediction: compute the imply distribution on the 
+remain element of V use Fz and the posterior 
+P (U |W = w). 
+
+4. Counterfactual Fairness 
+Given a causal model (U, V, F ), let A ⊆ V be a set of pro- 
+tected attributes, Ŷ ⊆ V a variable which we will be the 
+basis for any decision making, and W the set of comple- 
+mentary measurement such that W = V \ (A ∪ {Ŷ }). 
+Definition 5 (Counterfactual fairness). We say Ŷ be coun- 
+terfactually fair if under any context uniquely define by 
+
+A Y UYUA EmployedA Y 
+
+UYUA 
+
+Prejudiced Qualifications 
+
+a Employeda Ya 
+
+Employed Ya0 a0 a0 
+EmployedA Y UYUA 
+
+Prejudiced Qualifications 
+
+(a) 
+
+(b) (c) 
+
+Figure 1. (a) The graph correspond to a causal model with A 
+be the protect attribute and Y some outcome of interest, 
+with background variable assume to be independent. (b) Ex- 
+panding the model to include an intermediate variable indicate 
+whether the individual be employ with two (latent) background 
+variable Prejudiced (if the person offering the job be prejudiced) 
+and Qualifications (a measure of the individual’s qualifications). 
+(c) A twin network representation of this system (Pearl, 2000) un- 
+der two different counterfactual level for A. This be create by 
+copying node descend from A, which inherit unaffected par- 
+ents from the factual world. 
+
+evidence W = w and sensitive A = a, 
+
+P (ŶA←a (U) = y |W = w,A = a) = 
+P (ŶA←a′(U) = y |W = w,A = a), (1) 
+
+for all y and for any value a′ attainable by A. 
+
+This capture the idea that any decision base on the condi- 
+tional distribution of Ŷ would be the same despite A be 
+different, give the full implication of A have always 
+be different. We can also see Ŷ a satisfy “counter- 
+factual exchangeability” under this model. 
+
+An associate concept of causal fairness appear a Exam- 
+ple 4.4.4 in Pearl et al. (2016). There, the author con- 
+dition instead on W , A, and the observe realization of 
+Ŷ , and calculate the probability of the counterfactual real- 
+ization differ from the factual3. This example conflates 
+the record decision Ŷ with the information Y on which 
+we should ideally base our decision making, a difference 
+which we maintain. Our frame make the connection to 
+other exist machine learn method more explicit, a 
+we discus in Section 5. Evidence use to determine the 
+state of background variable U should come from A and 
+W alone, a in many setup we wish to predict some Y a 
+Ŷ , when Y be unavailable at any point in our inference. 
+
+We also emphasize that counterfactual fairness be an 
+individual-level definition. This be substantially different 
+from compare different unit that happen to share the 
+same “treatment” and coincide on value ofX , a discuss 
+in Section 4.3.1 of (Pearl et al., 2016). Here, difference in 
+the value of X must be cause by variation on A only. 
+
+3The result be an expression call the “the probability of suffi- 
+ciency” for A, capture the notion that switch A to a different 
+value would be sufficient to change Ŷ with some probability. 
+
+
+
+Counterfactual Fairness 
+
+4.1. Implications 
+
+As discuss by Halpern (2016), it be unproductive to de- 
+bate if a particular counterfactual definition be the “cor- 
+rect” one to satisfy socially construct concept such a 
+blame and responsibility. The same applies to fairness. 
+Instead, we discus the implication of definition (5) and 
+some choice that arise in it application. 
+
+First, we wish to make explicit the difference between Ŷ , 
+the predictor we use for fair decisions, and Y , the related 
+state generate by an unfair world. For instance, Y could 
+be an indicator of whether a client default on a loan, while 
+Ŷ be the actual decision of give the loan. Consider the 
+DAG A → Y for a causal model where V = {A, Y }, 
+and in Figure 4(a) the DAG with explicit inclusion of set 
+U of independent background variables. Assume Y be an 
+objectively ideal measure use in decision making, such 
+a a binary indicator that the individual default on a loan. 
+In this setup, the mechanism fY (A,U) be causally unfair, 
+with the arrow A → Y be the result of a world that 
+punishes individual in a way that be out of their control. 
+Figure 4(b) show a more fine-grained model, where the 
+path be mediate by a measure of whether the person be 
+employed, which be itself cause by two background fac- 
+tors: one represent whether the person hire be prej- 
+udiced, and the other the employee’s qualifications. In 
+this world, A be a cause of defaulting, even if mediate by 
+other variables. The counterfactual fairness principle how- 
+ever forbids u from use Y : use the twin network of 
+Pearl (2000), we see in Figure 4(c) that Ya and Ya′ need 
+not be identically distribute give the background vari- 
+ables. For example, if the function determine employ- 
+ment fE(A,P,Q) = I(Q>0,P=0 orA 6=a) then an individ- 
+ual with sufficient qualification and prejudice potential 
+employer may have a different counterfactual employment 
+value for A = a compare to A = a′, and a different 
+chance of default. 
+
+In contrast, any function of variable not descendant of A 
+can be use a basis for fair decision making. This means, 
+that any variable Ŷ define by Ŷ = g(U) will be counter- 
+factually fair for any function g(·). Hence, give a causal 
+model, the functional define by the function g(·) minimiz- 
+ing some predictive error for Y will satisfy the criterion. If 
+Ŷ must be randomized, it suffices that the stochastic com- 
+ponent of it be independent of any descendant of A. 
+
+There be a subtlety to address here: by abduction, U will 
+typically depend onA, and hence so will Ŷ when marginal- 
+izing over U . This seem to disagree with the intuition that 
+our fair variable should be not be cause by A. However, 
+this be a comparison across individuals, not within an indi- 
+vidual, a discuss by Section 4.3.1 of (Pearl et al., 2016). 
+More intuitively, consider the simple case where U be fully 
+determine by A and X (which occurs in some important 
+
+special cases). In this scenario, we proceed just a if we 
+have measure U from the begin rather than perform- 
+ing abduction. We then generate Ŷ from g(U), so U be the 
+cause of Ŷ and not A. 
+
+Note that we can build counterfactually fair predictive 
+model for some Ŷ even if the structural equation that 
+generate Y be unfair. The idea be that we be learn 
+a projection of Y into an alternate world where it would be 
+fair, which we may think of a a “closest world” define by 
+our class of model and the causal structure of the world4. 
+
+A 
+
+X Y 
+
+U A 
+
+X Y 
+
+U A 
+
+X 
+
+U 
+
+Y 
+
+Figure 2. Three causal model for different real-world fair predic- 
+tion scenarios. See section 4 for discussion. 
+
+4.2. Examples 
+
+To give an intuition for counterfactual fairness we will con- 
+sider three fair prediction scenarios: insurance pricing; 
+crime prediction; college admissions. Each of these cor- 
+respond to one of the three causal graph in Figure 2. 
+
+Scenario 1: The Red Car. Imagine a car insurance com- 
+pany wish to price insurance for car owner by predict- 
+ing their accident rate Y . They assume there be an unob- 
+serve factor correspond to aggressive drive U , that 
+(a) cause driver to be more likely have an accident, and 
+(b) cause individual to prefer red car (the observe vari- 
+able X). Moreover, individual belonging to a certain race 
+A be more likely to drive red cars. However, these indi- 
+viduals be no more likely to be aggressive or to get in ac- 
+cidents than any one else. We show this in Figure 2 (Left). 
+
+Thus, use the red car feature X to predict accident like- 
+lihood Y would seem to be an unfair prediction because 
+it may charge individual of a certain race more than oth- 
+ers, even though no race be more likely to have an accident. 
+Counterfactual fairness agrees with this notion. 
+
+Lemma 1. Consider the structure in Figure 2 (left). There 
+exist model class and loss function where fitting a pre- 
+dictor toX only be not counterfactually fair, while the same 
+algorithm will give a fair predictor use both A and X . 
+
+Proof. As in the definition, we will consider the popula- 
+
+4The notion of “closest world” be pervasive in the literature 
+of counterfactual inference under different meaning (Halpern, 
+2016; Pearl, 2000). Here, the cost function use to map fair vari- 
+ables to unfair outcome also play a role, but this concern a 
+problem dependent utility function that would be present anyway 
+in the unfair prediction problem, and be orthogonal to the causal 
+assumptions. 
+
+
+
+Counterfactual Fairness 
+
+tion case, where the joint distribution be known. Consider 
+the case where the equation described by the model in Fig- 
+ure 2 (Left) be deterministic and linear: 
+
+X = αA+ βU, Y = γU 
+
+and the variance of U be vU , the variance ofA be vA, and we 
+assume all coefficient be non-zero. The predictor Ŷ (X) 
+define by least-squares regression of Y on onlyX be give 
+by Ŷ (X) ≡ λX , where λ = Cov(X,Y )/V ar(X) = 
+βγvU/(α 
+
+2vA + β 
+2vU ) 6= 0. 
+
+We can test whether a predictor Ŷ be counterfactually fair 
+use the procedure described in Section 3: (i) Compute U 
+give observation of X,Y,A; (ii) Substitute the equation 
+involve A with an interventional value a′; (iii) Compute 
+the variable X,Y with the interventional value a′. It be 
+clear here that Ŷa(U)=λ(αa + βU) 6= Ŷa′(U). This pre- 
+dictor be not counterfactually fair. Thus, in this case fairness 
+through unawareness actually perpetuates unfairness. 
+
+Consider instead do least-squares regression of Y on X 
+and A. Note that Ŷ (X,A) ≡ λXX + λAA where λX , λA 
+can be derive a follows: 
+( 
+λX 
+λA 
+
+) 
+= 
+
+( 
+V ar(X) Cov(A,X) 
+Cov(X,A) V ar(A) 
+
+)−1( 
+Cov(X,Y ) 
+Cov(A, Y ) 
+
+) 
+
+= 
+1 
+
+β2vUvA 
+
+( 
+vA −αvA 
+−αvA α2vA + β2vU 
+
+)( 
+βγvU 
+0 
+
+) 
+
+= 
+
+( 
+γ 
+β 
+−αγ 
+β 
+
+) 
+(2) 
+
+Now imagine we have observe A = a. This implies 
+that X = αa + βU and our predictor be Ŷ (X, a) = 
+γ 
+β (αa+ βU) + 
+
+−αγ 
+β a = γU . Thus, if we substitute a with 
+
+a counterfactual a′ (the action step described in Section 3) 
+the predictor Ŷ (X,A) be unchanged! This be because our 
+predictor be construct in such a way that any change inX 
+cause by a change in A be cancel out by the λA. Thus 
+this predictor be counterfactually fair. 
+
+Note that if Figure 2 (Left) be the true model for the real 
+world then Ŷ (X,A) will also satisfy demographic parity 
+and equality of opportunity a Y will be unaffected by A. 
+
+The above lemma hold in a more general case for the 
+structure give in Figure 2 (Left): any non-constant esti- 
+mator that depends only on X be not counterfactually fair 
+a change A always alters X . We also point out that 
+the method use in the proof be a special case of a gen- 
+eral method to building a predictor base on information 
+deduce about U that will be described in the next section. 
+We note that, outside of this particular causal model in Fig- 
+ure 2 (Left), the predictor Ŷ (X,A) be not counterfactually 
+fair, a described in the follow scenarios. 
+
+Scenario 2: High Crime Regions. A local police 
+precinct want to know how likely a give house be to 
+be broken into, Y . This likelihood depends on many un- 
+observe factor (U ) but also upon the neighborhood the 
+house lie in (X). However, different ethnic group be 
+more likely to live in particular neighborhoods, and so 
+neighborhood and break-in rate be often correlate with 
+the race A of the house occupier. This can be see in Fig- 
+ure 2 (Center). Unlike the previous case, a predictor Ŷ 
+train use X and A be not counterfactually fair. The 
+only change from Scenario 1 be that now Y depends on X 
+a follows: Y = γU + θX . Now if we solve for λX , λA it 
+can be show that Ŷ (X, a)=(γ− α2θvAβvU )U +αθa. As this 
+predictor depends on the value of A, Ŷ (X, a) 6= Ŷ (X, a′) 
+and thus Ŷ (X,A) be not counterfactually fair. 
+
+Scenario 3: University Success. A university want to 
+know if student will be successful post-graduation Y . 
+They have information such as: grade point average (GPA), 
+advanced placement (AP) exam results, and other aca- 
+demic feature X . The university believe however, that 
+an individual’s gender A may influence these feature and 
+their post-graduation success Y due to social discrimina- 
+tion. They also believe that independently, an individual’s 
+latent talent U casues X and Y . We show this in Figure 2 
+(Right). We can again ask, be the predictor Ŷ (X,A) coun- 
+terfactually fair? In this case, the different between this and 
+Scenario 1 be that Y be a function of U and A a follows: 
+Y = γU + ηA. We can again solve for λX , λA and show 
+that Ŷ (X, a) = (γ − αηvAβvU )U + ηa. Again Ŷ (X,A) be a 
+function of A so it cannot be counterfactually fair. 
+
+5. Methods and Assessment 
+Given that the unaware and full information model be 
+not counterfactually fair, how can we design predictor that 
+are? In general give a causal model, a counterfactually 
+fair classifier Ŷ be one that be a function of any U and any 
+variable X which be not descendant of A. As defined, 
+these variable be independent ofA and thus any change in 
+A cannot change Ŷ . In this section we describe technique 
+for construct latent variable U and a predictor Ŷ . 
+
+Before delve into details, we point out two impor- 
+tant observations. First, if a strict subset of U be used, 
+the causal model need not be fully specified: equation 
+Vi = fi(pai, Upai) can be substitute by a conditional 
+probability p(Vi | pai, U ′pai), where U ′pai ⊂ Upai and 
+p(Vi | pai, U ′pai) = 
+
+∫ 
+fi(pai, Upai)dU 
+
+′′ 
+pai , where U 
+
+′′ 
+pai ≡ 
+
+Upai\U ′pai . This marginalization have implication in mod- 
+eling discuss in the next section. 
+
+Second, any random variable generate independently be 
+trivially counterfactually fair. However, we desire that 
+
+
+
+Counterfactual Fairness 
+
+Ŷ be a good predictor, not simply a coin toss. That is, 
+Ŷ be typically a parameterized function gθ(U,X) where 
+θ be learn by minimize the empiric expect loss 
+E[l(Y, gθ(U,X)) |X,A]. For instance, l(Y, gθ(U,X)) = 
+(Y − gθ(U,X))2, or the log-loss for Bernoulli classifica- 
+tion. In practice, the distribution ofA∪X∪{Y } can be the 
+empirical distribution a give by some training data, while 
+p(U | X,A) come from the estimate causal model fit to 
+the same training data. Any predictor can be use to learn 
+gθ(U,X) include random forest and neural networks. 
+
+5.1. Limitations and a Guide to Model Building 
+
+Causal model require untestable assumptions. Exper- 
+imental data can sometimes be use to infer causal con- 
+nections, but counterfactual model require functional 
+decomposition between background and endogenous vari- 
+ables. Such decomposition be not uniquely identifiable 
+with experimental data. As in several matter of law and 
+regulation, fairness at an individual level be a counterfactual 
+quantity and some level of assumption be unavoidable. 
+As a guide for building fair predictive models, we catego- 
+rize assumption by three level of increase strength. 
+
+Level 1 Given a causal DAG, build Ŷ use a covariates only 
+the observable variable not descendant of the pro- 
+tected attribute A. This require information about 
+the DAG, but no assumption about structural equa- 
+tions or prior over background variables. 
+
+Level 2 Level 1 ignores much information, particularly if the 
+protect attribute be typical attribute such a race 
+or sex, which be parent of many other variables. To 
+include information from descendant ofA, we postu- 
+late background latent variable that act a cause of 
+observable variables, base on explicit domain knowl- 
+edge and learn algorithms5. Information from X 
+will propagate to the latent variable by conditioning. 
+
+Level 3 In Level 2, the model factorizes a a general DAG, and 
+each node follow a non-degenerate distribution give 
+observe and latent variables. In this level, we remove 
+all randomness from the conditional distribution ob- 
+taining a full decomposition (U, V, F ) of the model. 
+For instance, the distribution p(Vi | V1, . . . , Vi−1) 
+can be treat a an additive error model, Vi = 
+fi(V1, . . . , Vi−1)+ei (Peters et al., 2014). The error 
+term ei then becomes an input to Ŷ after conditioning 
+on the observe variables. This maximizes the infor- 
+mation extract by the fair predictor Ŷ . 
+
+5In some domains, it be actually common to build a model en- 
+tirely around latent construct with few or no observable parent 
+nor connection among observe variable (Bollen, 1989). 
+
+5.2. Special case 
+
+Consider the graph A → X → Y . In general, if Ŷ be 
+a function of X only, then Ŷ need not obey demographic 
+parity, i.e. 
+
+P (Ŷ | A = a) 6= P (Ŷ | A = a′). 
+If we postulate a structural equation X = αA + eX , then 
+give A and X we can deduce eX . If Ŷ be a function of 
+eX only and, by assumption, eX be independent of A, then 
+the assumption imply that Ŷ will satisfy demographic par- 
+ity, and that can be falsified. By way of contrast, if eX be 
+not uniquely identifiable from the structural equation and 
+(A,X), then the distribution of Ŷ depends on the value of 
+A a we marginalize eX , and demographic parity will not 
+follow. This lead to the following: 
+Lemma 2. If all background variable U ′ ⊆ U in the defi- 
+nition of Ŷ be determine fromA and evidenceW , and all 
+observable variable in the definition of Ŷ be independent 
+of A give U ′, then Ŷ satisfies demographic parity. 
+
+Thus, counterfactual fairness can be thought of a a coun- 
+terfactual analog of demographic parity. We advocate that 
+counterfactual assumption should underlie all approach 
+that separate the source of variation of the data into “fair” 
+and “unfair” components. As an example, Louizos et al. 
+(2015) explains the variability in X from A and an inde- 
+pendent source U follow the DAG A → X ← U . As 
+U and A be not independent give X in this representa- 
+tion, a type of “posterior regularization” (Ganchev et al., 
+2010) be enforce such that a posterior pfair(U |A,X) be 
+close to the model posterior p(U | A,X) while satisfy 
+pfair(U |A = a,X) ≈ pfair(U |A = a′, X). But this be 
+neither necessary nor sufficient for counterfactual fairness 
+if the model forX givenA andU be not justified by a causal 
+mechanism. If it is, p(U | A,X) be justified a distribution 
+which we can use to marginalize U in p(Ŷ (U) | A,X), 
+without require regularization. Methods which estimate 
+the relationship between A, U and X base on penaliz- 
+ing dependence measure between an estimate U and A 
+be relevant in estimate a causal model (e.g. Mooij et al. 
+(2009)), but these be motivate by U be be determinis- 
+tically infer from A and X by construction. It be unclear 
+in Louizos et al. (2015) how the ideal label Y be causally 
+connect to U and A, and the semantics of the “unfair” 
+component of Y be not detailed. 
+
+6. Experiments 
+We test our approach on two practical problem that re- 
+quire fairness, the first be prediction of success in law school 
+and the second be separate actual and perceive criminal- 
+ity in police stops. For each problem we construct causal 
+models, and make explicit how unfairness may affect ob- 
+serve and unobserved variable in the world. Given these 
+
+
+
+Counterfactual Fairness 
+
+model we derive counterfactually fair predictors, and pre- 
+dict latent variable such a a person’s ‘criminality’ (which 
+may be useful for predict crime) a well a their ‘per- 
+ceived criminality’ (which may be due to prejudice base 
+on race and sex). We analyze empirically how counterfac- 
+tually fair the unaware and full predictor are, assume 
+knowledge of the correct causal model, and compare the 
+prediction accuracy of all models. Finally we judge how 
+well our counterfactually fair ‘criminality’ score satisfies 
+demographic parity. 
+
+6.1. Law school success 
+
+The Law School Admission Council conduct a survey 
+across 163 law school in the United States (Wightman, 
+1998). It contains information on 21,790 law student such 
+a their entrance exam score (LSAT), their grade-point av- 
+erage (GPA) collect prior to law school, and their first 
+year average grade (FYA). 
+
+Given this data, a school may wish to predict if an applicant 
+will have a high FYA. The school would also like to make 
+sure these prediction be not bias by an individual’s race 
+and sex. However, the LSAT, GPA, and FYA scores, may 
+be bias due to social factors. We compare our framework 
+with two unfair baselines: 1. Full: the standard technique 
+of use all features, include sensitive feature such a 
+race and sex to make predictions; 2. Unaware: fairness 
+through unawareness, where we do not use race and sex a 
+features. For comparison, we generate predictor Ŷ for all 
+model use logistic regression. 
+
+Fair prediction. As described in Section 5.1, there be 
+three way in which we can model a counterfactually fair 
+predictor of FYA. Level 1 us any feature which be not 
+descendant of race and sex for prediction. Level 2 model 
+latent ‘fair’ variable which be parent of observe vari- 
+ables. These variable be independent of both race and 
+sex. Level 3 model the data use an additive error model, 
+and us the independent error term to make predictions. 
+These model make increasingly strong assumption cor- 
+respond to increase predictive power. We split the 
+dataset 80/20 into a train/test set, preserve label balance, 
+to evaluate the models. 
+
+As we believe LSAT, GPA, and FYA be all bias by race 
+and sex, we cannot use any observe feature to construct 
+a counterfactually fair predictor a described in Level 1. 
+
+In Level 2, we postulate that a latent variable: a student’s 
+knowledge (K), affect GPA, LSAT, and FYA scores. The 
+causal graph correspond to this model be show in Fig- 
+
+Table 1. Prediction result use logistic regression. Note that we 
+must sacrifice a small amount of accuracy to ensure counterfac- 
+tually fair prediction (Fair K, Fair Add), versus the model that 
+use unfair features: GPA, LSAT, race, sex (Full, Unaware). 
+
+Full Unaware Fair K Fair Add 
+RMSE 0.873 0.894 0.929 0.918 
+
+ure 3, (Level 2). This be a short-hand for the distributions: 
+
+GPA ∼ N (bG + wKGK + wRGR+ wSGS, σG) 
+LSAT ∼ Poisson(exp(bL + wKLK + wRLR+ wSLS)) 
+
+FYA ∼ N (wKF K + wRFR+ wSFS, 1) 
+K ∼ N (0, 1) 
+
+We perform inference on this model use an observe 
+training set to estimate the posterior distribution of K. We 
+use the probabilistic program language Stan (Stan De- 
+velopment Team, 2016) to learn K. We call the predictor 
+construct use K, Fair K. 
+
+Know 
+
+GPA 
+
+LSAT 
+
+FYA 
+
+Race 
+
+Sex 
+
+GPA 
+
+LSAT 
+
+FYA 
+
+Race 
+
+Sex 
+
+Level 2 Level 3 
+
+✏G 
+
+✏L 
+
+✏F 
+
+Figure 3. A causal model for the problem of predict law school 
+success fairly. 
+
+0 
+
+1 
+
+2 
+
+3 
+
+−1.0 −0.5 0.0 0.5 
+pred_zfya 
+
+de 
+n 
+ity 
+
+type 
+original 
+
+swap 
+
+0 
+
+1 
+
+2 
+
+3 
+
+−1.0 −0.5 0.0 0.5 
+pred_zfya 
+
+de 
+n 
+ity 
+
+type 
+original 
+
+swap 
+
+0 
+
+1 
+
+2 
+
+3 
+
+−1.0 −0.5 0.0 0.5 
+pred_zfya 
+
+de 
+n 
+ity 
+
+type 
+original 
+
+swap 
+
+0 
+
+1 
+
+2 
+
+3 
+
+−1.0 −0.5 0.0 0.5 
+pred_zfya 
+
+de 
+n 
+ity 
+
+type 
+original 
+
+swap 
+
+0.0 
+
+0.5 
+
+1.0 
+
+1.5 
+
+2.0 
+
+−0.5 0.0 0.5 
+pred_zfya 
+
+de 
+n 
+ity 
+
+type 
+original 
+
+swap 
+
+0.0 
+
+0.5 
+
+1.0 
+
+1.5 
+
+2.0 
+
+−0.4 0.0 0.4 0.8 
+pred_zfya 
+
+de 
+n 
+ity 
+
+type 
+original 
+
+swap 
+
+0.0 
+
+0.5 
+
+1.0 
+
+1.5 
+
+2.0 
+
+−0.4 0.0 0.4 0.8 
+pred_zfya 
+
+de 
+n 
+ity 
+
+type 
+original 
+
+swap 
+
+0.0 
+
+0.5 
+
+1.0 
+
+1.5 
+
+2.0 
+
+−0.4 0.0 0.4 0.8 
+pred_zfya 
+
+de 
+n 
+ity 
+
+type 
+original 
+
+swap 
+
+FYA 
+V 
+
+FYA 
+V 
+
+FYA 
+V 
+
+FYA 
+V 
+
+FYA 
+V 
+
+FYA 
+V 
+
+FYA 
+V 
+
+de 
+n 
+
+ity 
+
+de 
+n 
+
+ity 
+
+de 
+n 
+
+ity 
+
+de 
+n 
+
+ity 
+de 
+
+n 
+ity 
+
+de 
+n 
+
+ity 
+
+de 
+n 
+
+ity 
+
+de 
+n 
+
+ity 
+
+female$ maleblack$ white asian$ white mexican$ white 
+
+Fu 
+ll 
+
+U 
+na 
+
+w 
+ar 
+
+e 
+
+original 
+data 
+
+counter- 
+factual 
+
+Figure 4. Density plot of predict FYAa and FYAa′ . 
+
+In Level 3, we model GPA, LSAT, and FYA a continuous 
+variable with additive error term independent of race and 
+sex (that may in turn be correlate with one-another). This 
+model be show in Figure 3, (Level 3), and be express by: 
+
+GPA = bG + wRGR+ w 
+S 
+GS + �G, �G ∼ p(�G) 
+
+LSAT = bL + wRLR+ w 
+S 
+LS + �L, �L ∼ p(�L) 
+
+FYA = bF + wRFR+ w 
+S 
+FS + �F , �F ∼ p(�F ) 
+
+We estimate the error term �G, �L by first fitting two mod- 
+el that each use race and sex to individually predict GPA 
+
+
+
+Counterfactual Fairness 
+
+Figure 5. Understanding criminality. The above map show the decomposition of stop and search data in New York into factor base 
+on perceive criminality (a race dependent variable) and latent criminality (a race neutral measure). See section 6.2. 
+
+and LSAT. We then compute the residual of each model 
+(e.g., �G=GPA−ŶGPA(R,S)). We use these residual esti- 
+mate of �G, �L to predict FYA. We call this Fair Add. 
+
+Accuracy. We compare the RMSE achieve by logistic 
+regression for each of the model on the test set in Table 1. 
+The Full model achieves the low RMSE a it us race 
+and sex to more accurately reconstruct FYA. Note that in 
+this case, this model be not fair even if the data be gen- 
+erated by one of the model show in Figure 3 a it cor- 
+responds to Scenario 3. The (also unfair) Unaware model 
+still us the unfair variable GPA and LSAT, but because 
+it do not use race and sex it cannot match the RMSE of 
+the Full model. As our model satisfy counterfactual fair- 
+ness, they trade off some accuracy. Our first model Fair 
+K us weaker assumption and thus the RMSE be highest. 
+Using the Level 3 assumptions, a in Fair Add we produce 
+a counterfactually fair model that trade low RMSE for 
+slightly weaker assumptions. 
+
+Criminality 
+
+Appearance 
+
+Race 
+
+Perception 
+
+Arrest 
+
+Frisked 
+
+Searched 
+
+Weapon 
+
+Force 
+
+Summons 
+
+Figure 6. A causal model for the stop and frisk dataset. 
+
+Counterfactual fairness. We would like to empirically 
+test whether the baseline method be counterfactually fair. 
+To do so we will assume the true model of the world be 
+give by Figure 3, (Level 2). We can fit the parameter of 
+this model use the observe data and evaluate counter- 
+factual fairness by sample from it. Specifically, we will 
+generate sample from the model give either the observe 
+race and sex, or counterfactual race and sex variables. We 
+
+will fit model to both the original and counterfactual sam- 
+plead data and plot how the distribution of predict FYA 
+change for both baseline models. Figure 6.1 show this, 
+where each row corresponds to a baseline predictor and 
+each column corresponds to the couterfactual change. In 
+each plot, the blue distribution be density of predict FYA 
+for the original data and the red distribution be this density 
+for the counterfactual data. If a model be counterfactually 
+fair we would expect these distribution to lie exactly on 
+top of each other. Instead, we note that the Full model ex- 
+hibits counterfactual unfairness for all counterfactuals ex- 
+cept sex. We see a similar trend for the Unaware model, 
+although it be closer to be counterfactually fair. To see 
+why these model seem to be fair w.r.t. to sex we can look 
+at weight of the DAG which generates the counterfactual 
+data. Specifically the DAG weight from (male,female) to 
+GPA be (0.93,1.06) and from (male,female) to LSAT be 
+(1.1,1.1). Thus, these model be fair w.r.t. to sex sim- 
+ply because of a very weak causal link between sex and 
+GPA/LSAT. 
+
+6.2. True vs. Perceived Criminality 
+
+Since 2002, the New York Police Department (NYPD) have 
+record information about every time a police officer have 
+stop someone. The officer record information such a 
+if the person be search or frisked, their appearance, etc. 
+We consider the data collect on male stop during 
+2014 which constitutes 38,609 records. 
+
+Model. We model this stop-and-frisk data use the 
+graph in Figure 6. Specifically, we posit main cause for 
+the observations: Arrest (if an individual be arrested), 
+Summons (an individual be call to a court-summons), 
+Weapon (an individual be found to be carry a weapon), 
+Force (some sort of force be use during the stop), 
+Frisked, and Searched. The first cause of these observa- 
+tions be some measure of an individual’s latent Criminal- 
+ity, which we do not observe. We believe there be an addi- 
+tional cause, an individual’s perceive criminality, Percep- 
+tion, also unobserved. This second factor be introduce a 
+we believe that these observation may be bias base on 
+
+
+
+Counterfactual Fairness 
+
+an officer’s perception of whether an individual be likely a 
+criminal or not. This perception be affected by an individ- 
+ual’s Appearance and their Race. In this sense Criminality 
+be counterfactually fair, while Perception model how race 
+affect each of the other observe variables. 
+
+Criminality and perception distributions. After fitting 
+this model to the data we can look at the distribution of 
+Criminality and Perception across different races, show 
+a box plot in Figure 6. We see that the median criminal- 
+ity for each race be nearly identical, while the distribution 
+be somewhat different, demonstrate that Criminality ap- 
+proaches demographic parity. The difference that due ex- 
+ist may be due to unobserved confound variable that 
+be affected by race or unmodeled noise in the data. On 
+the right Perception varies considerably by race with white 
+individual have the low perceive criminality while 
+black and black Hispanic individual have the highest. 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●● 
+
+● 
+● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+●●● 
+
+●● 
+
+●●●●● 
+
+●●● 
+
+● 
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●● 
+
+●● 
+
+● 
+
+● 
+
+● 
+● 
+
+● 
+
+●● 
+
+●●●●● 
+
+●●● 
+
+● 
+
+● 
+●● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+● 
+● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+●● 
+
+●●●● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●●● 
+● 
+● 
+
+●● 
+
+● 
+
+●●● 
+
+● 
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●● 
+
+● 
+● 
+
+● 
+
+● 
+
+●●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+● 
+
+● 
+
+● 
+●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●●● 
+
+● 
+
+● 
+
+●● 
+
+● 
+● 
+● 
+
+● 
+
+● 
+
+● 
+
+●●●● 
+
+●● 
+
+● 
+
+● 
+
+● 
+●● 
+
+● 
+
+●●● 
+
+●● 
+● 
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+●●●●● 
+
+●●●●● 
+
+● 
+
+● 
+
+●●● 
+
+● 
+
+●● 
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+● 
+● 
+
+● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+●●● 
+
+● 
+
+●● 
+
+● 
+● 
+
+● 
+
+● 
+
+● 
+● 
+
+● 
+
+● 
+●● 
+
+●●● 
+
+● 
+
+● 
+
+● 
+
+●●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●●●●●●●●● 
+
+● 
+● 
+
+● 
+●● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●● 
+
+● 
+●● 
+● 
+● 
+
+●●●● 
+
+● 
+
+●● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+●● 
+
+●● 
+
+●●●● 
+
+●●●●●● 
+
+● 
+
+●●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+●●● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+● 
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●●●●● 
+
+● 
+
+● 
+
+● 
+
+●● 
+
+●● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+●● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+● 
+
+●●● 
+
+●●●● 
+
+●●●● 
+
+● 
+
+● 
+
+● 
+
+●● 
+● 
+● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+●●● 
+
+●● 
+● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●●● 
+
+● 
+
+● 
+
+● 
+
+● 
+● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●● 
+
+●●● 
+
+● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+●●● 
+
+● 
+
+● 
+
+● 
+● 
+
+● 
+
+● 
+
+●● 
+
+● 
+●●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+●● 
+
+●● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+● 
+●● 
+
+● 
+
+● 
+● 
+
+● 
+
+● 
+
+●● 
+
+●●● 
+
+● 
+
+● 
+
+● 
+
+● 
+● 
+
+● 
+
+●● 
+
+● 
+
+●● 
+
+●●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●●●● 
+
+● 
+
+●● 
+
+●●● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+●● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●●●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●●● 
+
+● 
+
+● 
+
+● 
+
+● 
+● 
+
+●●●● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●●●● 
+
+● 
+
+● 
+
+● 
+
+●● 
+● 
+
+● 
+
+●●●●●●●●● 
+
+● 
+
+● 
+
+● 
+
+●●● 
+
+● 
+
+●● 
+●●●● 
+
+● 
+
+●● 
+
+● 
+
+● 
+●●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●● 
+
+●● 
+
+● 
+
+● 
+● 
+
+● 
+
+● 
+
+●● 
+
+●●● 
+
+● 
+
+● 
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+● 
+
+● 
+
+● 
+
+●● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+●●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●● 
+● 
+●● 
+
+● 
+
+● 
+
+●● 
+
+●● 
+
+●●●● 
+
+● 
+
+●●●●●● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+● 
+
+● 
+
+●●● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+●●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+● 
+● 
+
+● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+●● 
+
+●● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+●● 
+
+● 
+● 
+● 
+
+● 
+
+● 
+
+● 
+
+●●●●● 
+
+●● 
+
+● 
+
+●● 
+
+●●● 
+
+●● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+●●●●● 
+
+● 
+● 
+
+● 
+
+● 
+
+● 
+
+●● 
+
+● 
+● 
+
+●●●● 
+
+● 
+
+●●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●● 
+
+● 
+● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+● 
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●●●● 
+
+●● 
+
+● 
+
+● 
+● 
+● 
+
+●● 
+● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+● 
+● 
+●●●●●●● 
+● 
+
+● 
+
+● 
+
+●●● 
+
+● 
+
+● 
+
+● 
+●● 
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●●● 
+
+● 
+
+● 
+
+●● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+●●● 
+● 
+
+● 
+
+●● 
+
+● 
+
+● 
+● 
+
+●● 
+● 
+
+● 
+
+●●● 
+
+● 
+
+● 
+
+● 
+● 
+
+●●● 
+
+● 
+
+● 
+
+● 
+
+●● 
+● 
+
+●● 
+
+● 
+
+● 
+
+●●● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+●● 
+
+● 
+
+●●● 
+
+●● 
+
+● 
+
+●●●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+●●● 
+
+● 
+
+●● 
+● 
+● 
+
+●●● 
+
+●● 
+
+●● 
+●● 
+
+●●●●●● 
+
+● 
+
+● 
+● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+● 
+●●● 
+
+●● 
+
+● 
+
+●●●●● 
+● 
+
+●●●● 
+
+●●●●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●●● 
+
+● 
+
+● 
+
+● 
+
+● 
+●● 
+● 
+
+● 
+
+●●● 
+
+● 
+
+●●● 
+● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+●●● 
+
+●●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●●●●●● 
+
+● 
+
+●● 
+
+● 
+
+●●●● 
+
+● 
+
+●● 
+
+● 
+
+●●● 
+
+●●● 
+
+●●●● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●●●● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+●● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●●●●● 
+●● 
+
+●● 
+
+● 
+
+● 
+
+●● 
+● 
+
+●●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+● 
+
+● 
+
+● 
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+● 
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●● 
+
+●● 
+
+● 
+
+●●● 
+
+● 
+
+●● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●● 
+●● 
+
+●● 
+
+● 
+● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+●● 
+● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+● 
+● 
+
+● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+● 
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●● 
+
+●●● 
+
+● 
+●● 
+
+● 
+
+● 
+
+●● 
+
+●● 
+● 
+
+● 
+
+●●● 
+
+● 
+
+●● 
+
+● 
+● 
+
+● 
+
+● 
+
+●● 
+
+●●●● 
+
+● 
+● 
+
+● 
+
+● 
+● 
+
+● 
+●● 
+
+●●●●●●● 
+
+● 
+
+●● 
+
+●● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+●● 
+
+●● 
+
+●●●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+●●●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●●●● 
+
+● 
+
+● 
+
+● 
+
+●● 
+
+●●●● 
+
+● 
+
+● 
+
+●● 
+
+●● 
+
+● 
+
+● 
+
+●●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●● 
+
+●● 
+
+● 
+
+●● 
+
+●● 
+
+● 
+
+● 
+
+●●● 
+
+●● 
+
+● 
+
+● 
+
+● 
+● 
+
+●●●●● 
+
+● 
+● 
+
+●●●● 
+
+●●●●●●● 
+● 
+
+● 
+
+● 
+
+●● 
+●●●● 
+
+●● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+● 
+● 
+
+● 
+
+● 
+
+● 
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●●●● 
+
+● 
+
+● 
+
+● 
+
+●●● 
+
+● 
+
+●●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●●●●● 
+
+● 
+
+●●● 
+
+● 
+● 
+
+●● 
+
+●● 
+
+●● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+● 
+● 
+
+● 
+
+●● 
+
+● 
+
+●●●●●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●● 
+
+●●● 
+
+● 
+
+●●● 
+
+●●● 
+● 
+
+● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+●●● 
+
+●● 
+
+● 
+
+● 
+
+●●●● 
+
+● 
+
+● 
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●● 
+
+●●●● 
+
+● 
+● 
+●●● 
+● 
+
+● 
+
+● 
+
+● 
+● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+● 
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●●●●●●●● 
+
+● 
+
+●● 
+
+● 
+
+●● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+●●●●●● 
+
+● 
+
+● 
+
+● 
+
+● 
+● 
+
+● 
+
+● 
+
+● 
+
+●●● 
+
+●● 
+
+●●● 
+
+● 
+
+● 
+●● 
+
+● 
+
+●●● 
+
+● 
+
+● 
+
+●●● 
+
+● 
+
+●●●● 
+
+● 
+
+● 
+
+●● 
+● 
+
+● 
+
+● 
+
+● 
+
+●●● 
+
+●● 
+
+● 
+
+●●●● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+●●●●● 
+
+● 
+
+● 
+
+●●●●●●●● 
+
+● 
+
+● 
+
+● 
+
+●●●● 
+
+●● 
+
+●●● 
+
+●● 
+
+●● 
+
+● 
+
+●●● 
+
+● 
+
+●●● 
+
+●●● 
+
+● 
+●● 
+
+● 
+
+● 
+
+● 
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+●● 
+
+● 
+
+●●●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●●● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●●● 
+
+●●●● 
+
+● 
+
+●● 
+
+● 
+● 
+
+●●●● 
+
+● 
+
+● 
+
+● 
+●● 
+
+●● 
+
+●● 
+
+●● 
+
+● 
+
+● 
+
+● 
+● 
+
+● 
+
+● 
+
+●●● 
+
+● 
+
+● 
+
+●●● 
+
+● 
+
+● 
+
+● 
+
+●●●● 
+
+● 
+
+● 
+
+●● 
+
+●● 
+●●● 
+
+● 
+
+● 
+● 
+
+● 
+
+● 
+
+●●● 
+
+● 
+
+● 
+
+●● 
+
+●● 
+
+● 
+
+● 
+
+●●●● 
+
+● 
+
+●●●●● 
+
+● 
+
+● 
+
+● 
+
+●●●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+●●●● 
+
+● 
+
+● 
+
+● 
+●● 
+
+●● 
+
+●●●● 
+
+● 
+
+● 
+
+●●● 
+
+● 
+
+●● 
+● 
+
+● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+●●●●● 
+
+● 
+
+● 
+
+●● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+●●● 
+
+● 
+
+● 
+● 
+
+●●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+● 
+
+●● 
+
+●● 
+
+● 
+
+● 
+
+●●● 
+
+● 
+
+●●●●●●●● 
+
+● 
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●● 
+● 
+
+● 
+
+●● 
+
+● 
+
+●●●●●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+●● 
+
+●● 
+
+●● 
+
+● 
+● 
+
+●● 
+
+● 
+
+●● 
+
+● 
+
+●●●● 
+
+● 
+
+● 
+
+●● 
+
+●●●●●● 
+
+●● 
+●● 
+
+● 
+
+● 
+
+● 
+
+●●●● 
+
+● 
+
+● 
+
+● 
+
+●●●●●● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+●●●● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+● 
+● 
+●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●●●● 
+
+● 
+
+● 
+
+●●●●● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●●● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+● 
+● 
+● 
+
+●●● 
+
+● 
+
+●● 
+
+● 
+
+● 
+● 
+
+● 
+
+● 
+
+●●●●● 
+
+● 
+
+● 
+
+●● 
+
+●● 
+
+● 
+
+●●● 
+
+● 
+
+●●●●● 
+
+● 
+
+●● 
+
+●● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+●●●●●● 
+
+●● 
+
+● 
+● 
+●●● 
+
+● 
+
+● 
+
+● 
+
+●●●●●●●●●●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●●● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●●● 
+
+● 
+
+●●● 
+
+● 
+● 
+● 
+
+●●● 
+
+● 
+
+● 
+
+● 
+● 
+
+● 
+
+●● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+●● 
+
+●● 
+
+●●● 
+
+● 
+
+● 
+
+● 
+
+●● 
+
+●● 
+
+● 
+
+●●● 
+
+● 
+● 
+
+●●●●●●●●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+● 
+● 
+
+● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+●●● 
+
+● 
+●●● 
+
+● 
+
+●●● 
+
+● 
+●● 
+
+● 
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●●● 
+
+● 
+
+●● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+●●● 
+
+●● 
+
+●● 
+
+● 
+
+●● 
+
+● 
+
+● 
+●● 
+
+● 
+
+● 
+
+● 
+
+●●● 
+
+● 
+● 
+
+● 
+●● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+● 
+
+● 
+
+● 
+
+●●● 
+
+● 
+
+● 
+
+● 
+● 
+
+●●●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●● 
+● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●● 
+
+● 
+●●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●●●●●●●●●●● 
+●●●● 
+
+● 
+● 
+● 
+
+●●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●●● 
+
+● 
+
+●● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●●●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●● 
+● 
+
+● 
+
+● 
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●●●● 
+
+● 
+
+● 
+
+● 
+● 
+
+● 
+
+● 
+
+●●● 
+
+●● 
+
+●● 
+
+●●●●● 
+
+● 
+● 
+
+● 
+
+● 
+
+● 
+
+●●●●●● 
+
+● 
+
+● 
+
+●● 
+● 
+
+● 
+
+●● 
+
+●●● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+● 
+● 
+● 
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+● 
+
+●● 
+
+● 
+
+● 
+●● 
+
+● 
+
+●● 
+
+● 
+
+●●● 
+● 
+
+●●● 
+
+● 
+
+● 
+
+● 
+
+● 
+● 
+
+● 
+
+● 
+
+●● 
+
+●● 
+
+● 
+
+● 
+●●● 
+● 
+● 
+
+●●● 
+● 
+● 
+
+●● 
+
+● 
+
+●●● 
+
+● 
+
+●● 
+
+● 
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●●● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+● 
+● 
+
+●● 
+
+● 
+
+● 
+
+● 
+● 
+
+●● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+●● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●●● 
+
+● 
+
+●●●●● 
+
+● 
+
+●● 
+
+● 
+
+●● 
+
+● 
+
+●●●●●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●●● 
+
+● 
+
+● 
+
+● 
+● 
+
+●● 
+
+●●●●● 
+
+● 
+
+● 
+
+● 
+
+● 
+●●● 
+●● 
+
+●●● 
+
+● 
+
+●●●● 
+
+● 
+
+●● 
+
+● 
+
+●● 
+
+●●●● 
+
+● 
+
+● 
+
+●●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●●● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●● 
+
+●●●●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+●● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+●●● 
+● 
+
+●●● 
+
+● 
+
+●● 
+
+●● 
+
+● 
+
+●● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+●● 
+
+●● 
+
+●●●● 
+
+●● 
+
+● 
+
+●●●●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+●● 
+
+● 
+● 
+
+● 
+
+● 
+
+● 
+● 
+
+●●●●●● 
+
+●●●●●● 
+
+● 
+● 
+
+●● 
+
+● 
+
+●●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+● 
+
+● 
+
+● 
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+●● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+● 
+●● 
+
+● 
+
+● 
+
+●●● 
+
+● 
+
+● 
+
+● 
+
+● 
+●● 
+
+● 
+
+● 
+● 
+
+● 
+
+● 
+
+●● 
+
+● 
+●● 
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+●● 
+
+●● 
+● 
+
+● 
+
+● 
+● 
+
+● 
+
+● 
+
+●●●●●● 
+
+●●● 
+
+● 
+● 
+
+● 
+
+●●● 
+
+● 
+
+●● 
+
+● 
+
+●● 
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●●● 
+
+● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+● 
+●● 
+● 
+
+● 
+
+●●● 
+
+●●● 
+● 
+
+●●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+●●●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+● 
+
+● 
+
+● 
+
+●●●●●●●●●●● 
+
+● 
+
+●● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+●●●●● 
+
+● 
+
+● 
+
+●●●●● 
+
+● 
+
+● 
+● 
+
+● 
+
+● 
+
+● 
+● 
+● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+●● 
+
+●● 
+
+●●● 
+
+● 
+● 
+
+● 
+
+●●● 
+
+● 
+
+●●●●●● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●● 
+
+● 
+● 
+
+● 
+
+● 
+
+● 
+●● 
+
+● 
+
+● 
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●●●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●●● 
+
+● 
+
+●● 
+
+●● 
+
+●● 
+● 
+
+●●●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+●● 
+
+●●● 
+
+●● 
+
+● 
+
+● 
+
+● 
+● 
+
+● 
+
+● 
+
+●● 
+
+●●●● 
+
+● 
+
+● 
+
+●● 
+
+●●● 
+
+● 
+●● 
+
+● 
+
+● 
+
+●●●●● 
+
+●●●● 
+
+● 
+
+● 
+
+● 
+
+●●● 
+
+● 
+● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+● 
+
+● 
+
+● 
+
+● 
+●● 
+
+● 
+
+● 
+● 
+
+●●●●● 
+
+● 
+
+● 
+
+●●● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●●●●● 
+
+● 
+
+● 
+
+●●● 
+
+● 
+
+● 
+●●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●●● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●● 
+
+●●●●●● 
+●● 
+
+● 
+
+●● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●●● 
+
+● 
+
+● 
+
+●●● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+●●●● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+●●● 
+
+● 
+
+● 
+
+●●● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●●● 
+
+● 
+● 
+
+● 
+
+● 
+
+●●●● 
+
+●● 
+
+●●●●●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+●● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+●●● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+● 
+● 
+
+● 
+
+●● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+● 
+●●●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●●● 
+
+● 
+
+● 
+
+● 
+
+●●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●●● 
+
+●● 
+
+● 
+
+●● 
+
+● 
+
+●●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+●● 
+
+● 
+
+●● 
+
+● 
+
+●●●●● 
+
+● 
+
+● 
+
+●●● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+● 
+●● 
+
+●● 
+
+● 
+
+● 
+
+● 
+● 
+
+●●● 
+
+● 
+
+●● 
+
+● 
+● 
+● 
+● 
+
+● 
+
+● 
+
+● 
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+● 
+●● 
+
+●●●● 
+
+● 
+
+● 
+
+●● 
+
+●● 
+● 
+
+● 
+
+●●●● 
+
+● 
+
+● 
+
+● 
+● 
+● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●●●● 
+
+● 
+
+●●●● 
+
+● 
+
+● 
+
+● 
+
+● 
+● 
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+●●● 
+
+● 
+
+● 
+
+● 
+● 
+
+● 
+
+●●●●● 
+
+● 
+
+● 
+
+●● 
+
+●●● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+● 
+● 
+
+● 
+
+● 
+● 
+● 
+●● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+●●● 
+
+●● 
+
+●●●●●●● 
+
+● 
+
+● 
+
+●● 
+
+●● 
+
+● 
+
+● 
+
+●● 
+
+● 
+●● 
+
+● 
+
+● 
+
+●● 
+
+● 
+
+● 
+
+●●● 
+
+● 
+
+●●●● 
+
+● 
+
+● 
+
+● 
+● 
+
+●● 
+
+● 
+
+● 
+
+●● 
+
+●● 
+
+● 
+
+● 
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+
+● 
+●● 
+
+●●●●●●●●●●●●●●●●●●●●●●●● 
+●●●●●●●●●● 
+● 
+●●●●● 
+
+● 
+
+●●●●●●●●●●●●●●●●●●●●●●●●●●●●● 
+●●●●●●●●●●●● 
+●●● 
+● 
+●●●●●●●●●●●●●● 
+●● ●●●●●●●●●●●●●●● 
+
+●●●●●●●●●●●●● 
+● 
+● 
+●●●●●●●● 
+●●●●●● ● 
+
+●●●●●●●● 
+●●● ● 
+
+● 
+
+criminality perception 
+
+Black BlackHisp Hispanic White AsPI NaAm Black BlackHisp Hispanic White AsPI NaAm 
+
+−2 
+
+0 
+
+2 
+
+Race 
+
+E 
+st 
+
+im 
+at 
+
+ed 
+la 
+
+te 
+nt 
+
+fa 
+ct 
+
+or 
+
+Results for stop and frisk example 
+
+Figure 7. Distributions of estimate latent perception and crimi- 
+nality score for the stop and frisk dataset. 
+
+Visualization on a map of New York City. Each of the 
+stop can be mapped to longitude and latitude point for 
+where the stop occurred6. Thus we can visualize Crimi- 
+nality and Perception alongside Race and the combination 
+of Arrest and Summons, show in Figure 5. Criminal- 
+ity seem to be a continuous approximation of arrest and 
+summons a both plot show red in similar areas. How- 
+ever, the plot show that certain areas, while have a lot 
+of arrest have low criminality score such a south Bronx 
+and west Queens (circled in orange). We can also com- 
+pare the perceive criminality with a plot of race, where 
+we have divide the race into Group A: black, black His- 
+panic, Hispanic, and Native American (shown in purple); 
+and Group B: white and Asian/Pacific Islander (shown in 
+green). Group A be all race that have positive weight on 
+the connection from Race to Perception in the fit model, 
+while Group B all have negative weights. Thus be in 
+Group A lead one to have a high perceive criminal- 
+ity than be in Group B. This can be see in the right- 
+
+6https://github.com/stablemarkets/StopAndFrisk 
+
+most plot of Figure 5. Certain area of town such a central 
+Brooklyn, central Bronx, and southern Queens have very 
+high criminality and almost all stop be by member of 
+Group A (circled in yellow). 
+
+7. Conclusion 
+We have present a new model of fairness we refer to a 
+counterfactual fairness. It allows u to propose fair algo- 
+rithms that, rather than simply ignore protect attributes, 
+be able to take into account the different social bias that 
+may arise towards individual of a particular race, gender, 
+or sexuality and compensate for these bias effectively. 
+We experimentally contrast our approach with previous 
+unfair approach and show that our explicit causal mod- 
+el capture these social bias and make clear the implicit 
+trade-off between prediction accuracy and fairness in an 
+unfair world. We propose that fairness should be regulate 
+by explicitly model the causal structure of the world. 
+Criteria base purely on probabilistic independence cannot 
+satisfy this and be unable to address how unfairness be oc- 
+curring in the task at hand. By provide such causal tool 
+for address fairness question we hope we can provide 
+practitioner with customize technique for solve a wide 
+array of fair model problems. 
+
+References 
+Bollen, K. Structural Equations with Latent Variables. 
+
+John Wiley & Sons, 1989. 
+
+Bolukbasi, Tolga, Chang, Kai-Wei, Zou, James Y, 
+Saligrama, Venkatesh, and Kalai, Adam T. Man be to 
+computer programmer a woman be to homemaker? de- 
+biasing word embeddings. In Advances in Neural Infor- 
+mation Processing Systems, pp. 4349–4357, 2016. 
+
+Brennan, Tim, Dieterich, William, and Ehret, Beate. Evalu- 
+ating the predictive validity of the compas risk and need 
+assessment system. Criminal Justice and Behavior, 36 
+(1):21–40, 2009. 
+
+Calders, Toon and Verwer, Sicco. Three naive bayes ap- 
+proaches for discrimination-free classification. Data 
+Mining and Knowledge Discovery, 21(2):277–292, 
+2010. 
+
+DeDeo, Simon. Wrong side of the tracks: Big data and 
+protect categories. arXiv preprint arXiv:1412.4643, 
+2014. 
+
+Dwork, Cynthia, Hardt, Moritz, Pitassi, Toniann, Reingold, 
+Omer, and Zemel, Richard. Fairness through aware- 
+ness. In Proceedings of the 3rd Innovations in Theoret- 
+ical Computer Science Conference, pp. 214–226. ACM, 
+2012. 
+
+
+
+Counterfactual Fairness 
+
+Ganchev, K., Graca, J., Gillenwater, J., and Taskar, B. Pos- 
+terior regularization for structure latent variable mod- 
+els. Journal of Machine Learning Research, 11:2001– 
+2049, 2010. 
+
+Grgic-Hlaca, Nina, Zafar, Muhammad Bilal, Gummadi, 
+Krishna P, and Weller, Adrian. The case for process 
+fairness in learning: Feature selection for fair decision 
+making. NIPS Symposium on Machine Learning and the 
+Law, 2016. 
+
+Halpern, J. Actual Causality. MIT Press, 2016. 
+
+Hardt, Moritz, Price, Eric, Srebro, Nati, et al. Equality 
+of opportunity in supervise learning. In Advances in 
+Neural Information Processing Systems, pp. 3315–3323, 
+2016. 
+
+Joseph, Matthew, Kearns, Michael, Morgenstern, Jamie, 
+Neel, Seth, and Roth, Aaron. Rawlsian fairness for ma- 
+chine learning. arXiv preprint arXiv:1610.09559, 2016. 
+
+Kamiran, Faisal and Calders, Toon. Classifying without 
+discriminating. In Computer, Control and Communica- 
+tion, 2009. IC4 2009. 2nd International Conference on, 
+pp. 1–6. IEEE, 2009. 
+
+Kamiran, Faisal and Calders, Toon. Data preprocess- 
+ing technique for classification without discrimination. 
+Knowledge and Information Systems, 33(1):1–33, 2012. 
+
+Kamishima, Toshihiro, Akaho, Shotaro, and Sakuma, 
+Jun. Fairness-aware learn through regularization ap- 
+proach. In Data Mining Workshops (ICDMW), 2011 
+IEEE 11th International Conference on, pp. 643–650. 
+IEEE, 2011. 
+
+Khandani, Amir E, Kim, Adlar J, and Lo, Andrew W. 
+Consumer credit-risk model via machine-learning algo- 
+rithms. Journal of Banking & Finance, 34(11):2767– 
+2787, 2010. 
+
+Kleinberg, Jon, Mullainathan, Sendhil, and Raghavan, 
+Manish. Inherent trade-off in the fair determination of 
+risk scores. arXiv preprint arXiv:1609.05807, 2016. 
+
+Louizos, Christos, Swersky, Kevin, Li, Yujia, Welling, 
+Max, and Zemel, Richard. The variational fair autoen- 
+coder. arXiv preprint arXiv:1511.00830, 2015. 
+
+Mahoney, John F and Mohen, James M. Method and sys- 
+tem for loan origination and underwriting, October 23 
+2007. US Patent 7,287,008. 
+
+Mooij, J., Janzing, D., Peters, J., and Scholkopf, B. Regres- 
+sion by dependence minimization and it application to 
+causal inference in additive noise models. In Proceed- 
+ings of the 26th Annual International Conference on Ma- 
+chine Learning, pp. 745–752, 2009. 
+
+Pearl, J. Causality: Models, Reasoning and Inference. 
+Cambridge University Press, 2000. 
+
+Pearl, J., Glymour, M., and Jewell, N. Causal Inference in 
+Statistics: a Primer. Wiley, 2016. 
+
+Pearl, Judea et al. Causal inference in statistics: An 
+overview. Statistics Surveys, 3:96–146, 2009. 
+
+Peters, J., Mooij, J. M., Janzing, D., and Schölkopf, B. 
+Causal discovery with continuous additive noise mod- 
+els. Journal of Machine Learning Research, 15:2009– 
+2053, 2014. URL http://jmlr.org/papers/ 
+v15/peters14a.html. 
+
+Stan Development Team. Rstan: the r interface to stan, 
+2016. R package version 2.14.1. 
+
+Wightman, Linda F. Lsac national longitudinal bar passage 
+study. lsac research report series. 1998. 
+
+Zafar, Muhammad Bilal, Valera, Isabel, Rodriguez, 
+Manuel Gomez, and Gummadi, Krishna P. Learning fair 
+classifiers. arXiv preprint arXiv:1507.05259, 2015. 
+
+Zafar, Muhammad Bilal, Valera, Isabel, Rodriguez, 
+Manuel Gomez, and Gummadi, Krishna P. Fairness 
+beyond disparate treatment & disparate impact: Learn- 
+ing classification without disparate mistreatment. arXiv 
+preprint arXiv:1610.08452, 2016. 
+
+Zemel, Richard S, Wu, Yu, Swersky, Kevin, Pitassi, Toni- 
+ann, and Dwork, Cynthia. Learning fair representations. 
+ICML (3), 28:325–333, 2013. 
+
+Zliobaite, Indre. A survey on measure indirect dis- 
+crimination in machine learning. arXiv preprint 
+arXiv:1511.00148, 2015. 
+
+http://jmlr.org/papers/v15/peters14a.html 
+http://jmlr.org/papers/v15/peters14a.html 
+

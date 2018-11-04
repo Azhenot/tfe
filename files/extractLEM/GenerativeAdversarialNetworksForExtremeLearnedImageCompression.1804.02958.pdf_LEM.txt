@@ -1,0 +1,1334 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Generative Adversarial Networks for 
+Extreme Learned Image Compression 
+
+Eirikur Agustsson∗, Michael Tschannen∗, Fabian Mentzer∗, 
+Radu Timofte, and Luc Van Gool 
+
+ETH Zurich 
+
+Abstract. We propose a framework for extreme learn image com- 
+pression base on Generative Adversarial Networks (GANs), obtain 
+visually please image at significantly low bitrates than previous 
+methods. This be make possible through our GAN formulation of learn 
+compression combine with a generator/decoder which operates on the 
+full-resolution image and be train in combination with a multi-scale dis- 
+criminator. Additionally, our method can fully synthesize unimportant 
+region in the decode image such a street and tree from a semantic 
+label map extract from the original image, therefore only require the 
+storage of the preserve region and the semantic label map. A user study 
+confirms that for low bitrates, our approach significantly outperforms 
+state-of-the-art methods, save up to 67% compare to the next-best 
+method BPG. 
+
+Keywords: Deep image compression, generative adversarial networks, 
+compressive autoencoder, semantic label map. 
+
+Ours (0.036bpp) BPG (0.039bpp) 
+
+Fig. 1: Images produce by our global generative compression network train 
+with an adversarial loss, along with the correspond result for BPG [1]. 
+
+1 Introduction 
+
+Image compression system base on deep neural network (DNNs), or deep 
+compression system for short, have become an active area of research recently. 
+
+∗Equal contribution. 
+
+ar 
+X 
+
+iv 
+:1 
+
+80 
+4. 
+
+02 
+95 
+
+8v 
+1 
+
+[ 
+c 
+
+.C 
+V 
+
+] 
+9 
+
+A 
+pr 
+
+2 
+01 
+
+8 
+
+
+
+2 E. Agustsson, M. Tschannen, F. Mentzer, R. Timofte, and L. Van Gool 
+
+q 
+
+D 
+
+Gx 
+
+s 
+x̂ 
+
+ŵw 
+E 
+
+(a) Global generative compression (GC) 
+
+q 
+
+D 
+
+G 
+
+x 
+
+s 
+x̂ 
+
+ŵw 
+m 
+
+E 
+
+F 
+
+(b) Selective generative compression (SC) 
+
+Fig. 2: Structure of the propose compression networks. E be the encoder for the 
+image x and optionally the semantic label map s. q quantizes the latent code 
+w to ŵ. G be the generator, produce the decompress image x̂, and D the 
+discriminator use for adversarial training. For SC, F extract feature from s 
+and the subsampled heatmap multiplies ẑ (pointwise) for spatial bit allocation. 
+
+These system often outperform state-of-the-art engineer codecs such a BPG 
+[1], WebP [2], and JPEG2000 [3] on perceptual metric [4–8]. Besides achiev- 
+ing high compression rate on natural images, they can be easily adapt to 
+specific target domain such a stereo or medical images, and promise efficient 
+processing and index directly from compress representation [9]. However, 
+for bitrates below 0.1 bit per pixel (bpp) these algorithm still incur severe 
+quality reductions. More generally, a the bitrate tends to zero, preserve the 
+full image content becomes impossible and common distortion measure such a 
+peak signal-to-noise ratio (PSNR) or multi-scale structural similarity (MS-SSIM) 
+[10] become meaningless a they favor exact preservation of local (high-entropy) 
+structure over preserve texture. To further advance deep image compression 
+it be therefore of great importance to develop new training objective beyond 
+PSNR and MS-SSIM. A promising candidate towards this goal be adversarial 
+loss [11] which be show recently to capture global semantic information 
+and local texture, yield powerful generator that produce visually appeal 
+high resolution image from semantic label map [12, 13]. 
+
+In this paper, we propose and study a generative adversarial network (GAN)- 
+base framework for extreme image compression, target bitrates below 0.1 
+bpp. We present a principled GAN formulation for deep image compression that 
+allows for different degree of content generation. In contrast to prior work on 
+deep image compression which apply adversarial loss to image patch for 
+artifact suppression [6, 14] and generation of texture detail [15] or representation 
+learn for thumbnail image [16], our generator/decoder operates on the full- 
+resolution image and be train with a multi-scale discriminator [13]. 
+
+We study two mode of operation (corresponding to unconditional and con- 
+ditional GANs [11, 17]), namely 
+
+– global generative compression (GC), preserve the overall image content 
+while generate structure of different scale such a leaf of a tree or win- 
+dows in the facade of buildings, and 
+
+– selective generative compression (SC), completely generate part of the 
+image from a semantic label map while preserve user-defined region with 
+a high degree of detail. 
+
+
+
+Generative Adversarial Networks for Extreme Learned Image Compression 3 
+
+A typical use case for GC be bandwidth constrain scenarios, where one 
+want to preserve the full image a much a possible, while fall back to syn- 
+thesized content instead of blocky/blurry blob for region where there be not 
+sufficient bit to store the original pixels. SC could be apply in a video call 
+scenario where one want to fully preserve people in the video stream, but a 
+visually please synthesize background serf our purpose a well a the true 
+background. In the GC operation mode the image be transform into a bit- 
+stream and encode use arithmetic coding. SC require a semantic/instance 
+label map of the original image which can be obtain use off-the-shelf seman- 
+tic/instance segmentation networks, e.g., PSPNet [18] and Mask R-CNN [19], 
+and which be store a a vector graphic. This amount to a small, image dimen- 
+sion independent overhead in term of cod cost. On the other hand, the size 
+of the compress image be reduce proportionally to the area which be generate 
+from the semantic label map, typically lead to a significant overall reduction 
+in storage cost. 
+
+For GC, a comprehensive user study show that our compression system 
+yield visually considerably more appeal result than BPG [1] (the current 
+state-of-the-art engineer compression algorithm) and the recently propose 
+autoencoder-based deep compression (AEDC) system [8]. In particular, for the 
+street scene image from the Cityscapes data set, user prefer the image pro- 
+duced by our method over BPG even when BPG us more than double the 
+bits. To the best of our knowledge, these be the first result show that a 
+deep compression method outperforms BPG in a user study. In the SC operation 
+mode, our system seamlessly combine preserve image content with synthesize 
+content, even for region that cross multiple object boundaries. By partially gen- 
+erating image content we achieve bitrate reduction of over 50% without notably 
+degrade image quality. In both cases, the semantic information a measure 
+by the mean intersection over union (mIoU) between the semantic label map of 
+the original and reconstruct image be significantly good preserve a for the 
+two baseline [1, 8]. 
+
+2 Related work 
+
+Deep image compression have recently emerge a an active area of research. The 
+most popular DNN architecture for this task be to date auto-encoders [4, 5, 
+20, 21, 9] and recurrent neural network (RNNs) [22, 23]. These DNNs transform 
+the input image into a bit-stream, which be in turn losslessly compress use 
+entropy cod method such a Huffman cod or arithmetic coding. To re- 
+duce cod rates, many deep compression system rely on context model to 
+capture the distribution of the bit stream [5, 23, 21, 6, 8]. Common loss function 
+to measure the distortion between the original and decompress image be the 
+mean-squared error (MSE) [4, 5, 20, 21, 7, 9], or perceptual metric such a MS- 
+SSIM [23, 6–8]. Some author rely on advanced technique include multi-scale 
+image decomposition [6], progressive encoding/decoding strategy [22, 23], and 
+generalize divisive normalization (GDN) layer [5, 24]. 
+
+
+
+4 E. Agustsson, M. Tschannen, F. Mentzer, R. Timofte, and L. Van Gool 
+
+Generative adversarial network (GANs) [11] have emerge a a popular tech- 
+nique for learn generative model for intractable distribution in an unsuper- 
+vised manner. Despite stability issue [25–28], they be show to be capable 
+of generate more realistic and sharper image than prior approach such a 
+Variational Autoencoders [29]. While initially struggle with generate high 
+resolution image [30, 25], they be steadily improved, now reach resolu- 
+tions of 1024 × 1024px [31, 32] for some datasets. Another direction that have 
+show great progress be conditional GANs [11, 17], obtain impressive result 
+for image-to-image translation [12, 13, 33, 34] on various datasets (e.g. map to 
+satellite images), reach resolution a high a 1024× 2048px [13]. 
+
+Arguably the most closely related work to ours be [6], which us an adver- 
+sarial loss term to train a deep compression system. However, this loss term be 
+apply to small image patch and it purpose be to suppress artifact rather 
+than to generate image content. Furthermore, it us a non-standard GAN for- 
+mulation that do not (to the best of our knowledge) have an interpretation in 
+term of divergence between probability distributions, a in [11, 35]. [16] us 
+a GAN framework to learn a generative model over thumbnail images, which 
+be then use a a decoder for thumbnail image compression. Other work use 
+adversarial training for compression artifact removal (for engineer codecs) [14] 
+and single image super-resolution [15]. Finally, related to our SC mode, spatially 
+allocate bitrate base on saliency of image content have a long history in the 
+context of engineer compression algorithms, see e.g. [36–38]. 
+
+3 Background 
+
+3.1 Generative Adversarial Networks 
+
+Given a data set X , Generative Adversarial Networks (GANs) can learn to ap- 
+proximate it (unknown) distribution px through a generator G(z) that try to 
+map sample z from a fix prior distribution pz to the distribution px. 
+
+The generator G be train in parallel with a discriminator D by search- 
+ing (using stochastic gradient descent (SGD)) for a saddle point of a mini-max 
+objective 
+
+min 
+G 
+
+max 
+D 
+
+E[f(D(x))] + E[g(D(G(z)))], (1) 
+
+where G and D be DNNs and f and g be scalar functions. The original paper 
+[11] us the “Vanilla GAN” objective with f(y) = log(y) and g(y) = log(1− y). 
+This corresponds to G minimize the KL Divergence between the distribution 
+of x and G(z). The KL Divergence be a member of a more generic family of 
+f -divergences, and Nowozin et al.[35] show that for suitable choice of f and 
+g, all such divergence can be minimize with (1). In particular, if one us 
+f(y) = (y − 1)2 and g(y) = y2, one obtains the Least-Squares GAN [28] (which 
+corresponds to the Pearson χ2 divergence), which we adopt in this paper. We 
+refer to the divergence minimize over G a 
+
+LGAN := max 
+D 
+
+E[f(D(x))] + E[g(D(G(z)))]. (2) 
+
+
+
+Generative Adversarial Networks for Extreme Learned Image Compression 5 
+
+3.2 Conditional Generative Adverarial Networks 
+
+For conditional GANs (cGANs) [11, 17], each data point x be associate with 
+additional information s, where (x, s) have an unknown joint distribution px,s. 
+We now assume that s be give and that we want to use the GAN to model 
+the conditional distribution px|s. In this case, both the generator G(z, s) and 
+discriminator D(z, s) have access to the side information s, lead to the diver- 
+gence 
+
+LcGAN := max 
+D 
+
+E[f(D(x, s))] + E[g(D(G(z, s), s))], (3) 
+
+3.3 Deep Image Compression 
+
+To compress an image x ∈ X , we follow the formulation of [20, 8] where one 
+learns an encoder E, a decoder G, and a finite quantizer q. The encoder E 
+map the image to a latent feature map w, whose value be then quantize 
+to L level {c1, · · · , cL} ⊂ R to obtain a representation ŵ = q(E(x)) that can 
+be encode to a bitstream. The decoder then try to the recover the image by 
+form a reconstruction x̂ = G(ŵ). To be able to backpropagate through the 
+non-differentiable q, one can use a differentiable relaxation of q, a in [8]. 
+
+The average number of bit need to encode ŵ be measure by the entropy 
+H(ŵ), which can be model with a prior [20] or a conditional probability model 
+[8]. The trade-off between reconstruction quality and bitrate to be optimize be 
+then 
+
+E[d(x, x̂)] + βH(ŵ). (4) 
+
+where d be a loss that measure how perceptually similar x̂ be to x. 
+Given a differentiable model of the entropy H(ŵ), the weight β control 
+
+the bitrate of the model (high β push the bitrate down). However, since the 
+number of dimension dim(ŵ) and the number of level L be finite, the entropy 
+be bound by (see, e.g., [39]) 
+
+H(ŵ) ≤ dim(ŵ) log2(L). (5) 
+
+It be therefore also valid to set β = 0 and control the maximum bitrate through 
+the bound (5) (i.e., adjust L or dim(ŵ) through the architecture of E). While 
+potentially lead to suboptimal bitrates, this avoids to model the entropy 
+explicitly a a loss term. 
+
+4 GANs for extreme image compression 
+
+4.1 Global generative Compression 
+
+Our propose GANs for extreme image compression can be view a a combi- 
+nation of (conditional) GANs and learn compression. With an encoder E and 
+quantizer q, we encode the image x to a compress representation ŵ = q(E(x)). 
+This representation be optionally concatenate with noise v drawn from a fix 
+
+
+
+6 E. Agustsson, M. Tschannen, F. Mentzer, R. Timofte, and L. Van Gool 
+
+prior pv, to form the latent vector z. The decoder/generator G then try to gen- 
+erate an image x̂ = G(z) that be consistent with the image distribution px while 
+also recover the specific encode image x to a certain degree (see Fig. 2 (a)). 
+Using z = [ŵ,v], this can be express by our saddle-point objective for (non- 
+conditional) generative compression, 
+
+min 
+E,G 
+
+max 
+D 
+
+E[f(D(x))] + E[g(D(G(z))] + λE[d(x, G(z))] + βH(ŵ), (6) 
+
+where λ > 0 balance the distortion term against the GAN loss and entropy 
+terms. Using this formulation, we need to encode a real image, ŵ = E(x), to 
+be able to sample from pŵ. However, this be not a limitation a our goal be to 
+compress real image and not to generate completely new ones. 
+
+Since the last two term of (6) do not depend on the discriminator D, they 
+do not affect it optimization directly. xThis mean that the discriminator still 
+computes the same f divergence LGAN a in (2), so we can write (6) a 
+
+min 
+E,G 
+
+LGAN + λE[d(x, G(z))] + βH(ŵ). (7) 
+
+We note that equation (6) have completely different dynamic than a normal 
+GAN, because the latent space z contains ŵ, which store information about 
+a real image x. A crucial ingredient be the bitrate limitation on H(ŵ). If we 
+allow ŵ to contain arbitrarily many bit by set β = 0 and let L and 
+dim(ŵ) be large enough, E and G could learn to near-losslessly recover x from 
+G(z) = G(q(E(x))), such that the distortion term would vanish. In this case, 
+the divergence between px and pG(z) would also vanish and the GAN loss would 
+have no effect. 
+
+By constrain the entropy of ŵ, E and G will never be able to make d 
+fully vanish. In this case, E,G need to balance the GAN objective LGAN and 
+the distortion term λE[d(x, G(z))], which lead to G(z) on one hand look 
+“realistic”, and on the other hand preserve the original image. For example, if 
+there be a tree for which E cannot afford to store the exact texture (and make 
+d small) G can synthesize it to satisfy LGAN, instead of show a blurry green 
+blob. 
+
+In the extreme case where the bitrate becomes zero (i.e., H(ŵ) → 0, e.g., 
+by set β = ∞ or dim(ŵ) = 0), ŵ becomes deterministic. In this setting, z 
+be random and independent of x (through the v component) and the objective 
+reduces to a standard GAN plus the distortion term, which act a a regularizer. 
+
+We refer to the set in (6) a global generative compression (GC), since 
+E,G balance reconstruction and generation automatically over the entire image. 
+
+As for the conditional GANs in Sec. 3.2, we can easily extend the global 
+generative compression of the previous section to a conditional case. Here, we 
+also consider this setting, where the additional information s for an image x be 
+a semantic label map of the scene (see dash line in Fig. 2 (a)), with a small 
+difference: Instead of feed the semantics to G, we give them to the encoder 
+E a an input. This avoids separately encode the information s, since it be 
+contain in the representation ŵ. As for the conditional GAN, D also receives 
+the semantics s a an input. 
+
+
+
+Generative Adversarial Networks for Extreme Learned Image Compression 7 
+
+4.2 Selective Generative Compression 
+
+For the global generative compression and it conditional variant described in the 
+previous section, E,G automatically navigate the trade-off between generation 
+and preservation over the entire image, without any guidance. Here, we consider 
+a different setting, where we guide the network in term of which region should 
+be preserve and which region should be synthesized. We refer to this set 
+a selective generative compression (SC) and give an overview in Fig. 2 (b). 
+
+For simplicity, we consider a binary setting, where we construct a single- 
+channel binary heatmap m of the same spatial dimension a ŵ. Regions of 
+zero correspond to region that should be fully synthesized, whereas region of 
+one correspond to region that should be preserved. However, since our task 
+be compression, we constrain the fully synthesize region to have the same se- 
+mantics s a the original image x. We assume the semantics s be separately 
+stored, and thus feed them through a feature extractor F before feed them to 
+the generator G. To guide the network with the semantics, we mask the (pixel- 
+wise) distortion d, such that it be only compute over the region to be preserved. 
+Additionally, we zero out the latent feature ŵ in the region that should be syn- 
+thesized. Provided that the heatmap m be also stored, we then only encode the 
+entry of ŵ correspond to the preserve regions, greatly reduce the bitrate 
+need to store it. 
+
+At bitrates where ŵ be normally much large than the storage cost for s and 
+m (about 2kB per image when encode a a vector graphic), this approach can 
+give large bitrate savings. 
+
+5 Experiments 
+
+5.1 Network Architecture 
+
+The architecture for our encoder E and generator G be base on the global 
+generator network propose in [13], which in turn be base on the architecture 
+of [40]. 
+
+For the GC, the encoder E convolutionally process the image x and option- 
+ally the label map s, with spatial dimension W ×H, into a feature map of size 
+W 
+16 × 
+
+H 
+16 × 960 (with 6 layers, of which four have 2-strided convolutions), which 
+
+be then project down to C channel (where C ∈ {2, 4, 8, 16} be much small 
+than 960). This result in a feature map w of dimension W16 × 
+
+H 
+16 × C, which 
+
+be quantize over L center to obtain the discrete ŵ. The generator G project 
+ŵ up to 960 channels, process these with 9 residual unit [41] at dimension 
+W 
+16× 
+
+H 
+16×960, and then mirror E by convolutionally processing the feature back 
+
+to spatial dimension W × H (with transpose convolution instead of stride 
+ones). 
+
+Similar to E, the feature extractor F for SC process the semantic map 
+s down to the spatial dimension of ŵ, which be then concatenate to ŵ for 
+generation. In this case, we consider slightly high bitrates and downscale by 
+8× instead of 16× in the encoder E, such that dim(ŵ) = W8 × 
+
+H 
+8 × C. The 
+
+
+
+8 E. Agustsson, M. Tschannen, F. Mentzer, R. Timofte, and L. Van Gool 
+
+generator then first process ŵ down to W16 × 
+H 
+16 × 960 and then proceeds a for 
+
+GC. 
+For both GC and SC, we use the multi-scale architecture of [13] for the 
+
+discriminator D, which measure the divergence between px and pG(z) both 
+locally and globally. 
+
+5.2 Losses and Hyperparameters 
+
+For the entropy term βH(ŵ), we adopt the simplify approach described in 
+Sec. 3.3, where we set β = 0, use L = 5 center C = {−2, 1, 0, 1, 2}, and control 
+the bitrate through the upper bound H(ŵ) ≤ dim(ŵ) log2(L). For example, for 
+GC, with C = 2 channels, we obtain 
+
+H(ŵ) 
+
+W ×H 
+= 
+
+log2(5) · W×H16·16 · 2 
+W ×H 
+
+= 0.0181 bit per pixel (bpp). 
+
+We note that this be an upper bound; the actual entropy of H(ŵ) be generally 
+smaller, since the learn distribution will neither be uniform nor i.i.d, which 
+would be require for the bound to hold with equality. By use a histogram a 
+in [20] or a context model a in [8], we could reduce this bitrate either in a post 
+processing step, or jointly during training a in the respective works. 
+
+For the distortion term we adopt d(x, x̂) = MSE with coefficient λ = 10. 
+Furthermore, we adopt the feature match and VGG perceptual losses, LFM 
+and LVGG, a propose in [13] with the same weights, which improve the quality 
+for image synthesize from semantic label maps. These loss can be view a 
+a part of d(x, x̂). However, we do not mask them in SC, since they also help to 
+stabilize the GAN in this operation mode (as in [13]). 
+
+5.3 Evaluation 
+
+Data sets: We train the propose method on two popular data set that come 
+with hand-annotated semantic label maps, namely Cityscapes [42] and ADE20k 
+[43]. Both of these data set be previously use with GANs [12, 33], hence 
+we know that GANs can model their distribution—at least to a certain extent. 
+Cityscapes contains 2975 training and 500 validation image of dimension 2048× 
+1024px, which we resampled to 1024× 512px for our experiments. The training 
+and validation image be annotate with 34 and 19 classes, respectively. From 
+the ADE20k data set we use the SceneParse150 subset with 20 210 training and 
+2000 validation image of a wide variety of size (200×200px to 975×975px), each 
+annotate with 150 classes. During training, the ADE20k image be rescale 
+such that the width be 512px. 
+
+Generalization to Kodak: The Kodak image compression dataset [44] have a long 
+tradition in the image compression literature and be still the most frequently 
+use dataset for comparisons. 
+
+While we do not have training data nor semantic label available for the 
+Kodak dataset, our GC model can also be train without semantic map and 
+
+
+
+Generative Adversarial Networks for Extreme Learned Image Compression 9 
+
+thus do not need such label at test time. Thus we can ass how well our 
+model generalize to Kodak by training GC without semantics on ADE20k (i.e., 
+non-conditional) and then test on Kodak. The only adjustment we make 
+when use our model be to slightly blur the image (σ = 1.0) to avoid large 
+gradient in the image which be not present in the training data (due to re- 
+size with anti-aliasing). We do not observe any improvement for BPG when 
+use blur, so we use BPG with standard settings. 
+
+Baselines: We compare our method to the HEVC-based image compression al- 
+gorithm BPG [1] (in the default 4:2:2 chroma format) and to the AEDC net- 
+work [8]. BPG be the current state-of-the-art engineer image compression codec 
+and outperforms other recent codecs such a JPEG2000 and WebP on different 
+data set in term of MS-SSIM (see, e.g., [6]). We train the AEDC network (with 
+bottleneck depth C = 4) on Cityscapes exactly follow the procedure in [8] 
+except that we use early stop to prevent overfitting (note that Cityscapes be 
+much small than the ImageNet dataset use in [8]). The so-obtained model have 
+a bitrate of 0.07 bpp and obtains a slightly good MS-SSIM than BPG at the 
+same bpp on the validation set. As an additional baseline, we train our partial 
+synthesis with an MSE loss only (all other training parameter be maintained, 
+see Sec. 5.4). 
+
+Quantitative evaluation: Quality measure such a PSNR and MS-SSIM com- 
+monly use to ass the quality of compression system become meaningless at 
+very low bitrates a they penalize change in local structure rather than preser- 
+vation of the global content (this also becomes apparent through our baseline 
+train for MSE, see Sec. 5.5). We therefore measure the capacity of our method 
+to preserve the image semantics a proxy for the image quality and compare 
+it with the baselines. Specifically, we use PSPNet [45] and compute the mean 
+intersection-over-union (IoU) between the label map obtain for the decom- 
+press validation image and the ground truth label map. A similar approach 
+be follow by image translation work [12, 13] to ass image quality of gener- 
+ated images. 
+
+User study: To quantitatively evaluate the perceptual quality of our GC network 
+in comparison with BPG and AEDC we conduct a user study use the Amazon 
+Mechanical Turk (AMT) platform1. For Cityscapes we consider 3 setting for 
+our method use C = 2, 4, 8 which correspond to 0.018, 0.036, and 0.072 bpp, 
+respectively, and perform one-to-one comparison of the image produce by our 
+method to those of AEDC at 0.07 bpp and BPG at 5 operating point in the range 
+[0.039, 0.1] bpp. A slightly different setup be use for ADE20k: We only consider 
+the 0.036 and 0.072 operating points, and employ the GC network train with 
+semantic label map for the latter operating point. To test the generalization to 
+the Kodak dataset [44], we use the model train on ADE20k for 0.036bpp. 
+
+For each pair of method on Cityscapes and ADE20K, we compare the 
+decompress image obtain for a set of 20 randomly picked validation images, 
+
+1 https://www.mturk.com/ 
+
+
+
+10 E. Agustsson, M. Tschannen, F. Mentzer, R. Timofte, and L. Van Gool 
+
+have a reference the downscaled 1024 × 512px images. For each pair on 
+Kodak, we use all 24 image of the dataset. 9 randomly select user be 
+ask to select the best decompression result for each test image and pair of 
+methods. 
+
+Visual comparisons: Finally, we perform extensive visual comparison of all our 
+method and the baseline (see supplementary material for more examples). 
+
+5.4 Training 
+
+We employ the ADAM optimizer [46] with a learn rate of 0.0002 and set the 
+mini-batch size to 1. Our network be train for 50 epoch on Cityscapes and 
+for 20 epoch on ADE20k, aside from the network test on Kodak which be 
+train for 50 epoch on ADE20k. 
+
+For SC we consider two different training modes: Random instance (RI) 
+which randomly selects 25% of the instance in the semantic label map and 
+preserve these, and random box (RB) which pick an image location uniformly 
+at random and preserve a box of dimension randomly select from the interval 
+[200, 400] and [150, 300] for Cityscapes and ADE20k, respectively. While the RI 
+mode be appropriate for most use cases, the RB can create more challenge 
+situation for the generator a it need to integrate the preserve box seamlessly 
+into the generate content. Additionally, we add a MSE loss term between the 
+input image and the reconstruct image, act on the masked region only, for 
+training SC networks. 
+
+5.5 Results 
+
+Global generative compression: Fig. 5 (left) show the mean IoU on the Cityscapes 
+validation set a a function of bpp for our GC network with C = 2, 4, 8, along 
+with the value obtain for the baselines. Additionally, we plot mean IoU for 
+our network train with an MSE loss, and the network obtain when feed 
+semantic label map to E and D during training. It can be see that at a give 
+target bpp, our network outperform BPG and AEDC a well a our network 
+train for MSE by a large margin. Furthermore, feed the semantic label to 
+the encoder and discriminator increase the mean validation IoU. 
+
+In Tables 1 and 2 we report the percentage of preference of the image pro- 
+duced by the propose method over the image produce by the other compression 
+method for Cityscapes and ADE20k, respectively. For each method vs. method 
+comparison 180 human opinion be collected. For both data sets, the per- 
+ceptual quality of our result be good than that of the baseline approach at 
+comparable bpp. For Cityscapes, at 0.036 bpp our method be picked by the user 
+over BPG in 81.87% of the cases, while at 0.072 bpp our method be prefer 
+over BPG and AEDC in 70.18% and 84.21% of the cases, respectively. 
+
+In Figs. 1, 3, and 4 we present example validation image from Cityscapes 
+and ADE20k, respectively, produce by our GC network at different bpp along 
+with the image obtain from the baseline algorithm at the same bpp. The GC 
+
+
+
+Generative Adversarial Networks for Extreme Learned Image Compression 11 
+
+Ours (0.072bpp) BPG (0.074bpp) AEDC (0.074bpp) 
+
+Fig. 3: Visual example of image produce by our GC network with C = 8 along 
+with the correspond result for BPG and AEDC. 
+
+Ours (0.036bpp) BPG (0.092bpp) Ours (0.072bpp) BPG (0.082bpp) 
+
+Fig. 4: Visual example of image produce by our GC network (left: C = 4; 
+right: C = 8) along with the correspond result for BPG. 
+
+produce image with finer structure than BPG, which suffers from smooth 
+patch and block artifacts. AEDC and our network train for MSE both 
+produce blurry images. 
+
+Generalization to Kodak: We show the result for an example Kodak image in 
+Figure 6, obtain with a model train on ADE20K for GC (without seman- 
+tics) use C = 4 channel (0.036bpp). While there be some color shift noticeable 
+(which could be account for by reduce the domain mismatch and/or increas- 
+ing the weight of the perceptual loss), we see that our method can realistically 
+synthesize detail where BPG fails. 
+
+The user study result in Table 3 show that our method be prefer over 
+BPG, even when BPG us an 80% large bitrate of 0.065bpp compare to our 
+method at 0.036bpp. 
+
+Selective generative compression: We plot the mean IoU for the Cityscapes val- 
+idation set for our SC network and the baseline in Fig. 5 (right) a a function 
+of bpp. Again, our network obtain a high mean IoU than the baseline at the 
+same bpp, for both the RI and RB training modes. The mean IoU be almost 
+constant a a function of bpp. 
+
+
+
+12 E. Agustsson, M. Tschannen, F. Mentzer, R. Timofte, and L. Van Gool 
+
+Preference of BPG [1] AEDC [8] 
+our result [%] vs. 0.039 bpp 0.056 bpp 0.072 bpp 0.079 bpp 0.1 bpp 0.069 bpp 
+
+o 
+u 
+r 
+
+C = 2, 0.018 bpp 76.02 52.05 45.03 38.01 29.24 71.93 
+C = 4, 0.036 bpp 81.87 67.25 59.65 50.88 35.67 80.12 
+C = 8, 0.072 bpp 83.63 74.27 70.18 67.84 50.88 84.21 
+
+Table 1: User study quantitative preference result [%] on Cityscapes. For each 
+pair of method we report the percentage of case in which the image produce 
+by our GC method be prefer by human subject over the result of the other 
+compression method. For comparable bpp our method be clearly the prefer 
+method. On average, BPG be only perceptually good than ours when a bitrate 
+more than twice a large be used. 
+
+Preference of BPG [1] 
+our result [%] vs. 0.054 bpp 0.064 bpp 0.072 bpp 0.082 bpp 0.1 bpp 
+
+o 
+u 
+r C = 4, 0.036 bpp 66.67 52.63 36.26 / / 
+
+C = 8, 0.072 bpp, w. sem. 80.12 73.68 57.31 52.63 41.52 
+
+Table 2: User study quantitative preference result [%] on ADE20k. For com- 
+parable bpp our method be clearly preferred. 
+
+Preference of BPG [1] 
+our result [%] vs. 0.038 bpp 0.060 bpp 0.065 bpp 0.072 bpp 
+
+our C = 4, 0.036 bpp 87.10 57.60 54.84 47.00 
+
+Table 3: User study quantitative preference result [%] on Kodak. Our method be 
+prefer over BPG at 0.065bpp, which corresponds to a 45% bitrate reduction. 
+
+0.00 0.02 0.04 0.06 0.08 0.10 0.12 
+
+10% 
+
+20% 
+
+30% 
+
+40% 
+
+50% 
+mIoU vs. bpp (GC) 
+
+Ours (semantics) 
+
+Ours 
+
+Ours (MSE) 
+
+BPG 
+
+AEDC 
+
+0.00 0.04 0.08 0.12 0.16 0.20 
+
+10% 
+
+20% 
+
+30% 
+
+40% 
+
+50% 
+mIoU vs. bpp (SC) 
+
+Ours (instance) 
+
+Ours (box) 
+
+Ours (MSE) 
+
+BPG 
+
+AEDC 
+
+pix2pixHD 
+
+Fig. 5: Left: Mean IoU a a function of bpp on the Cityscapes validation set for 
+our GC networks, optionally train with semantic label map at G and D (se- 
+mantics) and with MSE loss only (MSE). Right: Mean IoU for our SC network 
+train in the RI (instance) and RB (box) training modes. The pix2pixHD base- 
+line [13] be train from scratch for 50 epochs, use the same downsampled 
+1024× 512px training image a for our method. 
+
+
+
+Generative Adversarial Networks for Extreme Learned Image Compression 13 
+
+Kodak Image 13 Ours (0.036bpp) 
+
+BPG (0.073bpp) JPEG2000 (0.037bpp) 
+
+WebP (0.078bpp) JPEG (0.248bpp) 
+
+Fig. 6: Original Kodak Image 13 along with the decompress version use in 
+the user study (Ours), obtain use our GC network with C = 4. We also 
+show decompress BPG, JPEG, JPEG2000, and WebP version of the image. 
+If a codec be not able to produce an output a low a 0.036bpp, we chose the 
+low possible bitrate for that codec. 
+
+Fig. 7 and 8 show example Cityscapes validation image produce by the 
+SC network train in the RI mode with C = 8 and C = 4, respectively, where 
+different semantic class be preserved. While class such a tree and street 
+look more realistic than less structure class such a building or cars, most 
+configuration of mask yield visually please results, while lead to large bpp 
+
+
+
+14 E. Agustsson, M. Tschannen, F. Mentzer, R. Timofte, and L. Van Gool 
+
+road (0.146 bpp, -55%) car (0.227 bpp, -15%) everything (0.035 bpp, -89%) 
+
+people (0.219 bpp, -33%) building (0.199 bpp, -39%) no synth. (0.326 bpp, -0%) 
+
+Fig. 7: Synthesizing different class use our SC network with C = 8. In each 
+image except for no synthesis, we additionally synthesize the class vegetation, 
+sky, sidewalk, ego vehicle, wall. The heatmaps in the low left corner show the 
+synthesize part in gray. We show the bpp of each image a well a the relative 
+saving due to the selective generation. 
+
+base (0.062 bpp) +buildings (0.038 bpp) BPG (0.043 bpp) 
+
+Fig. 8: Example image obtain by our SC network (C = 4) synthesize road, 
+vegetation, sky, sidewalk, ego vehicle, wall for “base” on the left and additionally 
+building in the center. Right show BPG at the low support bpp. 
+
+Original 0.103bpp 0.103bpp 
+
+Fig. 9: Example image obtain by our SC network (C = 8) preserve a box 
+and synthesize the rest of the image. 
+
+reduction compare to the network preserve the entire image. Notably, the 
+GC network can generate an entire image from the semantic label map only. 
+
+In Fig. 9 we present an example Cityscapes validation image produce by an 
+SC network (with C = 8) train in the RB mode, with a rectangular area pre- 
+served. Our network seamlessly integrates the preserve region into the generate 
+part of the image. Fig. 10 show example image from the ADE20k validation 
+set produce by SC network (with C = 8) for both the RB and RI training 
+mode. 
+
+
+
+Generative Adversarial Networks for Extreme Learned Image Compression 15 
+
+Fig. 10: Example ADE20k validation image produce by our SC network with 
+(C = 8) preserve randomly select instance (left, network train with RI) 
+or box-shaped region (right, network train with RB). 
+
+6 Discussion 
+
+The quantitative evaluation of the semantic preservation capacity (Fig. 5) indi- 
+cates that both the GC and the SC network good preserve semantics than the 
+baseline at the same bpp when evaluate with PSPNet. This have to be take 
+with a grain of salt, however, in the case where our network be provide with 
+the semantic label maps. It be not surprising that these network outperform 
+BPG and AEDC, which be not design or train specifically to preserve 
+semantic information. Note though that our GC network only drop slightly in 
+mIoU when train without semantics (Fig. 5 left), still have much high 
+semantic preservation capacity than BPG and AEDC. 
+
+Qualitatively, our GC network preserve more and sharper structure than the 
+baseline methods, for both the Cityscapes and ADE20k images. For both data 
+sets, the user study show that at a give target bpp human on average prefer 
+the picture produce by our GC network over BPG. For Cityscapes, where we 
+train an AEDC model, our image be on average also prefer over AEDC. 
+The Cityscapes image obtain by our GC network with C = 2 (0.018bpp) 
+and C = 4 (0.036 bpp) be even prefer over BPG at 0.056 and BPG at 
+0.079 bpp, respectively, show that our method outperforms BPG even when 
+BPG us more than twice a many bits. For ADE20k, the result produce by 
+our GC network be prefer on average by a considerable margin over BPG, 
+although the preference be less pronounce than for Cityscapes. 
+
+Furthermore, we found that our model train on ADE20K (With minor 
+adjustments) can also generalize well to the Kodak dataset, be prefer over 
+BPG for C = 4 (0.036bpp) even when BPG us 80% more bits. 
+
+We note that while prior work [6, 8, 7] have outperform BPG in term 
+of MS-SSIM[10], they have not demonstrate improve visual quality over BPG 
+(which be optimize for PSNR). In particular, [7, 8] show a visual comparison but 
+do not claim improve visual quality over BPG, whereas [6] do not compare 
+with BPG visually. To the best of our knowledge, this be the first time that a 
+deep compression method be show to outperform BPG in a user study—and 
+that with a large margin. 
+
+
+
+16 E. Agustsson, M. Tschannen, F. Mentzer, R. Timofte, and L. Van Gool 
+
+In the SC operation mode, our network manage to seamlessly merge pre- 
+serve and generate image content both when preserve object instance or 
+box cross object boundaries. Further, our network lead to reduction in 
+bpp of 50% and more compare to the same network without synthesis, while 
+leave the visual quality essentially unimpaired, when object with repetitive 
+structure be synthesize (such a trees, streets, and sky). In some cases, the 
+visual quality be even good than that of BPG at the same bitrate. The visual 
+quality of more complex synthesize object (e.g., buildings, people) be worse. 
+However, this be a limitation of current GAN technology rather than our ap- 
+proach. As the visual quality of GANs improves further, SC network will a 
+well. Moreover, our SC network be base on simple entropy cod without 
+context model and it be not surprising that they do not outperform BPG in chal- 
+lenging scenario (in the case where no synthesis be performed, see Fig. 7). Indeed, 
+BPG relies on advanced technique include context modeling. We note that 
+this be mainly an engineering problem; our network could be extend using, 
+e.g., the context model from [8]. 
+
+Finally, the semantic label map, which require 0.036 bpp on average for 
+the downscaled 1024 × 512px Cityscapes images, represent a relatively large 
+overhead compare to the storage cost of the preserve image parts. This cost 
+vanishes a the image size increases, since the semantic mask can be store a an 
+image dimension-independent vector graphic. Unfortunately, we could not train 
+our model (nor the model of [13]) for image large than 1024 × 512px a this 
+require a GPU with 24GB of memory (see [13]). We try training on crop to 
+reduce the memory usage, but this lead to poor results—which could be explain 
+by the fact that the discriminator then do not have a global view of the image 
+anymore. 
+
+7 Conclusion 
+
+We have propose a GAN formulation of learn compression that significantly 
+outperforms prior work for low bitrates, both in term of mIoU and human opin- 
+ion. Furthermore, our network can seamlessly combine preserve with generate 
+image content, produce realistic look image when synthesize content with 
+regular structure. 
+
+Promising direction for future work be to develop a mechanism to control 
+spatial allocation of bit for GC, and to combine SC with saliency information. 
+Furthermore, it would be interest to incorporate a context model into our 
+method, for example the one from [8], and to adapt the architecture so that it 
+scale to even large images. 
+
+
+
+Generative Adversarial Networks for Extreme Learned Image Compression 17 
+
+References 
+
+1. Bellard, F.: BPG Image format. https://bellard.org/bpg/ 
+2. : WebP Image format. https://developers.google.com/speed/webp/ 
+3. Taubman, D.S., Marcellin, M.W.: JPEG 2000: Image Compression Fundamentals, 
+
+Standards and Practice. Kluwer Academic Publishers, Norwell, MA, USA (2001) 
+4. Theis, L., Shi, W., Cunningham, A., Huszar, F.: Lossy image compression with 
+
+compressive autoencoders. In: International Conference on Learning Representa- 
+tions (ICLR). (2017) 
+
+5. Ballé, J., Laparra, V., Simoncelli, E.P.: End-to-end optimize image compression. 
+arXiv preprint arXiv:1611.01704 (2016) 
+
+6. Rippel, O., Bourdev, L.: Real-time adaptive image compression. In: Proceedings 
+of the 34th International Conference on Machine Learning. Volume 70 of Pro- 
+ceedings of Machine Learning Research., International Convention Centre, Sydney, 
+Australia, PMLR (06–11 Aug 2017) 2922–2930 
+
+7. Ballé, J., Minnen, D., Singh, S., Hwang, S.J., Johnston, N.: Variational image 
+compression with a scale hyperprior. In: International Conference on Learning 
+Representations (ICLR). (2018) 
+
+8. Mentzer, F., Agustsson, E., Tschannen, M., Timofte, R., Van Gool, L.: Conditional 
+probability model for deep image compression. In: IEEE Conference on Computer 
+Vision and Pattern Recognition (CVPR). (2018) 
+
+9. Torfason, R., Mentzer, F., Ágústsson, E., Tschannen, M., Timofte, R., Gool, L.V.: 
+Towards image understand from deep compression without decoding. In: Inter- 
+national Conference on Learning Representations (ICLR). (2018) 
+
+10. Wang, Z., Simoncelli, E.P., Bovik, A.C.: Multiscale structural similarity for image 
+quality assessment. In: Asilomar Conference on Signals, Systems Computers, 2003. 
+Volume 2. (Nov 2003) 1398–1402 Vol.2 
+
+11. Goodfellow, I., Pouget-Abadie, J., Mirza, M., Xu, B., Warde-Farley, D., Ozair, S., 
+Courville, A., Bengio, Y.: Generative adversarial nets. In: Advances in neural 
+information processing systems. (2014) 2672–2680 
+
+12. Isola, P., Zhu, J.Y., Zhou, T., Efros, A.A.: Image-to-image translation with condi- 
+tional adversarial networks. In: Proceedings of the IEEE Conference on Computer 
+Vision and Pattern Recognition. (2017) 1125–1134 
+
+13. Wang, T.C., Liu, M.Y., Zhu, J.Y., Tao, A., Kautz, J., Catanzaro, B.: High- 
+resolution image synthesis and semantic manipulation with conditional gans. In: 
+IEEE Conference on Computer Vision and Pattern Recognition (CVPR). (2018) 
+
+14. Galteri, L., Seidenari, L., Bertini, M., Del Bimbo, A.: Deep generative adversarial 
+compression artifact removal. In: Proceedings of the IEEE Conference on Computer 
+Vision and Pattern Recognition. (2017) 4826–4835 
+
+15. Ledig, C., Theis, L., Huszar, F., Caballero, J., Cunningham, A., Acosta, A., Aitken, 
+A., Tejani, A., Totz, J., Wang, Z., et al.: Photo-realistic single image super- 
+resolution use a generative adversarial network. In: Proceedings of the IEEE 
+Conference on Computer Vision and Pattern Recognition. (2017) 4681–4690 
+
+16. Santurkar, S., Budden, D., Shavit, N.: Generative compression. arXiv preprint 
+arXiv:1703.01467 (2017) 
+
+17. Mirza, M., Osindero, S.: Conditional generative adversarial nets. arXiv preprint 
+arXiv:1411.1784 (2014) 
+
+18. Zhao, H., Shi, J., Qi, X., Wang, X., Jia, J.: Pyramid scene parse network. In: 
+Proceedings of IEEE Conference on Computer Vision and Pattern Recognition 
+(CVPR). (2017) 
+
+
+
+18 E. Agustsson, M. Tschannen, F. Mentzer, R. Timofte, and L. Van Gool 
+
+19. He, K., Gkioxari, G., Dollár, P., Girshick, R.: Mask r-cnn. In: Computer Vision 
+(ICCV), 2017 IEEE International Conference on, IEEE (2017) 2980–2988 
+
+20. Agustsson, E., Mentzer, F., Tschannen, M., Cavigelli, L., Timofte, R., Benini, L., 
+Van Gool, L.: Soft-to-hard vector quantization for end-to-end learn compressible 
+representations. arXiv preprint arXiv:1704.00648 (2017) 
+
+21. Li, M., Zuo, W., Gu, S., Zhao, D., Zhang, D.: Learning convolutional network for 
+content-weighted image compression. arXiv preprint arXiv:1703.10553 (2017) 
+
+22. Toderici, G., O’Malley, S.M., Hwang, S.J., Vincent, D., Minnen, D., Baluja, S., 
+Covell, M., Sukthankar, R.: Variable rate image compression with recurrent neural 
+networks. arXiv preprint arXiv:1511.06085 (2015) 
+
+23. Toderici, G., Vincent, D., Johnston, N., Hwang, S.J., Minnen, D., Shor, J., Covell, 
+M.: Full resolution image compression with recurrent neural networks. arXiv 
+preprint arXiv:1608.05148 (2016) 
+
+24. Ballé, J., Laparra, V., Simoncelli, E.P.: End-to-end optimization of nonlinear trans- 
+form code for perceptual quality. arXiv preprint arXiv:1607.05006 (2016) 
+
+25. Salimans, T., Goodfellow, I., Zaremba, W., Cheung, V., Radford, A., Chen, X.: 
+Improved technique for training gans. In: Advances in Neural Information Pro- 
+cessing Systems. (2016) 2234–2242 
+
+26. Arjovsky, M., Bottou, L.: Towards principled method for training generative 
+adversarial networks. arXiv preprint arXiv:1701.04862 (2017) 
+
+27. Arjovsky, M., Chintala, S., Bottou, L.: Wasserstein gan. arXiv preprint 
+arXiv:1701.07875 (2017) 
+
+28. Mao, X., Li, Q., Xie, H., Lau, R.Y., Wang, Z., Smolley, S.P.: Least square gener- 
+ative adversarial networks. In: 2017 IEEE International Conference on Computer 
+Vision (ICCV), IEEE (2017) 2813–2821 
+
+29. Kingma, D.P., Welling, M.: Auto-encoding variational bayes. arXiv preprint 
+arXiv:1312.6114 (2013) 
+
+30. Radford, A., Metz, L., Chintala, S.: Unsupervised representation learn- 
+ing with deep convolutional generative adversarial networks. arXiv preprint 
+arXiv:1511.06434 (2015) 
+
+31. Zhang, H., Xu, T., Li, H., Zhang, S., Huang, X., Wang, X., Metaxas, D.: Stack- 
+gan: Text to photo-realistic image synthesis with stack generative adversarial 
+networks. In: IEEE Int. Conf. Comput. Vision (ICCV). (2017) 5907–5915 
+
+32. Karras, T., Aila, T., Laine, S., Lehtinen, J.: Progressive grow of gans for im- 
+prove quality, stability, and variation. In: International Conference on Learning 
+Representations (ICLR). (2017) 
+
+33. Zhu, J.Y., Park, T., Isola, P., Efros, A.A.: Unpaired image-to-image translation us- 
+ing cycle-consistent adversarial networks. In: Proceedings of the IEEE Conference 
+on Computer Vision and Pattern Recognition. (2017) 2223–2232 
+
+34. Liu, M.Y., Breuel, T., Kautz, J.: Unsupervised image-to-image translation net- 
+works. In: Advances in Neural Information Processing Systems. (2017) 700–708 
+
+35. Nowozin, S., Cseke, B., Tomioka, R.: f-gan: Training generative neural sampler 
+use variational divergence minimization. In: Advances in Neural Information 
+Processing Systems. (2016) 271–279 
+
+36. Stella, X.Y., Lisin, D.A.: Image compression base on visual saliency at individual 
+scales. In: International Symposium on Visual Computing, Springer (2009) 157– 
+166 
+
+37. Guo, C., Zhang, L.: A novel multiresolution spatiotemporal saliency detection 
+model and it application in image and video compression. IEEE transaction on 
+image processing 19(1) (2010) 185–198 
+
+
+
+Generative Adversarial Networks for Extreme Learned Image Compression 19 
+
+38. Gupta, R., Khanna, M.T., Chaudhury, S.: Visual saliency guide video compression 
+algorithm. Signal Processing: Image Communication 28(9) (2013) 1006–1022 
+
+39. Cover, T.M., Thomas, J.A.: Elements of information theory. John Wiley & Sons 
+(2012) 
+
+40. Johnson, J., Alahi, A., Fei-Fei, L.: Perceptual loss for real-time style transfer 
+and super-resolution. In: European Conference on Computer Vision. (2016) 
+
+41. He, K., Zhang, X., Ren, S., Sun, J.: Deep residual learn for image recognition. 
+In: IEEE Conference on Computer Vision and Pattern Recognition (CVPR). (June 
+2016) 
+
+42. Cordts, M., Omran, M., Ramos, S., Rehfeld, T., Enzweiler, M., Benenson, R., 
+Franke, U., Roth, S., Schiele, B.: The Cityscapes Dataset for Semantic Urban 
+Scene Understanding. ArXiv e-prints (April 2016) 
+
+43. Zhou, B., Zhao, H., Puig, X., Fidler, S., Barriuso, A., Torralba, A.: Scene parse 
+through ade20k dataset. In: Proceedings of the IEEE Conference on Computer 
+Vision and Pattern Recognition. (2017) 
+
+44. : Kodak PhotoCD dataset. http://r0k.us/graphics/kodak/ 
+45. Zhao, H., Shi, J., Qi, X., Wang, X., Jia, J.: Pyramid Scene Parsing Network. ArXiv 
+
+e-prints (December 2016) 
+46. Kingma, D.P., Ba, J.: Adam: A method for stochastic optimization. CoRR 
+
+abs/1412.6980 (2014) 
+
+
+
+20 E. Agustsson, M. Tschannen, F. Mentzer, R. Timofte, and L. Van Gool 
+
+Generative Adversarial Networks for Extreme Learned 
+Image Compression: Supplementary Material 
+
+A Compression detail 
+
+Recall that we use the upper bound Eq. (5) to control the entropy of the bit- 
+stream when training our networks. To verify that this upper bound be tight, we 
+compute the actual bitrate in bpp for our GC network with C = 4 use an 
+arithmetic cod implementation. We find that use a uniform prior, it match 
+the theoretical bound up to the third significant digit. If we use a non-uniform 
+per-image probability model, we obtain a bitrate reduction of 1.7%. 
+
+We compress the semantic label map for SC by quantize the coordinate 
+in the vector graphic to the image grid and encode coordinate relative to 
+precede coordinate when traverse object boundary (rather than relative to 
+the image frame). The so-obtained bitstream be then compress use arithmetic 
+coding. 
+
+To ensure fair comparison, we do not count header size for any of the baseline 
+method throughout. 
+
+B Architecture detail 
+
+We adopt the notation from [13] to describe our encoder and generator/decoder 
+architecture and additionally use q to denote the quantization layer (see Sec. 
+3.3 for details). The output of q be encode and stored. 
+
+– Encoder GC: c7s1-60,d120,d240,d480,d960,c3s1-C,q 
+– Encoders SC: 
+• Semantic label map encoder: c7s1-60,d120,d240,d480,d960 
+• Image encoder: c7s1-60,d120,d240,d480,c3s1-C,q,c3s1-480,d960 
+
+The output of the semantic label map encoder and the image encoder be 
+concatenate and fed to the generator/decoder. 
+
+– Generator/decoder: c3s1-960,R960,R960,R960,R960,R960,R960,R960, 
+R960,R960,u480,u240,u120,u60,c7s1-3 
+
+C Visuals 
+
+In Sec. C.1 and C.2 we present further visual example image from Cityscapes 
+and ADE20k, respectively, obtain for SC when preserve randomly select 
+semantic class or box (see Sec. 5.3 for detail on the experiments). The 
+Cityscapes, ADE20k, and Kodak image use in the user study along with the 
+correspond BPG image be show in Sec. C.3, C.4, and C.52. 
+
+2 https://data.vision.ee.ethz.ch/aeirikur/extremecompression/files/suppC5.pdf 
+
+
+
+Generative Adversarial Networks for Extreme Learned Image Compression 21 
+
+C.1 Selective Compression (Cityscapes) 
+
+road (0.077 bpp) car (0.108 bpp) everything (0.041 bpp) 
+
+people (0.120 bpp) building (0.110 bpp) no synth (0.186 bpp) 
+
+road (0.092 bpp) car (0.134 bpp) everything (0.034 bpp) 
+
+people (0.147 bpp) building (0.119 bpp) no synth (0.179 bpp) 
+
+Fig. 11: Synthesizing different class for two different image from Cityscapes, 
+use our SC network with C = 4. In each image except for no synthesis, we 
+additionally synthesize the class vegetation, sky, sidewalk, ego vehicle, wall. 
+
+Fig. 12: Example image obtain by our SC network (C = 8) preserve a box 
+and synthesize the rest of the image, on Cityscapes. 
+
+
+
+22 E. Agustsson, M. Tschannen, F. Mentzer, R. Timofte, and L. Van Gool 
+
+C.2 Selective Compression (ADE20k) 
+
+Fig. 13: Example ADE20k validation image obtain by our SC network (C = 8) 
+preserve a box and synthesize the remain image area. The original image 
+be show for comparison. 
+
+
+
+Generative Adversarial Networks for Extreme Learned Image Compression 23 
+
+Fig. 14: Preserving randomly chosen semantic class in ADE20k validation im- 
+age and synthesize the remain image area use our SC network with 
+C = 8. The original image be show for comparison. 
+
+
+
+24 E. Agustsson, M. Tschannen, F. Mentzer, R. Timofte, and L. Van Gool 
+
+C.3 Global Compression (Cityscapes) 
+
+Ours (0.036bpp) BPG (0.034bpp) 
+
+Ours (0.036bpp) BPG (0.043bpp) 
+
+Ours (0.036bpp) BPG (0.050bpp) 
+
+Ours (0.036bpp) BPG (0.037bpp) 
+
+Ours (0.036bpp) BPG (0.051bpp) 
+
+Ours (0.036bpp) BPG (0.041bpp) 
+
+Ours (0.036bpp) BPG (0.033bpp) 
+
+Ours (0.036bpp) BPG (0.037bpp) 
+
+Ours (0.036bpp) BPG (0.035bpp) 
+
+Ours (0.036bpp) BPG (0.048bpp) 
+
+Fig. 15: Decompressed version of the first 10 image use in the user study on 
+Cityscapes, obtain use our GC network with C = 4 and BPG. 
+
+
+
+Generative Adversarial Networks for Extreme Learned Image Compression 25 
+
+Ours (0.036bpp) BPG (0.036bpp) 
+
+Ours (0.036bpp) BPG (0.038bpp) 
+
+Ours (0.036bpp) BPG (0.038bpp) 
+
+Ours (0.036bpp) BPG (0.037bpp) 
+
+Ours (0.036bpp) BPG (0.036bpp) 
+
+Ours (0.036bpp) BPG (0.034bpp) 
+
+Ours (0.036bpp) BPG (0.037bpp) 
+
+Ours (0.036bpp) BPG (0.033bpp) 
+
+Ours (0.036bpp) BPG (0.036bpp) 
+
+Ours (0.036bpp) BPG (0.037bpp) 
+
+Fig. 16: Decompressed version of image 11 − 20 use in the user study on 
+Cityscapes, obtain use our GC network with C = 4 and BPG. 
+
+
+
+26 E. Agustsson, M. Tschannen, F. Mentzer, R. Timofte, and L. Van Gool 
+
+C.4 Global Compression (ADE20k) 
+
+Ours (0.036bpp) BPG (0.036bpp) 
+
+Ours (0.036bpp) BPG (0.059bpp) 
+
+Ours (0.036bpp) BPG (0.082bpp) 
+
+Ours (0.036bpp) BPG (0.075bpp) 
+
+Ours (0.036bpp) BPG (0.055bpp) 
+
+Ours (0.036bpp) BPG (0.085bpp) 
+
+Ours (0.036bpp) BPG (0.038bpp) 
+
+Ours (0.036bpp) BPG (0.061bpp) 
+
+Ours (0.036bpp) BPG (0.050bpp) 
+
+Ours (0.036bpp) BPG (0.037bpp) 
+
+Ours (0.036bpp) BPG (0.034bpp) 
+
+Ours (0.036bpp) BPG (0.079bpp) 
+
+Fig. 17: Decompressed version of the first 12 image use in the user study on 
+ADE20k, obtain use our GC network with C = 4 and BPG. 
+
+
+
+Generative Adversarial Networks for Extreme Learned Image Compression 27 
+
+Ours (0.036bpp) BPG (0.054bpp) 
+
+Ours (0.036bpp) BPG (0.074bpp) 
+
+Ours (0.036bpp) BPG (0.065bpp) 
+
+Ours (0.036bpp) BPG (0.137bpp) 
+
+Ours (0.036bpp) BPG (0.037bpp) 
+
+Ours (0.036bpp) BPG (0.036bpp) 
+
+Ours (0.036bpp) BPG (0.037bpp) 
+
+Ours (0.036bpp) BPG (0.036bpp) 
+
+Fig. 18: Decompressed version of image 12 − 20 use in the user study on 
+ADE20k, obtain use our GC network with C = 4 and BPG. 
+
+

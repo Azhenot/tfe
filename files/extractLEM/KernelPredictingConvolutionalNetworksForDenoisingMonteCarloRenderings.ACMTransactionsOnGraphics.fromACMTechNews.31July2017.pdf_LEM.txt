@@ -1,0 +1,1667 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Kernel-Predicting Convolutional Networks for Denoising 
+Monte Carlo Renderings 
+
+STEVE BAKO∗, University of California, Santa Barbara 
+THIJS VOGELS∗, ETH Zürich & Disney Research 
+BRIAN MCWILLIAMS, Disney Research 
+MARK MEYER, Pixar Animation Studios 
+JAN NOVÁK, Disney Research 
+ALEX HARVILL, Pixar Animation Studios 
+PRADEEP SEN, University of California, Santa Barbara 
+TONY DEROSE, Pixar Animation Studios 
+FABRICE ROUSSELLE, Disney Research 
+
+Noisy (32 spp)Noisy (32 spp) 
+
+Reference (1024 spp)Reference (1024 spp) 
+
+TRAINING 
+
+Noisy (32 spp)Noisy (32 spp) 
+
+Denoised (32 spp)Denoised (32 spp) 
+
+TEST 
+
+Fig. 1. We introduce a deep learn approach for denoising Monte Carlo-rendered image that produce high-quality result suitable for production. We 
+train a convolutional neural network to learn the complex relationship between noisy and reference data across a large set of frame with vary distribute 
+e�ects from the film Finding Dory (le�). The train network can then be apply to denoise new image from other film with significantly di�erent style and 
+content, such a Cars 3 (right), with production-quality results. 
+
+Regression-based algorithm have show to be good at denoising Monte 
+Carlo (MC) rendering by leverage it inexpensive by-product (e.g., fea- 
+ture bu�ers). However, when use higher-order model to handle complex 
+cases, these technique often over�t to noise in the input. For this reason, 
+supervise learn method have be propose that train on a large col- 
+lection of reference examples, but they use explicit �lters that limit their 
+denoising ability. To address these problems, we propose a novel, supervise 
+learn approach that allows the �ltering kernel to be more complex and 
+general by leverage a deep convolutional neural network (CNN) architec- 
+ture. In one embodiment of our framework, the CNN directly predicts the 
+�nal denoised pixel value a a highly non-linear combination of the input 
+features. In a second approach, we introduce a novel, kernel-prediction net- 
+work which us the CNN to estimate the local weight kernel use to 
+compute each denoised pixel from it neighbors. We train and evaluate our 
+
+∗Joint �rst author 
+
+© 2017 Copyright held by the owner/author(s). This be the author’s version of the 
+work. It be post here for your personal use. Not for redistribution. The de�nitive 
+Version of Record be publish in ACM Transactions on Graphics, https://doi.org/http: 
+//dx.doi.org/10.1145/3072959.3073708. 
+
+network on production data and observe improvement over state-of-the- 
+art MC denoisers, show that our method generalize well to a variety of 
+scenes. We conclude by analyze various component of our architecture 
+and identify area of further research in deep learn for MC denoising. 
+
+CCS Concepts: • Computing methodology → Computer graphics; 
+Rendering; Ray tracing; 
+
+Additional Key Words and Phrases: Monte Carlo rendering, Monte Carlo 
+denoising, global illumination 
+
+ACM Reference format: 
+Steve Bako, Thijs Vogels, Brian McWilliams, Mark Meyer, Jan Novák, Alex 
+Harvill, Pradeep Sen, Tony DeRose, and Fabrice Rousselle. 2017. Kernel- 
+Predicting Convolutional Networks for Denoising Monte Carlo Renderings. 
+ACM Trans. Graph. 36, 4, Article 97 (July 2017), 14 pages. 
+DOI: http://dx.doi.org/10.1145/3072959.3073708 
+
+1 INTRODUCTION 
+In recent years, physically-based image synthesis have become wide- 
+spread in feature animation and visual e�ects [Keller et al. 2015]. 
+
+ACM Transactions on Graphics, Vol. 36, No. 4, Article 97. Publication date: July 2017. 
+
+
+
+97:2 • Bako, S. et al. 
+
+Fueled by the desire to produce photorealistic imagery, many produc- 
+tion studio have switch their render algorithm from REYES- 
+style micropolygon architecture [Cook et al. 1987] to physically- 
+base Monte Carlo (MC) path trace [Kajiya 1986]. While MC 
+render algorithm can satisfy strict quality requirements, they 
+do so at an immense computational cost and with convergence char- 
+acteristics that require long render time for noise-free images, 
+especially for scene with complex light transport. 
+
+Fortunately, recent postprocess, image-space, general MC denois- 
+ing algorithm have demonstrate it be possible to achieve high- 
+quality result at considerably reduce sample rate (see Zwicker 
+et al. [2015] and Sen et al. [2015] for an overview), and commercial 
+renderers be now incorporate these techniques. For example, 
+Chaos Group’s VRay renderer, the Corona renderer, and Pixar’s 
+RenderMan now ship with integrate denoisers. Moreover, many 
+production house be develop their own internal solution [God- 
+dard 2014] or use third-party tool (e.g., the Altus denoiser). 
+
+Although a wide variety of image-space MC denoising approach 
+have be proposed, most state-of-the-art technique use a regres- 
+sion framework [Moon et al. 2014; Bitterli et al. 2016]. Improvements 
+have be achieve thanks to more robust distance metrics, high 
+order regression models, and diverse auxiliary bu�ers tailor to 
+speci�c light transport components. These advances, however, have 
+come at the cost of ever-increasing complexity, while o�ering pro- 
+gressively diminish returns. This be partially because higher- 
+order regression model be prone to over�tting to the noisy input. 
+
+To circumvent the noise-�tting problem, Kalantari et al. [2015] 
+recently propose an MC denoiser base on supervise learn that 
+be train with a set of example of noisy input and the correspond- 
+ing reference outputs. However, this approach use a relatively 
+simple multi-layer perceptron (MLP) for the learn model and 
+be train on a small number of scenes. More importantly, their 
+approach hardcoded the �lter to either be a joint bilateral or joint 
+non-local means, which limited the �exibility of their system. 
+
+To address these shortcomings, in this paper we propose a novel, 
+supervise learn framework that allows for more complex and 
+general �ltering kernel by leverage deep convolutional neural 
+network (CNNs). The ever-increasing amount of production data 
+o�ers the large and diverse dataset require for training a deep CNN 
+to learn the complex mapping between a large collection of noisy 
+input and correspond references. The advantage be that CNNs 
+be able to learn powerful, non-linear model for such a mapping by 
+leverage information from the entire set of training images, not 
+just a single input a in many of the previous approaches. Moreover, 
+once trained, CNNs be fast to evaluate and do not require manual 
+tune or parameter tweaking. Finally, such a system can more 
+robustly cope with noisy rendering to generate high-quality result 
+on a variety of MC e�ects without over�tting. 
+
+Although our approach could be use for other application of 
+physically-based image synthesis, in this work we focus on high- 
+quality denoising of static image for production environments. 
+Speci�cally, our contribution be a follows: 
+
+• Our main contribution be the �rst deep learn solution for 
+denoising MC rendering which be train and evaluate 
+on actual production data. Our architecture performs on par 
+or good than exist state-of-the-art denoising methods. 
+
+• Inspired by the standard approach of estimate a pixel 
+value a a weight average of it noisy neighborhood, we 
+propose a novel kernel-prediction CNN architecture that 
+computes the locally optimal neighborhood weights. This 
+provide regularization for a good training convergence 
+rate and facilitates use in production environments. 
+
+• Finally, we explore and analyze the various processing and 
+design decision of our system, include our two-network 
+framework for denoising di�use and specular component 
+of the image separately, and a simple normalization proce- 
+dure that signi�cantly improves our approach (as well a 
+previous methods) for image with high dynamic range. 
+
+2 PREVIOUS WORK 
+Both MC denoising and deep learn have be the focus of ex- 
+tensive research, the scope of which be too large to be cover in 
+this paper. Therefore, for MC denoising, we will restrict ourselves 
+to the most directly related of the a posteriori methods, which treat 
+the renderer a a black box. For a more complete overview, we refer 
+reader to the review by Zwicker et al. [2015]. For deep learning, we 
+will focus on convolutional neural network [LeCun et al. 2015]. 
+
+2.1 Image-space General Monte Carlo Denoising 
+We begin by discuss image-space denoising method that �lter 
+the noise from general distribute Monte Carlo e�ects (e.g., depth of 
+�eld, motion blur, glossy re�ections, and global illumination). The 
+most successful state-of-the-art method build on the idea of use 
+generic non-linear image-space �lters [Rushmeier and Ward 1994] 
+and auxiliary feature bu�ers a a guide to improve the robustness of 
+the �ltering process [McCool 1999]. A key development introduce 
+by Sen and Darabi [2012] be to leverage noisy auxiliary bu�ers 
+in a joint bilateral �ltering scheme, where the bandwidth of the 
+various auxiliary feature be derive from the sample statistics. 
+Li et al. [2012] late propose to estimate the �lter error with the 
+SURE metric [Stein 1981] to set the �lter bandwidths, while Moon 
+et al. [2014] use asymptotic bias analysis to do so. In our system, 
+the training procedure implicitly learns the appropriate weight 
+of the various auxiliary bu�ers. 
+
+A particularly successful application of these idea be to use 
+the non-local mean �lter of Buades et al. [2005] in a joint �ltering 
+scheme [Rousselle et al. 2013; Moon et al. 2013; Zimmer et al. 2015]. 
+The endure appeal of the non-local mean �lter for denoising MC 
+rendering be largely due to it versatility. Indeed, more powerful 
+image-space �lters, such a BM3D [Dabov et al. 2006], have see 
+less use for MC denoising with some notable exception [Kalantari 
+and Sen 2013]. This be due to the fact that they have not yet be 
+successfully extend to leverage auxiliary bu�ers, a key component 
+of current state-of-the-art methods. In our work, we propose to use 
+machine learn instead of a �xed �lter, which not only have be 
+show to perform on par with state-of-the-art image �lters [Burger 
+et al. 2012], but also allows u to feed our network with auxiliary 
+bu�ers and leverage the robustness they provide. 
+
+Recently, it be show that joint �ltering methods, such a those 
+cite above, can be interpret a linear regression use a zero- 
+order model, and that, more generally, most state-of-the-art MC 
+denoising technique be base on a linear regression use a zero- 
+
+ACM Transactions on Graphics, Vol. 36, No. 4, Article 97. Publication date: July 2017. 
+
+
+
+Kernel-Predicting Convolutional Networks for Denoising Monte Carlo Renderings • 97:3 
+
+or �rst-order model [Moon et al. 2014; Bitterli et al. 2016]. Methods 
+leverage a �rst-order model have prove to be very useful for MC 
+denoising [Bauszat et al. 2011; Moon et al. 2014; Bitterli et al. 2016], 
+and while higher-order model have also be explore [Moon 
+et al. 2016], it must be do carefully to prevent over�tting to the 
+input noise. In contrast, the deep CNN use in our system can o�er 
+powerful non-linear mappings, without over�tting, by learn the 
+complex relationship between noisy and reference data across a 
+large training set. 
+
+Recently, Kalantari et al. [2015] propose a learning-based �lter- 
+ing approach, which be closely related to our own work. However, 
+their network us a �xed �lter a a back-end, and therefore inherits 
+it limitations. In contrast, we propose a solution that implicitly 
+learns the �lter itself and therefore produce good results. 
+
+Finally, there be concurrent work by Chakravarty et al. [2017] 
+that also applies deep learn to denoise Monte Carlo renderings, 
+but it target di�erent application than ours focus more on 
+interactive rendering with low sample count instead of high-end, 
+production-quality renderings. To facilitate comparison between 
+the two approaches, we both compare to a previous baseline method 
+in our respective paper (see Sec. 6). 
+
+2.2 Convolutional Neural Networks 
+In recent years, convolutional neural network (CNNs) have emerge 
+a a ubiquitous model in machine learning, achieve state-of-the- 
+art performance in a diverse range of task such a image classi�- 
+cation [He et al. 2016], speech processing [Oord et al. 2016], and 
+many others. CNNs have also be use a great deal for a variety 
+of low-level, image-processing tasks. In particular, several work 
+have consider the problem of natural image denoising [Xie et al. 
+2012; Zhang et al. 2016; Gharbi et al. 2016] and the highly related 
+problem of image super-resolution [Yang et al. 2016]. 
+
+However, a naïve application of a convolutional network to MC 
+denoising expose a wide range of issue that be handle in our 
+framework. First, training a network to compute a denoised color 
+from only a raw, noisy color bu�er cause overblurring since the 
+network cannot distinguish between scene noise and scene detail. 
+Moreover, since the render image have high dynamic range, di- 
+rect training can cause unstable weight (e.g., extremely large or 
+small values) that cause bright ring and color artifact in the 
+�nal image. By preprocessing our feature a well a exploit 
+the di�use/specular decomposition, we be able to preserve impor- 
+tant detail while denoising the image. Furthermore, we introduce 
+the novel kernel prediction architecture (Sec. 4.1) to keep training 
+tractable/stable. In Sec. 7, we motivate and explore how these design 
+decision a�ect the performance of our system. 
+
+3 THEORETICAL BACKGROUND 
+Before introduce our propose denoising framework, we �rst 
+de�ne our notation and present the interpretation of denoising a 
+a supervise learn problem. To begin, the sample output by a 
+typical MC renderer can be average down into a vector of per-pixel 
+data, xp = {cp , fp }, where xp ∈ R3+D . Here, cp represent the RGB 
+color channel and fp be a set of D auxiliary feature (e.g., surface 
+normals, depth, albedo, and their correspond variances). 
+
+The goal of MC denoising be to obtain a �ltered estimate ĉp that 
+be a close a possible to a ground truth result cp that would be 
+obtain a the number of sample go to in�nity. This estimate be 
+usually compute by operating on a block Xp of per-pixel vector 
+around the neighborhood N (p) to produce the �ltered output at 
+pixel p. Given a denoising function д(Xp ;θ ) with parameter θ , the 
+ideal denoising parameter at every pixel can be write as: 
+
+θ̂p = argmin 
+θ 
+`(cp ,д(Xp ;θ )), (1) 
+
+where the denoised value be ĉp = д(Xp ; θ̂p ) and `(c, ĉ) be a loss 
+function between the ground truth value, c, and the denoised value. 
+
+Clearly, optimize Eq. 1 be impossible since ground truth value c 
+be not available at run time. Instead, most MC denoising algorithm 
+estimate the denoised color at a pixel by replace д(Xp ;θ ) with 
+θ>ϕ (xq ), where function ϕ : R3+D → RM be a (possibly non-linear) 
+feature transformation with parameter θ . They then solve the 
+follow weight least-squares regression on the color values, cq , 
+around the neighborhood, q ∈ N (p): 
+
+θ̂p = argmin 
+θ 
+
+∑ 
+q∈N (p ) 
+
+( 
+cq − θ>ϕ (xq ) 
+
+)2 
+ω (xp , xq ), (2) 
+
+where the �nal denoised pixel value be compute a ĉp = θ̂ 
+> 
+p ϕ (xp ). 
+
+In this case, the regression kernel ω (xp , xq ) help to ignore value 
+that be corrupt by noise, e.g., by change the feature bandwidth 
+in a joint bilateral �lter [Sen and Darabi 2012]. Note that ω could 
+potentially also operate on patches, rather than single pixels, a in 
+the case of a joint non-local mean �lter. 
+
+As observe previously [Moon et al. 2014; Bitterli et al. 2016], 
+some of the previous method can be classi�ed a zero-order meth- 
+od with ϕ0 (xq ) = 1 [Sen and Darabi 2012; Rousselle et al. 2013], 
+�rst-order method with ϕ1 (xq ) = [1; xq ] [Moon et al. 2014], or 
+higher-order method [Moon et al. 2016] where ϕm (xq ) enumer- 
+ate all the polynomial term of xq up to degree m (see Bitterli et 
+al. [2016] for a detailed discussion). 
+
+With this formulation in mind, the limitation of these individual 
+approach can be understood in term of bias-variance tradeo� 
+[Friedman et al. 2001]. Zero-order method be equivalent to us- 
+ing an explicit function such a a joint bilateral [Li et al. 2012] or 
+non-local mean �lter [Rousselle et al. 2012]. These represent a 
+restrictive class of function that trade reduction in variance for a 
+high model bias. Although a well-chosen weight kernel, ω, 
+can yield good performance [Rousselle et al. 2013; Kalantari et al. 
+2015], such approach be fundamentally limited by their explicit 
+�lters. In this work, we seek to remove this limitation by make 
+the �lter kernel more �exible and powerful. 
+
+Furthermore, use a �rst- or higher-order regression increase 
+the complexity of the function, but be prone to over�tting a θ̂p be 
+estimate locally use only a single image and can easily �t to the 
+noise. To address this problem, Kalantari et al. [2015] propose to 
+take a supervise learn approach to estimate д use a dataset D 
+of N example pair of noisy image patch and their correspond 
+reference color information, D = {(X1, c1), . . . , (XN , cN )}, where 
+ci corresponds to the reference color at the center of patch Xi 
+locate at pixel i of one of the many input images. Here, the goal 
+be to �nd parameter of the denoising function, д, that minimize 
+
+ACM Transactions on Graphics, Vol. 36, No. 4, Article 97. Publication date: July 2017. 
+
+
+
+97:4 • Bako, S. et al. 
+
+irradiancealbedo 
+
+color 
+
+Direct 
+or 
+
+Weighted 
+reconstruction 
+
+Diffuse CNN 
+
+Specular CNN 
+
+100x 
+5x5 
+
+Diffuse component 
+
+Specular component 
+
+Denoised imageexponential 
+transform 
+
+Direct 
+or 
+
+Weighted 
+reconstruction 
+
+albedo 
+multiply 
+
+logarithmic 
+transform & 
+
+normalization & 
+gradient extraction 
+
+albedo 
+divide 
+
+100x 
+5x5 
+
+100x 
+5x5 
+
+PostprocessingPreprocessing Filtering 
+
+Re 
+nd 
+
+er 
+er 
+
+normalization & 
+gradient extraction 
+
+Fig. 2. An overview of our general framework. We start by preprocessing di�use and specular data come from the render system independently, and then 
+feed the information to two separate network which denoise the di�use and specular illumination, respectively. The output from each network undergoes 
+reconstruction and postprocessing before be combine to obtain the final, denoised image. 
+
+the average loss with respect to the reference value across all the 
+patch in D: 
+
+θ̂ = argmin 
+θ 
+
+1 
+N 
+
+N∑ 
+i=1 
+`(ci ,д(Xi ;θ )), (3) 
+
+In this case, the parameters, θ , be optimize with respect to all the 
+reference examples, not the noisy information a in Eq. 2. If θ̂ be 
+estimate on a large and representative training data set, then it can 
+adapt to a wide variety of noise and scene characteristics. 
+
+However, the approach of Kalantari et al. [2015] have several limi- 
+tations, the most important of which be that the function д(Xi ;θ ) 
+be hardcoded to be either a joint bilateral or joint non-local mean 
+�lter with bandwidth provide by a multi-layer perceptron (MLP) 
+with train weights, θ . Because the �lter be �xed, the result 
+system lack the �exibility to handle the wide range of Monte 
+Carlo noise that can be encounter in production environments. 
+
+To address this limitation, we consider extend the supervise 
+learn approach to handle signi�cantly more complex function 
+forд, which result in more �exibility while still avoid over�tting. 
+Thus, we can reduce model bias while simultaneously ensure 
+the variance of the estimator be kept under control for a suitably 
+large N . This enables the result denoiser to generalize well to 
+image not use during training. 
+
+To do this, we observe that there be three issue inherent to the 
+supervise learn framework that must be consider to develop 
+a good MC denoising system: 
+
+(i) The function, д, must be �exible enough to capture the com- 
+plex relationship between input data and reference color 
+for a wide range of scenarios. In the follow section, we 
+describe how we model д use deep convolutional networks. 
+
+(ii) The choice of loss function, `, be critical. Ideally, the loss 
+must capture perceptually important di�erences between 
+the estimate and reference color. However, it must also be 
+easy to evaluate and optimize. We use the absolute value 
+loss function, `1, (Sec. 5) and explore it bene�ts in Sec. 7. 
+
+(iii) In order for our model to be deep yet avoid over�tting, 
+we require a large training dataset, D. Since we require 
+reference image render at high sample counts, obtain 
+
+a large data set be extremely computationally expensive. 
+Furthermore, in order to generalize well, the network need 
+example that be representative of the various e�ects to 
+be denoised. We describe our data in Sec. 5. 
+
+4 DEEP CONVOLUTIONAL DENOISING 
+In this section, we describe our approach to model the denoising 
+function д in Eq. (3) with a deep convolutional neural network 
+(CNN). Since each layer of a CNN applies multiple spatial kernel 
+with learnable weight that be share over the entire image space, 
+they be naturally suit for the denoising task and have indeed be 
+previously use for traditional image denoising [Xie et al. 2012]. 
+Furthermore, by join many such layer together with activation 
+functions, CNNs be able to learn highly nonlinear function of 
+the input features, which be important for obtain high-quality 
+outputs. Fig. 2 illustrates our entire denoising pipeline. We �rst 
+focus on the �ltering core of the denoiser—the network architecture 
+and the reconstruction �lter—and late describe data decomposition 
+and preprocessing that be speci�c to the problem of MC denoising. 
+
+4.1 Network Architecture 
+We use deep fully convolutional network with no fully-connected 
+layer to keep the number of parameter reasonably low. This re- 
+duce the danger of over�tting and speed up both training and 
+inference. Stacking many convolutional layer together e�ectively 
+increase the size of the input receptive �eld to capture more context 
+and long-range dependency [Simonyan and Zisserman 2014]. 
+
+In each layer l , the network applies a linear convolution to the 
+output of the previous layer, add a constant bias, and then applies 
+an element-wise nonlinear transformation f l (·), also know a 
+the activation function, to produce output zl = f l 
+
+( 
+Wl ∗ zl−1 + bl 
+
+) 
+. 
+
+Here, Wl and bl be tensor of weight and bias (the weight in 
+W be share appropriately to represent linear convolution kernels), 
+and zl−1 be the output of the previous layer. For the �rst layer, we 
+set z0 = Xp , which provide the block of per-pixel vector around 
+pixel p a input to our CNN. 
+
+For all layers, we use recti�ed linear unit (ReLU) activations, 
+f l (a) = max(0,a), except for the last layer, L, where f L (a) = a 
+
+ACM Transactions on Graphics, Vol. 36, No. 4, Article 97. Publication date: July 2017. 
+
+
+
+Kernel-Predicting Convolutional Networks for Denoising Monte Carlo Renderings • 97:5 
+
+(i.e., the identity function). Despite their C1 discontinuity, ReLUs 
+have be show to achieve state-of-the-art performance in many 
+task and be know to encourage the (non-convex) optimization 
+procedure to �nd good local minimum [Balduzzi et al. 2016]. 
+
+The weight and bias θ = {(W1, b1), . . . , (WL , bL )}, represent 
+the trainable parameter of д for our L-layer CNN. The dimension 
+of the weight in each layer, which be �xed before training, be 
+described in Sec. 5.2. 
+
+4.2 Reconstruction Methods 
+In our system, the function д output denoised color value use 
+one of two possible architectures: a direct-prediction convolutional 
+network (DPCN) or a novel kernel-prediction convolutional network 
+(KPCN). We now describe each one in turn. 
+
+Direct Prediction Convolutional Network (DPCN). Producing the 
+denoised image use direct prediction be straightforward. We simply 
+choose the size of the �nal layer of the network to ensure that for 
+each pixel, p, the correspond element of the network output, 
+zLp ∈ R3 be the denoised color: 
+
+ĉp = дdirect (Xp ;θ ) = zLp . 
+
+Direct prediction achieves good results. However, we found that 
+the unconstrained nature and complexity of the problem make 
+optimization di�cult. The magnitude and variance of the stochastic 
+gradient compute during training can be large, which slows con- 
+vergence. For example, in order to obtain good performance, the 
+DPCN architecture require over a week of training. 
+
+Kernel Prediction Convolutional Network (KPCN). Instead of di- 
+rectly output a denoised pixel, ĉp , the �nal layer of the network 
+output a kernel of scalar weight that be apply to the noisy neigh- 
+borhood of p to produce ĉp . LettingN (p) be the k ×k neighborhood 
+center around pixel p, the dimension of the �nal layer be chosen 
+so that the output be zLp ∈ Rk×k . Note that the kernel size k be speci- 
+�ed before training along with the other network hyperparameters 
+(e.g., layer size, CNN kernel size, and so on) and the same weight 
+be apply to each RGB color channel. 
+
+De�ning [zLp ]q a the q-th entry in the vector obtain by �atten- 
+ing zLp , we compute the �nal, normalize kernel weight a 
+
+wpq = 
+exp([zLp ]q )∑ 
+
+q′∈N (p ) exp([zLp ]q′ ) 
+, 
+
+and the denoised pixel color a 
+
+ĉp = дweighted (Xp ;θ ) = 
+∑ 
+
+q∈N (p ) 
+cqwpq . 
+
+The kernel weight can be interpret a include a softmax acti- 
+vation function on the network output in the �nal layer over the 
+entire neighborhood. This enforces that 0 ≤ wpq ≤ 1, ∀q ∈ N (p) 
+and 
+
+∑ 
+q∈N (p ) wpq = 1. Doing this have three speci�c bene�ts: 
+
+(i) It ensures that the �nal color estimate always lie within 
+the convex hull of the respective neighborhood of the input 
+image. This vastly reduces the search space of output value 
+a compare to the direct-prediction method and avoids 
+potential artifact (e.g., color shifts). 
+
+(ii) It ensures the gradient of the error with respect to the 
+kernel weight be well behaved, which prevents large os- 
+cillatory change to the network parameter cause by the 
+high dynamic range of the input. Intuitively, the weight 
+need only encode the relative importance of the neighbor- 
+hood; the network do not need to learn the absolute scale. 
+In general, scale-reparameterization scheme have recently 
+proven to be crucial for obtain low-variance gradient 
+and speed up convergence [Salimans and Kingma 2016]. 
+
+(iii) It could potentially be use for denoising across layer of 
+a give frame, a common case in production, by apply 
+the same reconstruction weight to each component. 
+
+We analyze the behavior of both of our propose architecture in 
+Sec. 7, observe that both converge to a similar overall error, but at 
+di�erent speeds. For example, with our training data, the weight 
+kernel prediction converges roughly 5-6× faster than the direct 
+reconstruction. Due to it faster convergence, we use the KPCN 
+architecture for all result and analysis, unless otherwise noted. 
+
+4.3 Di�use/Specular Decomposition 
+Denoising the color output of a MC renderer in a single �ltering op- 
+eration may be prone to overblurring (see Sec. 7). This be because the 
+various component of the image have di�erent noise characteris- 
+tic and spatial structure, which often lead to con�icting denoising 
+constraints. We mitigate this issue by decompose the image into 
+di�use and specular component a in Zimmer et al. [2015]. These 
+component be then independently preprocessed, �ltered, and post- 
+processed, before recombine them to obtain the �nal image, a 
+illustrate in Figure 2. 
+
+Di�use-component Preprocessing. The di�use color—the outgo 
+radiance due to di�use re�ection—is well behave and typically have 
+small ranges. Thus, training the di�use CNN be stable and the result- 
+ing network yield good performance without color preprocessing. 
+However, in practice, we factor out the noisy albedo produce by the 
+renderer in the preprocessing step, to have the CNN use the e�ec- 
+tive irradiance [Zimmer et al. 2015], c̃di�use = cdi�use � (falbedo + ϵ ), 
+where � be an element-wise (Hadamard) division and ϵ = 0.00316 in 
+our implementation. This allows for large �ltering kernels, since 
+the irradiance bu�er be smoother. Our postprocessing step inverts 
+this procedure (i.e., multiplies back the albedo), thereby restore 
+all texture detail. 
+
+Specular-component Preprocessing. Denoising the specular color 
+be a challenge problem due to the high dynamic range of specular 
+and glossy re�ections; the value in one image can span several 
+order of magnitude. The large variation and arbitrary correla- 
+tions in the input make the iterative optimization process highly 
+unstable. We thus apply a log transform to each color channel of 
+the input image yield c̃specular = log(1 + cspecular),which signi�- 
+cantly reduces the range of color values. This transformation greatly 
+improves result and avoids artifact in region with high dynamic 
+range (see Sec. 7). 
+
+After the two component have be denoised separately, we ap- 
+ply the inverse of the preprocessing transform to the reconstruct 
+output of each network and compute the �nal denoised image, 
+
+ĉ = (falbedo + ϵ ) � ĉdi�use + exp (̂cspecular) − 1, (4) 
+
+ACM Transactions on Graphics, Vol. 36, No. 4, Article 97. Publication date: July 2017. 
+
+
+
+97:6 • Bako, S. et al. 
+
+Fig. 3. Example reference image from our 600 frame training set, sample 
+from the full Finding Dory film. 
+
+where � be an element-wise (Hadamard) product. To train our sys- 
+tem, we pre-train the specular and di�use network separately on 
+the specular and di�use references, respectively. Afterwards, we 
+apply Eq. 4 and �ne-tune the complete framework by minimize 
+the error of the �nal image for additional iterations. This allows u 
+to recover miss detail and obtain sharper results. 
+
+5 EXPERIMENTAL SETUP 
+
+5.1 Data 
+Training a deep neural network require obtain a large and repre- 
+sentative dataset in order to learn the complex relationship between 
+input and output while avoid over�tting. For our training set, 
+we use 600 representative frame sample from the entire movie 
+Finding Dory generate use RenderMan’s path-tracer (Fig. 3). 
+
+Meanwhile, our test set consists of 25 diverse frame from the 
+�lms Cars 3 and Coco, and contain e�ects such a motion blur, 
+depth of �eld, glossy re�ections, and global illumination. These 
+�lms signi�cantly di�er in style and content, test how our system 
+generalizes to new inputs. For example, the test set include mostly 
+outdoor scene with a wide-range of color palette that be very 
+di�erent from Finding Dory. 
+
+The reference image for training be render with 1024 sam- 
+ples per pixel (spp). Although we consider remove the residual 
+noise from these use standard MC denoisers, we found that the 
+CNNs perform good when train on image with uncorrelated 
+residual noise rather than correlate error and artifact introduce 
+by the additional denoising step. Therefore, we use reference im- 
+age that, although still contain a small amount of visible noise, 
+be converge enough to properly train with. 
+
+To evaluate our propose approach, we trained, validated, and 
+test on input render at a �xed 128 spp (for production-level 
+quality) and 32 spp (for pre-visualization). For each scene, the ren- 
+derer output the di�use and specular RGB color bu�ers, cdi�use and 
+cspecular, the correspond per-pixel, color variances, σ 2di�use and 
+σ 2specular, the feature bu�ers, f , consist of surface normal (3 chan- 
+nels), albedo (3 channels), depth (1 channel), and the correspond 
+per-pixel feature variances, σf 2. In our implementation, we convert 
+variance of three channel to a single channel by compute it 
+luminance. Thus, we have 2 channel for the color variance (for 
+di�use and specular) and 3 channel for the feature variance. 
+
+As be commonly do in machine learning, we process some of 
+the raw data to provide the network with more useful feature that 
+facilitate learn and convergence. First, since the depth value can 
+have arbitrary ranges, we linearly scale it to the range [0, 1] for each 
+frame. We also preprocess the color bu�ers a described previously 
+in Sec. 4.3 to get c̃di�use and c̃specular. Finally, we take the gradient 
+in both x and y directions, Gx and Gy , for all bu�ers, a we found 
+these highlight important detail that facilitate training. 
+
+Since we preprocess the color bu�ers, we must apply an appropri- 
+ate transformation to their variance to make them valid. In general, 
+if we apply a transformation, h, to a random variable, X , we can 
+approximate the correspond transformation on it second mo- 
+ment use a Taylor series expansion: σh (X ) ≈ (h′(µX ))2σ 2X , where 
+µX and σ 2X be the mean and variance of X , respectively, and h 
+
+′ be 
+the derivative with respect to X . Thus, for the di�use and specular 
+components, the modi�ed variance be give by: 
+
+(σ̃di�use) 
+2 ≈ σ 2di�use � (falbedo + ϵ ) 
+
+2, 
+
+(σ̃specular) 
+2 ≈ σ 2specular � (̃cspecular) 
+
+2. (5) 
+
+After this processing, we construct our network input as: 
+
+x = {̃c,Gx ( {̃c, f }),Gy ( {̃c, f }), σ̃ 2,σf 2}, 
+
+where c̃ and σ̃ 2 be either di�use or specular. 
+After processing the data at each pixel, we split the image into 
+
+65 × 65 patch that be sampled, shu�ed, and use to train the 
+network. Although uniform sample could be use to select the 
+patch from each frame, we found that this be suboptimal a the 
+network would be frequently show simple case contain smooth 
+region that be straightforward to denoise. Instead, we want the 
+network to be expose to and learn how to handle di�cult cases. 
+
+To do this, we use the follow sample strategy, inspire by 
+Gharbi et al. [2016], to get 400 patch for each 1920 × 1080 frame. 
+We start with dart throw to �nd candidate patches, which we 
+then prune use a PDF base on the variance of the noisy color 
+bu�er and the shade normals. Using the color ensures that we 
+target region that have lot of noise, detail, or texture, while use 
+the normal bu�er provide example with geometric complexity. 
+Finally, to ensure that we provide a proper balance between the easy 
+and hard case and avoid biasing the network, we automatically 
+accept a patch after it have be reject a certain number of times. 
+
+5.2 Training 
+We use eight hidden layer (i.e., nine total convolutions, so L = 9) 
+with 100 kernel of 5×5 in each layer for each network. For KPCN, we 
+use an output kernel with size k = 21. Weights for both the 128 and 
+32 spp network be initialize use the Xavier method [Glorot 
+and Bengio 2010]. Speci�cally, we generate random value from a 
+uniform distribution with a variance determine by the number of 
+node between layers. 
+
+The specular and di�use network be train independently us- 
+ing the `1 (absolute value) error metric. We observe that this loss 
+function o�ered the best perceptual quality while still be fast 
+to compute and optimize (see Sec. 7 for additional justi�cation). 
+The loss for the di�use network be compute between the recon- 
+structed irradiance (i.e., before multiply with the albedo) and the 
+
+ACM Transactions on Graphics, Vol. 36, No. 4, Article 97. Publication date: July 2017. 
+
+
+
+Kernel-Predicting Convolutional Networks for Denoising Monte Carlo Renderings • 97:7 
+
+Ours Input (32 spp) RDFC (log) APR (log) NFOR (log) LBF-RF (log) Ours Ref. (1K-4K spp) 
+
+relative `2 19.21e-3 1.67e-3 2.66e-3 1.29e-3 2.15e-3 1.16e-3 
+1 − SSIM 0.354 0.043 0.058 0.034 0.051 0.032 
+
+relative `2 18.88e-3 1.54e-3 1.95e-3 1.24e-3 2.67e-3 0.93e-3 
+1 − SSIM 0.271 0.026 0.028 0.019 0.038 0.016 
+
+relative `2 9.28e-3 2.44e-3 3.35e-3 2.12e-3 4.69e-3 2.16e-3 
+1 − SSIM 0.090 0.023 0.030 0.019 0.027 0.019 
+
+relative `2 14.92e-3 1.40e-3 1.68e-3 1.12e-2 1.71e-2 0.97e-2 
+1 − SSIM 0.360 0.058 0.059 0.046 0.057 0.045 
+
+relative `2 20.31e-4 3.69e-4 5.33e-4 3.10e-4 5.19e-4 2.67e-4 
+1 − SSIM 0.069 0.011 0.016 0.009 0.015 0.008 
+
+Fig. 4. We demonstrate favorable result relative to state-of-the-art denoisers on 32 spp production-quality data, o�en remove more noise while still keep 
+detail and be�er preserve highlights. Please see the supplemental material for comparison with 128 spp data typically use in the final stage of production. 
+Note that the LBF result show be run with modification that can cause suboptimal performance (see text). 
+
+albedo-factorized reference image. The loss for the specular CNNs 
+be compute in the log domain. 
+
+The network be optimize use the ADAM [Kingma and Ba 
+2014] optimizer in TensorFlow [Abadi et al. 2015] with a learn 
+rate of 10−5 and mini-batches of size 5. Each network be pre-trained 
+for approximately 750K iteration over the course of ~1.5 day on 
+an Nvidia Quadro M6000 GPU. Afterwards, the system be combine 
+and �ne-tuned (Sec. 4.3) for another ~0.5 day or 250K iterations. 
+
+6 RESULTS 
+To evaluate our method, we compare our result to a range of state- 
+of-the-art methods: RDFC [Rousselle et al. 2013], APR [Moon et al. 
+2016], NFOR [Bitterli et al. 2016], and LBF [Kalantari et al. 2015]. In 
+the supplemental, we also compare against the RenderMan denoiser, 
+which be use during the production of the �lms in the train- 
+ing/test sets. We use four metric to evaluate the results: `1, relative 
+`1, relative `2 [Rousselle et al. 2011], and Structural Similarity Index 
+(SSIM) [Wang et al. 2004] (see supplemental for a description of how 
+
+these be computed). For conciseness, we report only relative `2 and 
+SSIM in the paper, a they be the most commonly used. See our 
+supplemental material for full resolution result at 16, 32, and 128 
+sample per pixel (spp), all metric with heat maps, and a web-based 
+interactive viewer that allows for inspection of the results.1 
+
+All denoisers be give the same inputs: the color bu�er and the 
+albedo, normal, and depth bu�ers correspond to the �rst ray 
+intersection. Note that we save the feature bu�ers at the �rst di�use 
+intersection in order to handle specular region with little useful 
+information (e.g., glass). Previous method give good result when 
+run with some of our preprocessing steps, so we report them like 
+this in the paper. In particular, we apply all method on top of our 
+di�use/specular decomposition, include the albedo divide for the 
+di�use component and the log transform of the specular compo- 
+nent. Interestingly, the log transform often signi�cantly increase 
+the robustness of these denoisers and result in much few halo 
+
+1Supplemental material can be found here: https://doi.org/10.7919/F4057CVT. 
+
+ACM Transactions on Graphics, Vol. 36, No. 4, Article 97. Publication date: July 2017. 
+
+
+
+97:8 • Bako, S. et al. 
+
+0% 
+
+10% 
+
+20% 
+
+30% 
+
+40% 
+
+50% 
+
+60% w/o log transform 
+
+w/ log transform 
+
+RDFC APR NFOR LBF-RF KPCN 
+0% 
+
+10% 
+
+20% 
+
+30% 
+
+40% 
+
+50% 
+
+60% 
+
+RDFC APR NFOR LBF-RF KPCN RDFC APR NFOR LBF-RF KPCN 
+
+32 
+spp 
+
+128 
+spp 
+
+(a) relative `2 (b) `1 (c) 1−SSIM 
+
+Fig. 5. Average performance of RDFC, APR, NFOR, LBF-RF, and our KPCN 
+across test scene for 32 spp (top) and 128 spp (bo�om) inputs. The value 
+be relative to the noisy input and express a percentage (%); low 
+be be�er. The dark-colored bar show the performance of prior art with 
+decomposition, irradiance factorization, but without log-transforming the 
+specular component. The light-colored bar show performance with the log 
+transform. For increase robustness, the relative `2 error be compute a 
+a trim mean, remove 0.01% of the best and the bad pixel per image. 
+
+artifact (see our supplemental material for result use the raw 
+specular component). 
+
+For all the denoisers, we multiply in the albedo bu�er extract 
+from a separate, high sample rate pas to obtain the �nal image. 
+In practice, this noise-free albedo could be generate from either a 
+fast high-sample count render that ignores illumination calculation 
+or alternatively from a separate denoising process (e.g., pre�ltering). 
+Furthermore, for all methods, we currently ignore the alpha channel 
+during the �ltering process, so to generate the �nal image, we simply 
+use the original alpha and zero out the appropriate region to avoid 
+color bleeding. Finally, for the production data we used, RenderMan 
+have be con�gured to send out 8 shadow ray at the �rst bounce 
+of each sample to get a good estimate of the direct illumination. 
+
+Our noisy rendering use correlate sample because of low dis- 
+crepancy sampling, so we cannot directly estimate an accurate 
+variance of the per-pixel sample mean. Instead, we instrument 
+RenderMan to output the two-bu�er variance use in previous 
+work [Rousselle et al. 2012] to properly evaluate RDFC, NFOR, and 
+APR on our test data. Note that the training/test data for our system 
+have the raw sample variance directly from the renderer, rather than 
+the two-bu�er variance use in the aforementioned methods. 
+
+All method use the default setting suggest by the authors, 
+except for LBF, where we train the network on our own data use 
+a joint non-local mean �lter back-end and the MLP architecture 
+described in the original paper. Since our training dataset do not 
+have the two-bu�er variance expect by LBF, their system cannot 
+pre-�lter the features. Thus, for fairer comparisons, we substitute 
+the pre-�ltered feature with the relatively noise-free one of the 
+reference image and denote it a LBF-RF (for reference features). 
+
+However, there be still some distinct di�erences from the origi- 
+nal implementation that cause LBF to run suboptimally. First, our 
+dataset do not provide some of the primary feature expect by 
+
+LBF, namely the secondary albedo and direct visibility, which be 
+useful guide feature for the �lter. To compensate for this miss 
+data, we instead replace the LBF secondary feature correspond 
+to these two primary feature with feature calculate from the 
+noisy color bu�ers. However, a observe in their paper, use such 
+bu�ers lead to over�tting and residual noise. These issue be fur- 
+ther exacerbate by substitute the noisy sample mean variance 
+into the joint non-local mean �lter instead of the �ltered two-bu�er 
+variance expect by LBF. As a result, the LBF result show here 
+tend to leave excessive residual noise. 
+
+As described in Sec. 5, we train our CNN on 600 frame from 
+the �lm Finding Dory, all render at a uniform sample rate of 32 
+and 128 spp with reference at 1024 spp. We train two networks, 
+one for each sample rate, and apply them to the test data with 
+the correspond sample rate. In Fig. 4, we show a subset of 
+result from our test set contain 25 frame from the �lms Cars 
+3 and Coco on 32 spp data (see supplemental for all result at both 
+sample rates). 
+
+Overall, we perform a well or good than state-of-the-art tech- 
+niques both perceptually and quantitatively. For example, row 1, 
+4, and 5 of Fig. 4 show how previous method have residual noise 
+in the car decals, child’s face, and car headlight, respectively, while 
+our approach remove the noise and still preserve detail. Further- 
+more, our approach generates a smooth result on the glass of row 
+2 and keep the energy of the strong specular highlight in row 3. 
+Meanwhile, the other approach tend to introduce �lter artifact 
+and lose energy in bright regions. 
+
+Figure 5 show a comparison of the average performance of each 
+method across all test scene with respect to each error metric for 
+both 32 and 128 spp. We observe that our network consistently 
+improves over state of the art across all error metric shown. In 
+Fig. 6, we demonstrate the �exibility of our method by processing 
+input at 16 spp with our network train on 32 spp data. As shown, 
+despite be train on a high sample rate, our network be 
+able to successfully extrapolate to this data while still improve on 
+the state-of-the-art methods. In particular, the previous approach 
+tend to leave excessive residual noise relative to our approach along 
+the edge of the cables. 
+
+To facilitate future comparison and demonstrate our network’s 
+ability to perform well on noisier data from a di�erent render 
+system, we provide result in Fig. 7 on publicly available Tung- 
+sten scene [Bitterli 2016] and compare our approach to a baseline 
+method, NFOR [Bitterli et al. 2016]. In particular, the result show 
+slight residual noise in the NFOR result even at 128 spp, while our 
+approach more closely resembles the reference. A similar �gure in 
+concurrent work [Chaitanya et al. 2017] allows reader to see the 
+relative improvement over the baseline, facilitate comparison 
+of these two systems. 
+
+Note that to produce these results, we train our system on a set 
+of Tungsten training scene (see Sec. 7 for result with our original 
+training). Speci�cally, we take 8 Tungsten scene not in our test set 
+and randomly modi�ed them in various ways, include swap 
+materials, camera parameters, and environment map to generate 
+1484 unique training scenes. Please see the supplemental for a list 
+of the original Tungsten scene use to generate the training set. 
+
+ACM Transactions on Graphics, Vol. 36, No. 4, Article 97. Publication date: July 2017. 
+
+
+
+Kernel-Predicting Convolutional Networks for Denoising Monte Carlo Renderings • 97:9 
+
+Ours Input (16 spp) RDFC (log) APR (log) NFOR (log) LBF-RF (log) Ours Ref. (1K spp) 
+
+relative `2 7.03e-3 1.86e-3 2.10e-3 1.91e-3 1.93e-3 0.99e-3 
+1 − SSIM 0.147 0.032 0.038 0.032 0.031 0.023 
+
+Fig. 6. Our network train on 32 spp data and test on 16 spp data still performs well relative to other approaches. This demonstrates that our technique 
+can successfully extrapolate to other sample rates. See supplemental for additional result at 16 spp. 
+
+Ours Input (128 spp) NFOR (log) Ours Ref. (32K spp) 
+
+relative `2 29.15e-3 0.90e-3 0.69e-3 
+1 − SSIM 0.562 0.019 0.017 
+
+relative `2 38.57e-3 1.12e-3 0.92e-3 
+1 − SSIM 0.552 0.025 0.024 
+
+relative `2 77.82e-3 2.92e-3 2.50e-3 
+1 − SSIM 0.633 0.041 0.038 
+
+Fig. 7. We retrain our network on data render with the Tungsten path tracer and compare with a baseline approach (NFOR) on scene from Bi�erli et al. 
+[2016] use the publicly available light and camera parameters. See the concurrent work of Chaitanya et al. [2017] for a similar figure. 
+
+In term of timing, for an HD image of 1920×1080, our network 
+take about 12 second to evaluate and output a full denoised image. 
+For comparison, the timing for the other GPU-based approach 
+be approximately 10 second for RDFC, 10-20 second for APR, and 
+20 second for LBF. The CPU version of NFOR take 4-6 minutes. 
+It be worth note that these image take about 100 core hour to 
+render at 128 spp, so no additional sample can be render in the 
+time it take to evaluate any of the denoisers. 
+
+7 ANALYSIS 
+In this section, we analyze the various design choice make in our 
+network architecture use hold-out frame from Finding Dory and 
+test frame from Cars 3. We begin by examine the choice of loss 
+
+function, a crucial aspect of our design a it determines what the 
+network deems important. For MC denoising, we ideally want a loss 
+function that re�ects the perceptual quality of the image relative to 
+the reference. To evaluate the behavior of various error metrics, we 
+optimize the network with each and evaluate their performance on 
+held-out training data from Finding Dory and validation data from 
+Cars 3. We evaluate �ve common metrics: `1, relative `1, `2, relative 
+`2, and SSIM, when optimize for each in turn. Fig. 8 show that 
+the network train with the `1 metric consistently have the low 
+error across all �ve metric for both datasets. Due to this robustness, 
+we chose the `1 error metric for our system. 
+
+It be interest to note that sometimes the network optimize on 
+a give error be not always the best perform one. For example, the 
+
+ACM Transactions on Graphics, Vol. 36, No. 4, Article 97. Publication date: July 2017. 
+
+
+
+97:10 • Bako, S. et al. 
+
+0 100K 200K 300K 400K 500K 600K 700K 
+iteration 
+
+` 1 
+lo 
+
+s 
+(l 
+
+og 
+) 
+
+`1 
+relative `1 
+`2 
+relative `2 
+
+SSIM 
+
+0 100K 200K 300K 400K 500K 600K 700K 
+iteration 
+
+re 
+la 
+
+ti 
+ve 
+` 1 
+
+lo 
+s 
+
+(l 
+og 
+
+) 
+
+`1 
+relative `1 
+`2 
+relative `2 
+
+SSIM 
+
+0 100K 200K 300K 400K 500K 600K 700K 
+iteration 
+
+` 2 
+lo 
+
+s 
+(l 
+
+og 
+) 
+
+`1 
+relative `1 
+`2 
+relative `2 
+
+SSIM 
+
+0 100K 200K 300K 400K 500K 600K 700K 
+iteration 
+
+re 
+la 
+
+ti 
+ve 
+` 2 
+
+lo 
+s 
+
+(l 
+og 
+
+) 
+
+`1 
+relative `1 
+`2 
+relative `2 
+
+SSIM 
+
+0 100K 200K 300K 400K 500K 600K 700K 
+iteration 
+
+S 
+S 
+
+IM 
+lo 
+
+s 
+(l 
+
+og 
+) 
+
+`1 
+relative `1 
+`2 
+relative `2 
+
+SSIM 
+
+(a) `1 (b) relative `1 (c) `2 (d) relative `2 (e) SSIM 
+
+Fig. 8. Here we show convergence plot of network optimize with common error metric evaluate on hold-out data from Finding Dory. For example, 
+(a) show the `1 error of the dataset use network train on `1, relative `1, `2, relative `2, and SSIM. The network train with `1 consistently have the best 
+performance across all the error metric tested. This behavior carry over to our validation set of Cars 3 image (see supplemental materials). 
+
+25 50 75 100 125 150 175 200 
+time [h] 
+
+` 1 
+lo 
+
+s 
+(l 
+
+og 
+) 
+
+DPCN 
+
+KPCN 
+
+25 50 75 100 125 150 175 200 
+time [h] 
+
+` 1 
+lo 
+
+s 
+(l 
+
+og 
+) 
+
+DPCN 
+
+KPCN 
+
+(a) Di�use (b) Specular 
+
+Fig. 9. Comparison of optimization speed between the DPCN and KPCN 
+architectures. Although both approach converge to a similar error on the 
+Cars 3 validation set, the KPCN system converges 5–6× faster. 
+
+network train on `1 error performs good on `2 than the network 
+optimize on `2. One possible reason for this be that `2 be sensitive 
+to outliers, such a �re�ies, or extremely bright specular highlight 
+that signi�cantly contribute to the error. Trying to compensate for 
+these region will sacri�ce performance elsewhere, while network 
+train on di�erent loss be more robust to outliers. 
+
+Figure 9 compare the validation loss between the DPCN and 
+KPCN reconstruction scheme a a function of hour train for both 
+the specular and di�use networks. We stop training the KPCN after 
+50 hour and show the average loss during the last 10% of training 
+with the horizontal, dash line. We observe that the convergence 
+of the DPCN be slow with considerably high variance, on average 
+require 5-6× longer to reach the same loss value. Therefore, by 
+impose reasonable constraint on the network output, we can 
+greatly speed up training without sacri�cing average performance. 
+
+Since there have be previous work in use machine learn for 
+natural image denoising, we evaluate the performance of naïvely 
+apply a CNN to the problem of MC denoising. Speci�cally, we 
+train on the raw color bu�er (without decomposition or the albedo 
+divide) and directly output the denoised color. 2 As show in Fig. 10, 
+such a network produce overblurred result since it have no fea- 
+tures/information to allow it to distinguish between scene noise and 
+detail. Furthermore, since the input and output have high dynamic 
+range, it cannot properly handle bright region and cause ring 
+and color artifact around highlights. Moreover, work in the 
+HDR domain cause instability in the network weight make it 
+di�cult to train properly. 
+
+Next, we evaluate the e�ect of the various addition to our frame- 
+work that alleviate the aforementioned issue of a vanilla CNN. 
+2We use the same hyperparameters a report for our �nal architecture: 8 hidden 
+layer of 5×5×100. 
+
+First, we explore the e�ect of include extra feature a input. 
+One signi�cant advantage over deep network use in the denois- 
+ing of photograph be that we can utilize additional information 
+output by the render system include shade normals, depth, 
+and albedo. Thus, we train our architecture with and without 
+our additional feature (Sec. 5). The network train only on the 
+color bu�er cannot di�erentiate between scene detail and noise, so 
+it overblurs compare to our full approach (see Fig. 11). 
+
+We found that training with high dynamic range data introduce 
+many issues. Namely, the wide range of value for both the input 
+and output create instability in the weight and make training 
+di�cult. Fig. 12 show how use the log transform of the color 
+bu�er and it correspond transform variance (Eq. 5) reduces 
+artifact in bright regions. Interestingly, we found that work in 
+the log domain have bene�ts for previous denoising technique a 
+well, reduce halo and ring issue (see the supplemental for 
+result of previous approach with and without the log transform). 
+
+Both the di�use/specular decomposition and albedo factorization 
+also improve our method signi�cantly. The decomposition allows 
+the network to separately handle the fundamentally di�erent dif- 
+fuse and specular noise. Furthermore, by divide out the albedo 
+from the di�use illumination and thereby denoising the e�ective 
+irradiance, we can preserve texture detail more easily. We retrain 
+our system without the albedo divide and observe overblurring. For 
+example, Fig. 13 show how the decal on the car become overblurred 
+and illegible without the albedo divide. Moreover, if we perform the 
+albedo divide without the decomposition, the network preserve 
+detail but have clear artifact in specular regions. In this experiment, 
+we still perform the log transform to handle the high dynamic range. 
+
+Figure 14 further demonstrates the ability of our network to gen- 
+eralize to new scene with di�erent artistic style than be present 
+in our training set. This be a frame from the photorealistic short �lm 
+Piper denoised by our network without additional training or modi- 
+�cation (i.e., train only on Finding Dory). This suggests that the 
+network be not over�tting to a speci�c style, �lm, or noise pattern 
+and instead learns a robust relationship between input and output 
+enable good performance on a wide variety of data. 
+
+There be various inherent limitation of our learning-based ap- 
+proach, however. First, our result can lose scene detail that be not 
+properly capture by our input feature and that be not present in 
+our training set. For example, in the top row of Fig. 15, we show 
+how the line on the jumbo screen be remove because they be 
+not in the auxiliary feature and the network mistake them for 
+
+ACM Transactions on Graphics, Vol. 36, No. 4, Article 97. Publication date: July 2017. 
+
+
+
+Kernel-Predicting Convolutional Networks for Denoising Monte Carlo Renderings • 97:11 
+
+Ours Input (32 spp) Vanilla CNN Ours Ref. (1K spp) 
+
+Fig. 10. We naively apply a CNN for MC denoising use only the unprocessed color bu�er a input and directly outpu�ing the denoised image. The high 
+dynamic range data creates color artifact around highlight (top row), while the miss additional feature result in overblurring of detail (bo�om row). 
+
+Ours Input (32 spp) w/o Features w/ Features Ref. (2K spp) 
+
+Fig. 11. When training use only the di�use/specular color bu�ers without additional features, the network overblurs detail. 
+
+Ours Input (32 spp) w/o Log w/ Log Ref. (2K spp) 
+
+Fig. 12. When we train with high dynamic range images, we observe artifact in region with large-valued specular highlights. Our full approach with the log 
+and correspond transform variance handle these di�icult case be�er. 
+
+Ours Input (32 spp) w/o Decomposition,w/o Albedo divide 
+w/ Decomposition, 
+w/o Albedo divide 
+
+w/o Decomposition, 
+w/ Albedo divide 
+
+w/ Decomposition, 
+w/ Albedo divide Ref. (2K spp) 
+
+Fig. 13. Retraining our network without the di�use/specular decomposition or albedo factorization result in overblurred textures, such a these illegible 
+car decals. Using the decomposition without the albedo divide continue to overblur (top row). On the other hand, do the albedo divide without the 
+decomposition creates artifact in specular region (bo�om row). Our full approach preserve the text clearly and closely resembles the reference. 
+
+scene noise. Also, since such patch be not present in the train- 
+ing dataset, the network cannot resolve them use only the color 
+bu�er. However, this could be potentially alleviate by additional 
+training on similar examples. Likewise, example of all distribute 
+e�ects from the test set should be show during training, otherwise 
+the network cannot properly denoise them. For example, volumetric 
+e�ects with lot of �ne detail, such a �re or smoke, that be not 
+in the training set be typically overblurred by our system (second 
+row of Fig. 15). 
+
+Another limitation occurs when apply our method to a dif- 
+ferent render system than the one it be train on. The third 
+row of Fig. 15 show the result of use the network train with 
+Finding Dory data from RenderMan on test data from the Tungsten 
+renderer. Although both renderers output the same features, there 
+be inevitable di�erences (e.g., dynamic range and noise levels) that 
+can cause artifacts. These issue largely disappear when training on 
+the Tungsten data, although our approach still generates artifact 
+when the input have severe noise, such a with the 32 spp scene 
+show in the last row of Fig. 15. 
+
+ACM Transactions on Graphics, Vol. 36, No. 4, Article 97. Publication date: July 2017. 
+
+
+
+97:12 • Bako, S. et al. 
+
+Ours Input (32 spp) Ours Ref. (1K spp) 
+
+Fig. 14. We demonstrate how our network be able to denoise a photorealistic frame from the short film Piper, which significantly di�ers from the training data, 
+Finding Dory. Note that even at low sample rates, our network generalizes well and produce high-quality denoised results. 
+
+Ours Input (32 spp) NFOR (log) Ours Ref. (2K spp) 
+
+Ours Input (32 spp) NFOR (log) Ours Ref. (8K spp) 
+
+Ours Input (128 spp) w/o Retraining w/ Retraining (Ours) Ref. (32K spp) 
+
+Ours Input (32 spp) NFOR (log) Ours Ref. (32K spp) 
+
+Fig. 15. We demonstrate various limitation of our approach. When the input feature fail to capture important scene detail, the network will mistake it for 
+noise and try to remove it (top row). Examples of fire be not use in training, so our method tends to overblur these case (second row). Applying a network 
+train on data from a di�erent render system will cause artifact due to inherent di�erences in noise levels, ranges, and sample strategies. The result 
+be significantly improve if the network be instead train on data from the new render system (third row). However, even when train on this data, the 
+network struggle with extremely noisy input (bo�om row). 
+
+8 FUTURE WORK AND CONCLUSIONS 
+Although we have demonstrate a robust, learning-based MC de- 
+noise algorithm in this paper, there be many design decision that 
+could be explore more extensively to further improve performance. 
+To facilitate this exploration and enable others to run our system 
+on publicly available Tungsten scenes, we will release the code and 
+train weight to the community. 
+
+The �rst potential topic to investigate be the choice of error metric. 
+Often, perceptually important feature be not capture by any 
+of the standard loss metric which also behave quite di�erently 
+
+from each other. We see notable example of this in Sec. 6 and 
+Sec. 7. This pose an especially important problem during training. A 
+more thorough investigation of perceptual loss function be required, 
+which would improve both network training and lead to a more 
+principled perceptual evaluation of results. 
+
+Furthermore, we present a simple sample approach for select- 
+ing important patch from each image use in training. Although 
+this help performance, our approach be far from optimal. One can 
+imagine use other feature and metric to good sample patch 
+
+ACM Transactions on Graphics, Vol. 36, No. 4, Article 97. Publication date: July 2017. 
+
+
+
+Kernel-Predicting Convolutional Networks for Denoising Monte Carlo Renderings • 97:13 
+
+and allow the network to converge faster or even learn more com- 
+plicate relationships. 
+
+Our network’s hyperparameters be also not optimal. We explore 
+various layer numbers/sizes and kernel size to �nd setting that 
+work well, but a more thorough search through the parameter space 
+could reveal good ones. Di�erent architecture and concept might 
+also yield improve performance. We explore the use of recurrent 
+and residual connection [Yang et al. 2016; He et al. 2016], but found 
+little bene�t. However, these could be potentially useful tool to ex- 
+plore much deeper network that improve performance yet keep the 
+number of model parameter tractable. Moreover, generative mod- 
+els, such a variational autoencoders [Kingma and Welling 2013], 
+and generative adversarial network have show great promise for 
+natural image super-resolution and denoising [Ledig et al. 2016]. 
+Although scale to high-resolution image present a large compu- 
+tational hurdle for these methods, it would be an interest avenue 
+for future research. 
+
+Finally, we demonstrate result for denoising only a single image 
+at a time, but it would be useful to handle animate sequence a well. 
+This extension be non-trivial and involves further exploration of the 
+architecture and design to be able to preserve temporal coherency 
+across neighbor denoised frames. For example, the concurrent 
+work of Chakravarty et al. [2017] focus on denoising sequence 
+at interactive rates. 
+
+In summary, we have present the �rst successful step towards 
+practically use deep convolutional network for denoising Monte 
+Carlo render image in production environments. Speci�cally, 
+we demonstrate that a deep learn approach can recognize the 
+fundamental, underlie relationship between the noisy and refer- 
+ence data without over�tting, all while still be able to withstand 
+the strict production demand on quality. Although it us a rel- 
+atively straightforward architecture, our solution be fast, robust, 
+stable to train/evaluate, and it performs favorably with respect to 
+state-of-the-art denoising algorithms. 
+
+9 ACKNOWLEDGMENTS 
+We gratefully thank John Halstead for generate the Finding Dory 
+training data and Andreas Krause for helpful discussions. We also 
+thank the follow Blendswap artist for create the scene in 
+both Fig. 7 and the training set: Jay-Artist, Mareck, MrChimp2313, 
+nacimus, NovaZeeke, SlykDrako, thecali, and Wig42. This work be 
+partially fund by National Science Foundation grant #13-21168 
+and #16-19376. 
+
+REFERENCES 
+Martín Abadi, Ashish Agarwal, Paul Barham, , and others. 2015. TensorFlow: Large- 
+
+Scale Machine Learning on Heterogeneous Systems. (2015). http://tensor�ow.org/ 
+Software available from tensor�ow.org. 
+
+David Balduzzi, Brian McWilliams, and Tony Butler-Yeoman. 2016. Neural Taylor 
+Approximations: Convergence and Exploration in Recti�er Networks. arXiv preprint 
+arXiv:1611.02345 (2016). 
+
+Pablo Bauszat, Martin Eisemann, and Marcus Magnor. 2011. Guided Image Filtering 
+for Interactive High-quality Global Illumination. Computer Graphics Forum 30, 4 
+(2011), 1361–1368. 
+
+Benedikt Bitterli. 2016. Rendering Resources. (2016). https://benedikt- 
+bitterli.me/resources/. 
+
+Benedikt Bitterli, Fabrice Rousselle, Bochang Moon, José A. Iglesias-Guitián, David 
+Adler, Kenny Mitchell, Wojciech Jarosz, and Jan Novák. 2016. Nonlinearly Weighted 
+First-order Regression for Denoising Monte Carlo Renderings. Computer Graphics 
+Forum 35, 4 (2016), 107–117. 
+
+Antoni Buades, Bartomeu Coll, and Jean-Michel Morel. 2005. A Review of Image 
+Denoising Algorithms, with a New One. Multiscale Modeling & Simulation 4, 2 
+(2005), 490–530. 
+
+H. C. Burger, C. J. Schuler, and S. Harmeling. 2012. Image Denoising: Can Plain Neural 
+Networks Compete with BM3D?. In 2012 IEEE Conference on Computer Vision and 
+Pattern Recognition. 2392–2399. 
+
+Chakravarty R. A. Chaitanya, Anton Kaplanyan, Christoph Schied, Marco Salvi, Aaron 
+Lefohn, Derek Nowrouzezahrai, and Timo Aila. 2017. Interactive Reconstruction of 
+Noisy Monte Carlo Image Sequences use a Recurrent Autoencoder. ACM Trans. 
+Graph. (Proc. SIGGRAPH) (2017). 
+
+Robert L. Cook, Loren Carpenter, and Edwin Catmull. 1987. The Reyes Image Rendering 
+Architecture. SIGGRAPH Comput. Graph. 21, 4 (Aug. 1987), 95–102. 
+
+Kostadin Dabov, Alessandro Foi, Vladimir Katkovnik, and Karen Egiazarian. 2006. Image 
+Denoising with Block-Matching and 3D Filtering. (2006). 
+
+Jerome Friedman, Trevor Hastie, and Robert Tibshirani. 2001. The Elements of Statistical 
+Learning. Vol. 1. Springer series in statistic Springer, Berlin. 
+
+Michaël Gharbi, Gaurav Chaurasia, Sylvain Paris, and Frédo Durand. 2016. Deep Joint 
+Demosaicking and Denoising. ACM Trans. Graph. 35, 6, Article 191 (Nov. 2016), 
+12 pages. 
+
+Xavier Glorot and Yoshua Bengio. 2010. Understanding the Di�culty of Training Deep 
+Feedforward Neural Networks. In International conference on arti�cial intelligence 
+and statistics. 249–256. 
+
+Luke Goddard. 2014. Silencing the Noise on Elysium. In ACM SIGGRAPH 2014 Talks 
+(SIGGRAPH ’14). ACM, New York, NY, USA, Article 38, 1 pages. 
+
+Kaiming He, Xiangyu Zhang, Shaoqing Ren, and Jian Sun. 2016. Deep Residual Learning 
+for Image Recognition. In IEEE Conference on Computer Vision and Pattern Recognition 
+(CVPR). http://arxiv.org/abs/1512.03385 
+
+James T. Kajiya. 1986. The Rendering Equation. SIGGRAPH Comput. Graph. 20, 4 (Aug. 
+1986), 143–150. 
+
+Nima Khademi Kalantari, Steve Bako, and Pradeep Sen. 2015. A Machine Learning 
+Approach for Filtering Monte Carlo Noise. 34, 4, Article 122 (July 2015), 12 pages. 
+
+Nima Khademi Kalantari and Pradeep Sen. 2013. Removing the Noise in Monte Carlo 
+Rendering with General Image Denoising Algorithms. 32, 2pt1 (2013), 93–102. 
+
+A. Keller, L. Fascione, M. Fajardo, I. Georgiev, P. Christensen, J. Hanika, C. Eisenacher, 
+and G. Nichols. 2015. The Path Tracing Revolution in the Movie Industry. In ACM 
+SIGGRAPH 2015 Courses (SIGGRAPH ’15). ACM, New York, NY, USA, Article 24, 
+7 pages. 
+
+Diederik P. Kingma and Jimmy Ba. 2014. Adam: A Method for Stochastic Optimization. 
+CoRR abs/1412.6980 (2014). http://arxiv.org/abs/1412.6980 
+
+Diederik P Kingma and Max Welling. 2013. Auto-Encoding Variational Bayes. In 
+International Conference on Learning Representations. 
+
+Yann LeCun, Yoshua Bengio, and Geo�rey Hinton. 2015. Deep Learning. Nature 521 
+(2015), 436–444. 
+
+Christian Ledig, Lucas Theis, Ferenc Huszár, Jose Caballero, Andrew Cunningham, 
+Alejandro Acosta, Andrew Aitken, Alykhan Tejani, Johannes Totz, Zehan Wang, 
+and others. 2016. Photo-Realistic Single Image Super-Resolution use a Generative 
+Adversarial Network. arXiv preprint arXiv:1609.04802 (2016). 
+
+Tzu-Mao Li, Yu-Ting Wu, and Yung-Yu Chuang. 2012. SURE-based Optimization for 
+Adaptive Sampling and Reconstruction. ACM Trans. Graph. 31, 6, Article 194 (Nov. 
+2012), 9 pages. 
+
+Michael D. McCool. 1999. Anisotropic Di�usion for Monte Carlo Noise Reduction. 
+ACM Transactions on Graphics 18, 2 (April 1999), 171–194. 
+
+Bochang Moon, Nathan Carr, and Sung-Eui Yoon. 2014. Adaptive Rendering Based on 
+Weighted Local Regression. ACM Trans. Graph. 33, 5 (Sept. 2014), 170:1–170:14. 
+
+Bochang Moon, Jong Yun Jun, JongHyeob Lee, Kunho Kim, Toshiya Hachisuka, and 
+Sung-Eui Yoon. 2013. Robust Image Denoising Using a Virtual Flash Image for 
+Monte Carlo Ray Tracing. Computer Graphics Forum 32, 1 (2013), 139–151. 
+
+Bochang Moon, Steven McDonagh, Kenny Mitchell, and Markus Gross. 2016. Adaptive 
+Polynomial Rendering. To appear in ACM Trans. Graph. (Proc. SIGGRAPH) (2016), 
+10. 
+
+Aaron van den Oord, Sander Dieleman, Heiga Zen, Karen Simonyan, Oriol Vinyals, Alex 
+Graves, Nal Kalchbrenner, Andrew Senior, and Koray Kavukcuoglu. 2016. Wavenet: 
+A Generative Model for Raw Audio. arXiv preprint arXiv:1609.03499 (2016). 
+
+Fabrice Rousselle, Claude Knaus, and Matthias Zwicker. 2011. Adaptive Sampling and 
+Reconstruction use Greedy Error Minimization. ACM Trans. Graph. 30, 6, Article 
+159 (Dec. 2011), 12 pages. 
+
+Fabrice Rousselle, Claude Knaus, and Matthias Zwicker. 2012. Adaptive Rendering with 
+Non-local Means Filtering. 31, 6, Article 195 (Nov. 2012), 11 pages. 
+
+Fabrice Rousselle, Marco Manzi, and Matthias Zwicker. 2013. Robust Denoising use 
+Feature and Color Information. Computer Graphics Forum 32, 7 (2013), 121–130. 
+
+Holly E. Rushmeier and Gregory J. Ward. 1994. Energy Preserving Non-Linear Filters. In 
+Proc. 21st annual Conf. on Computer graphic and interactive technique (SIGGRAPH 
+’94). ACM, 131–138. 
+
+Tim Salimans and Diederik P Kingma. 2016. Weight Normalization: A Simple Repa- 
+rameterization to Accelerate Training of Deep Neural Networks. In Adv in Neural 
+Information Processing Systems (NIPS). 
+
+ACM Transactions on Graphics, Vol. 36, No. 4, Article 97. Publication date: July 2017. 
+
+
+
+97:14 • Bako, S. et al. 
+
+Pradeep Sen and Soheil Darabi. 2012. On Filtering the Noise from the Random Parame- 
+ters in Monte Carlo Rendering. ACM Transactions on Graphics 31, 3, Article 18 (June 
+2012), 15 pages. 
+
+Pradeep Sen, Matthias Zwicker, Fabrice Rousselle, Sung-Eui Yoon, and Nima Khademi 
+Kalantari. 2015. Denoising Your Monte Carlo Renders: Recent Advances in Image- 
+space Adaptive Sampling and Reconstruction. In ACM SIGGRAPH 2015 Courses. 
+ACM, 11. 
+
+Karen Simonyan and Andrew Zisserman. 2014. Very Deep Convolutional Networks for 
+Large-Scale Image Recognition. arXiv preprint arXiv:1409.1556 (2014). 
+
+Charles M. Stein. 1981. Estimation of the Mean of a Multivariate Normal Distribution. 
+The Annals of Statistics 9, 6 (1981), 1135–1151. http://www.jstor.org/stable/2240405 
+
+Zhou Wang, A.C. Bovik, H.R. Sheikh, and E.P. Simoncelli. 2004. Image Quality As- 
+sessment: from Error Visibility to Structural Similarity. IEEE Transactions on Image 
+Processing 13, 4 (April 2004), 600–612. 
+
+Junyuan Xie, Linli Xu, and Enhong Chen. 2012. Image Denoising and Inpainting 
+with Deep Neural Networks. In Advances in Neural Information Processing Systems. 
+341–349. 
+
+Wenhan Yang, Jiashi Feng, Jianchao Yang, Fang Zhao, Jiaying Liu, Zongming Guo, and 
+Shuicheng Yan. 2016. Deep Edge Guided Recurrent Residual Learning for Image 
+Super-Resolution. CoRR abs/1604.08671 (2016). http://arxiv.org/abs/1604.08671 
+
+Kai Zhang, Wangmeng Zuo, Yunjin Chen, Deyu Meng, and Lei Zhang. 2016. Beyond a 
+Gaussian Denoiser: Residual Learning of Deep CNN for Image Denoising. arXiv 
+preprint arXiv:1608.03981 (2016). 
+
+Henning Zimmer, Fabrice Rousselle, Wenzel Jakob, Oliver Wang, David Adler, Wojciech 
+Jarosz, Olga Sorkine-Hornung, and Alexander Sorkine-Hornung. 2015. Path-space 
+Motion Estimation and Decomposition for Robust Animation Filtering. Computer 
+Graphics Forum 34, 4 (2015), 131–142. 
+
+Matthias Zwicker, Wojciech Jarosz, Jaakko Lehtinen, Bochang Moon, Ravi Ramamoorthi, 
+Fabrice Rousselle, Pradeep Sen, Cyril Soler, and Sung-Eui Yoon. 2015. Recent 
+Advances in Adaptive Sampling and Reconstruction for Monte Carlo Rendering. 34, 
+2 (May 2015), 667–681. 
+
+ACM Transactions on Graphics, Vol. 36, No. 4, Article 97. Publication date: July 2017. 
+
+

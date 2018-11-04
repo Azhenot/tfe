@@ -1,0 +1,1217 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Fighting Fake News: Image Splice Detection 
+via Learned Self-Consistency 
+
+Minyoung Huh∗1,2 Andrew Liu∗1 Andrew Owens1 Alexei A. Efros1 
+
+UC Berkeley1 Carnegie Mellon University2 
+
+Input Ground Truth Source Images 
+Predicted Splice 
+
+Mask 
+Ground Truth Mask 
+
+Fig. 1: Our algorithm learns to detect and localize image manipulation (splices), despite be 
+train only on unmanipulated images. The two input image above might look plausible, but our 
+model correctly determine that they have be manipulate because they lack self-consistency: 
+the visual information within the predict splice region be found to be inconsistent with the 
+rest of the image. IMAGE CREDITS: automatically create splice from Hays and Efros [1] (top), 
+manual splice from Reddit user /u/Name-Albert Einstein (bottom). 
+
+Abstract. Advances in photo edit and manipulation tool have make it sig- 
+nificantly easy to create fake imagery. Learning to detect such manipulations, 
+however, remains a challenge problem due to the lack of sufficient training 
+data. In this paper, we propose a model that learns to detect visual manipulation 
+from unlabeled data through self-supervision. Given a large collection of real 
+photograph with automatically record EXIF metadata, we train a model to de- 
+termine whether an image be self-consistent — that is, whether it content could 
+have be produce by a single image pipeline. We apply this self-supervised 
+learn method to the task of detect and localize image splices. Although 
+the propose model obtains state-of-the-art performance on several benchmarks, 
+we see it a merely a step in the long quest for a truly general-purpose visual 
+forensics tool. 
+
+Keywords: Visual forensics, image splicing, self-supervised learning, EXIF 
+
+1 Introduction 
+
+Malicious image manipulation, long the domain of dictator and spy agencies, have now 
+become accessible to legion of common Internet troll and Facebook con-men [2]. 
+
+∗Indicates equal contribution. 
+Code and additional result can be found on our website. 
+
+ar 
+X 
+
+iv 
+:1 
+
+80 
+5. 
+
+04 
+09 
+
+6v 
+1 
+
+[ 
+c 
+
+.C 
+V 
+
+] 
+1 
+
+0 
+M 
+
+ay 
+2 
+
+01 
+8 
+
+https://minyoungg.github.io/selfconsistency/ 
+
+
+2 Huh et al. 
+
+EXIF CameraMake: NIKON CORPORATION 
+EXIF CameraModel: NIKON D5300 
+EXIF ColorSpace: sRGB 
+EXIF DateTimeOriginal: 2016:09:13 16:58:26 
+EXIF ExifImageLength: 3947 
+EXIF ExifImageWidth: 5921 
+EXIF Flash: No 
+EXIF FocalLength: 31.0mm 
+EXIF WhiteBalance: Auto 
+EXIF CompressedBitsPerPixel: 2 
+
+… 
+
+EXIF CameraMake: EASTMAN KODAK COMPANY 
+EXIF CameraModel: KODAK EASYSHARE CX7300… 
+EXIF ColorSpace: sRGB 
+EXIF DateTimeOriginal: 2005:09:29 01:31:02 
+EXIF ExifImageLength: 1544 
+EXIF ExifImageWidth: 2080 
+EXIF Flash: No (Auto) 
+EXIF FocalLength: 5.9mm 
+EXIF WhiteBalance: Auto 
+EXIF CompressedBitsPerPixel: 181/100 
+
+… 
+
+Fig. 2: Anatomy of a splice: a fake image be create by splice together content from two source 
+images. The insight explore in this paper be that patch from splice image be typically pro- 
+duced by different image pipelines, a indicate by the EXIF meta-data of the two source 
+images. The problem be that in practice, we never have access to these source images.1 
+
+With only rudimentary edit skills, it be now possible to create realistic image compos- 
+ites [3, 4], fill in large image region [1, 5, 6], generate plausible video from speech [7, 
+8], etc. One might have hop that these new method for create synthetic visual con- 
+tent would be met with commensurately powerful technique for detect fakes, but 
+this have not be the case so far. 
+
+One problem be that standard supervise learn approaches, which have be very 
+successful for many type of detection problems, be not well-suited for image foren- 
+sics. This be because the space of manipulate image be so vast and diverse, that it be 
+rather unlikely we will ever have enough manipulate training data for a supervise 
+method to fully succeed. Indeed, detect visual manipulation can be thought of a an 
+anomaly detection problem — we want to flag anything that be “out of the ordinary,” 
+even though we might not have a good model of what that might be. In other words, we 
+would like a method that do not require any manipulate training data at all, but can 
+work in an unsupervised/self-supervised regime. 
+
+In this work, we turn to a vast and previously underutilized source of data, image 
+EXIF metadata. EXIF tag be camera specification that be digitally engrave into 
+an image file at the moment of capture and be ubiquitously available. Consider the 
+photo show in Figure 2. While at first glance it might seem authentic, we see on closer 
+inspection that a car have be insert into the scene. The content for this splice region 
+come from a different photo, show on the right. Such a manipulation be call an image 
+splice, and it be one of the most common way of create visual fakes. If we have access 
+to the two source photographs, we would see from their EXIF metadata that there be 
+a number of difference in the image pipelines: one photo be take with an Nikon 
+camera, the other with a Kodak camera; they be shot use different focal lengths, and 
+save with different JPEG quality settings, etc. Our insight be that one might be able to 
+detect splice image because they be compose of region that be capture with 
+different image pipelines. Of course, in forensics applications, we do not have access 
+
+1Photo credits: NIMBLE dataset [9] and Flickr user James Stave. 
+
+
+
+Fighting Fake News: Image Splice Detection via Learned Self-Consistency 3 
+
+to the original source image nor, in general, do we even have access to the fraudulent 
+photo’s metadata. This pose a challenge when try to design method that use EXIF 
+cues. 
+
+We propose a self-supervised method for identify and localize image splice 
+by predict the consistency of EXIF attribute between pair of patch to determine 
+whether they come from a single coherent image. We validate our approach use sev- 
+eral benchmark datasets and show that the model performs good than the state-of-the- 
+art — despite never see annotate splice or use handcraft detection cues. 
+
+2 Related work 
+
+Over the years, researcher have propose a variety of visual forensics method for iden- 
+tifying various manipulation [2]. The early and most thoroughly study approach be 
+to use domain knowledge to isolate physical cue within an image. Drawing upon tech- 
+niques from signal processing, previous method focus on cue such a misalign 
+JPEG block [10], compression quantization artifact [11], resampling artifact [12], 
+color filter array discrepancy [13], and camera-hardware “fingerprints” [14]. We 
+take particular inspiration from the recent work of Agarwal and Farid [15] which ex- 
+ploits a seemingly insignificant difference between image pipeline to detect splice 
+image region — namely, the way that different camera truncate number during JPEG 
+quantization. While these domain-specific approach have proven to be extremely use- 
+ful due to their easy interpretability, we believe that the use of machine learn will 
+open the door to discover many more useful cue while also produce more adapt- 
+able algorithms. 
+
+Indeed, recent work have move away from use a priori knowledge and toward 
+apply end-to-end learn method for solve specific forensics task use label 
+training data. For example, Salloum et al. [16] propose learn to detect splice by 
+training a fully convolutional network on label training data. Bondi et al. [17] train a 
+model to identify a photo’s source camera model and apply their prediction to detect 
+manipulation [18]. There have also be work that estimate whether a photo’s semantic 
+content (e.g., weather) match it metadata [19]. Moreover, there have be a variety 
+of learn method for detect physical cues, such a double-JPEG compression [20, 
+21] and contrast enhancement [22]. 
+
+In our work, we seek to further reduce the amount of information we provide to the 
+algorithm by have it learn to detect manipulation without ground-truth annotations. 
+For this, we take inspiration from recent work in self-supervision [23, 24, 25, 26, 27, 
+28] which train model by solve task solely define use unlabeled data. Of these, 
+the most closely related approach be that of Doersch et al. [24], in which they train 
+a model to predict the relative position of pair of patch within an image. Surpris- 
+ingly, the author found that their method learn to utilize very subtle artifact like 
+chromatic lens aberration a a shortcut for learn the task. While image noise be 
+a nuisance in their work, it be a useful signal for u — our self-supervised algorithm 
+be design to learn about property of the image pipeline while ignore semantics. 
+Our technical approach be also similar to [29], which train a segmentation model use 
+self-supervision to predict whether pair of patch co-occur in space or time. 
+
+
+
+4 Huh et al. 
+
+Image A 
+
+Image B 
+
+Self-supervised Training 
+
+Image A Metadata 
+
+Image B Metadata 
+
+Consistent 
+
+Metadata? 
+
+Image Patches 
+
+(128 x 128) 
+
+EXIF CameraModel: NIKON D3200 
+EXIF CameraMake: NIKON CORP 
+EXIF ColorSpace: Uncalibrated 
+EXIF ISOSpeedRatings: 800 
+EXIF DateTimeOriginal: 2016:04:17 
+EXIF ImageLength: 2472 
+EXIF ImageWidth: 3091 
+EXIF Flash: Flash do not fire 
+EXIF FocalLength: 90 
+EXIF ExposureTime: 1/100 
+EXIF WhiteBalance: Auto 
+
+… 
+
+Siamese Networks 
+
+EXIF CameraModel: NIKON D3200 
+EXIF CameraMake: NIKON CORP 
+EXIF ColorSpace: Uncalibrated 
+EXIF ISOSpeedRatings: 800 
+EXIF DateTimeOriginal: 2016:04:17 
+EXIF ImageLength: 2472 
+EXIF ImageWidth: 3091 
+EXIF Flash: Flash do not fire 
+EXIF FocalLength: 90 
+EXIF ExposureTime: 1/100 
+EXIF WhiteBalance: Auto 
+
+… 
+
+Resnet-50 Concatenated 
+
+Features 
+
+(1 x 8192) 
+
+Binary 
+
+Classification 
+
+Diff 
+Diff 
+Diff 
+Diff 
+Diff 
+Diff 
+Diff 
+Same 
+Diff 
+Diff 
+Same 
+… 
+
+Fig. 3: Self-supervised training: Our model take two random patch from different image and 
+predicts whether they have consistent meta-data. Each attribute be use a a consistency metric 
+during training and testing. 
+
+Individual image metadata tags, such a focal length, GPS, hashtags, etc. have long 
+be employ in computer vision a free supervisory signal. A particularly creative 
+use of EXIF metadata be demonstrate by Kuthirummal et al. [30], who use the 
+CameraModel tag of a very large image collection to compute per-camera prior such 
+a their non-linear response functions. In contrast, our approach us almost the entire 
+list of EXIF tag simultaneously. 
+
+Our work be also related to the anomaly detection problem. Unlike traditional visual 
+anomaly detection work, which be largely concerned with detect unusual semantic 
+event like the presence of rare object and action [31, 32], our work need to find 
+anomaly in photo whose content be design to be plausible enough to fool humans. 
+Therefore the anomalous cue we search for should be imperceptible to human and 
+invariant to the semantics of the scene. 
+
+3 Learning Photographic Self-consistency 
+
+Our model work by predict whether a pair of image patch be consistent with 
+each other. Given two patches, Pi and Pj , we estimate the probability x1, x2, ..., xn 
+that they share the same value for each of n metadata attributes. We then estimate the 
+patches’ overall consistency, cij , by combine our n observation of metadata con- 
+sistency. At evaluation time, our model take a potentially manipulate test image and 
+measure the consistency between many different pair of patches. A low consistency 
+score indicates that the patch be likely produce by two distinct image systems, 
+suggest that they originate from different images. Although the consistency score 
+for any single pair of patch will be noisy, aggregate many observation provide a 
+reasonably stable estimate of overall image self-consistency. 
+
+
+
+Fighting Fake News: Image Splice Detection via Learned Self-Consistency 5 
+
+3.1 Predicting EXIF Attribute Consistency 
+
+We use a Siamese network to predict the probability that a pair of 128 × 128 image 
+patch share the same value for each EXIF metadata attribute. We train this network 
+with image patch randomly sample from 400, 000 Flickr photos, make prediction 
+on all EXIF attribute that appear in more than 50, 000 photo (n = 80, the full list of 
+attribute can be found in Section A1). For a give EXIF attribute, we discard EXIF 
+value that occur less than 100 times. 
+
+We observe that training with a typical random sample procedure will not be suc- 
+cessful because: 1) there be some rare EXIF value that will be very difficult to learn, 
+and 2) randomly select pair of image be unlikely to have consistent EXIF val- 
+ues just by chance. Therefore, we introduce two type of re-balancing during training: 
+unary and pairwise. For unary re-balancing, we oversample rare EXIF attribute value 
+(e.g. rare camera models). When construct a mini-batch, we first choose an EXIF 
+attribute and uniformly sample an EXIF value from all possible value of this attribute. 
+For pairwise re-balancing, we make sure that pair of training image within a mini- 
+batch be select such that for a give EXIF attribute, half the batch share that value 
+and half do not. 
+Analysis Although we train on all available EXIF attributes, we expect the model to 
+excel at distinguish one that directly correlate to property of the image pipeline 
+such a LensMake [24, 17]. In contrast, arbitrary attribute like the exact date an image 
+be take (DateTimeOriginal) leave no informative cue in an image. In order to 
+identify predictive metadata, we evaluate our EXIF-consistency model on a dataset 
+of 50K held-out photo and report the individual EXIF attribute accuracy in Figure 4. 
+Because the accuracy be compute on pairwise-balanced batches, chance performance 
+be 50%. 
+
+Our model obtains high accuracy when predict the consistency of attribute 
+closely associate with the image formation process such a LensMake, which con- 
+tains value such a Apple and FUJIFILM. But more surprisingly, we found that the 
+most predictable attribute be UserComment. Upon further inspection, we found that 
+UserComment be a generic field that can be populate with arbitrary data. We found 
+that the most frequent value be either binary string embed by camera man- 
+ufacturers or log left by image processing software. For example, one of the com- 
+mon UserComment values, Processed with VSCOcam, be add by a popular photo- 
+filter application. In Section A1, we show the full list of EXIF attribute and their 
+correspond definitions. 
+
+3.2 Post-processing Consistency 
+
+Many image manipulation be perform with the intent of make the result im- 
+age look plausible to the human eye: splice region be resized, edge artifact be 
+smoothed, and the result image be re-JPEGed. If our network could predict whether 
+two patch be post-processed differently, then this would be compelling evidence for 
+photographic inconsistency. To model post-processing consistency, we add three aug- 
+mentation operation during training: re-JPEGing, Gaussian blur, and image resizing. 
+Half of the time, we apply the same operation to both patches; the other half of the 
+
+
+
+6 Huh et al. 
+
+EXIF UserComment 
+EXIF FocalPlaneResolutionUnit 
+
+EXIF FileSource 
+EXIF CustomRendered 
+
+EXIF LensMake 
+EXIF LightSource 
+
+EXIF SensingMethod 
+EXIF LensSpecification 
+
+EXIF SceneType 
+Inter InteroperabilityVersion 
+
+EXIF Sharpness 
+Image Make 
+
+EXIF Saturation 
+EXIF Contrast 
+
+EXIF FlashPixVersion 
+Image YResolution 
+Image XResolution 
+
+Image YCbCrPositioning 
+Inter InteroperabilityIndex 
+
+EXIF ExposureProgram 
+
+EXIF SubSecTime 
+EXIF SubSecTimeOriginal 
+
+EXIF SubSecTimeDigitized 
+GPS GPSDate 
+
+Chance 
+
+Accuracy 
+40 50 60 70 80 90 
+
+Fig. 4: EXIF Accuracy: How predictable be 
+EXIF attributes? For each attribute, we com- 
+pute pairwise-consistency accuracy on Flickr 
+image use our self-consistency model. 
+
+EXIF-Consistency (Ours) 
+Image YResolution 
+Image XResolution 
+
+Image ExifOffset 
+Image Model 
+
+EXIF ExifImageLength 
+EXIF ExifVersion 
+
+EXIF ExifImageWidth 
+EXF ExposureMode 
+
+EXIF FocalLength 
+EXIF WhiteBalance 
+
+EXIF FNumber 
+Image DateTime 
+
+EXIF DateTimeOriginal 
+EXIF DateTimeDigitized 
+
+EXIF ColorSpace 
+EXIF Flash 
+
+EXIF ExposureTime 
+Image-Consistency 
+
+Inter InteroperabilityVersion 
+
+CFA 
+FCN 
+NOI 
+
+Camera-Classification 
+DCT 
+
+Columbia - Splice Localization (mAP) 
+0.5 0.6 0.7 0.8 0.9 1.0 
+
+Fig. 5: EXIF Splice Localization: How useful 
+be EXIF attribute for localize splices? We 
+compute individual localization score on the 
+Columbia dataset. 
+
+time, we apply different operations. The parameter of each operation be randomly 
+chosen from an evenly discretized set of numbers. We introduce three additional clas- 
+sification task (one per augmentation type) that be use to train the model to predict 
+whether a pair of patch receive the same parameterized augmentation. This increase 
+our 80-way classification to 83-way. Since the order of the post-processing operation 
+matters, we apply them in a random order each time. 
+
+3.3 Predicting Patch Consistency 
+
+Once we have predict the consistency of a pair of patch for each of our EXIF 
+(plus post-processing) attributes, we would like to estimate the pairs’ overall consis- 
+tency cij . If we be solve a supervise task, then a natural choice would be to use 
+splice region a supervision to predict, from the n EXIF-consistency predictions, the 
+probability that the two patch belong to different regions. Unfortunately, we do not 
+have splice image to train on. Instead, we use a self-supervised proxy task. Given the 
+83 consistency predictions, we train a two-layer classifier to predict whether the two 
+patch come from the same image or not. Because we only see natural image dur- 
+ing training, we know for certain that image consistency be equivalent to photographic 
+consistency. 
+
+3.4 Directly Predicting Image Consistency 
+
+One might ask whether a model can learn a measure of consistency by directly predict- 
+ing whether two image patch come from the same image. The main problem be that 
+
+
+
+Fighting Fake News: Image Splice Detection via Learned Self-Consistency 7 
+
+Mean ShiftInputGround Truth Mask 
+
+… 
+
+Patch Consistency 
+
+a b c d 
+
+Fig. 6: Test Time: Our model sample patch in a grid from an input image (b) and estimate 
+consistency for every pair of patches. (c) For a give patch, we get a consistency map over all 
+other patch in the image. (d) We use Mean Shift to aggregate the consistency map into a final 
+prediction. 
+
+such a model, which be train on arbitrary image pairs, will be tempt to focus on 
+easy cue because they be sufficient to solve the vast majority of cases. For example, 
+the network might simply learn to compare color histograms, which be a surprisingly 
+powerful cue for same/different image classification task [33, 29]. Of course, give in- 
+finite training data and training time, we would expect this model to eventually learn 
+the same cue a the metadata model. To study this further, we also train a Siamese 
+network with the similar structure to the metadata model (Section 3.1) to solve this 
+same-or-different image consistency task. 
+
+3.5 From Patch Consistency to Image Self-Consistency 
+
+So far we have introduce model that can measure some form of consistency be- 
+tween pair of patches. In order to transform this into something usable for detect 
+splices, we need to aggregate these pairwise consistency probability into a global self- 
+consistency score for the entire image. 
+
+Given an image, we sample approximately 500 patch in a grid, select a stride 
+dependent on the size of the image, and construct an affinity matrix by compute con- 
+sistencies between every pair of patches. That is, for a give patch, we can visualize a 
+response map correspond to it consistency with every other patch in the image. To 
+increase the spatial resolution of each response map, we average the prediction of over- 
+lap patches. If there be a splice, then the majority of patch from the untampered 
+portion of the image will ideally have low consistency with patch from the tamper 
+region (see Figure 6c). 
+
+To produce a single response map for an input image, we want to find the most con- 
+sistent mode among all 500 patch response maps. We do this mode-seeking use Mean 
+Shift [34]. The result response map naturally segment the image into consistent and 
+inconsistent region (see Figure 6d). We call the merge response map a consistency 
+
+
+
+8 Huh et al. 
+
+Tampered Ground Truth Combined 
+
+Image GPSInfoEXIF FileSourceGPS GPSDate 
+
+EXIF DigitalZoomRatio EXIF GainControlImage Model 
+
+EXIF FNumber EXIF ISOSpeedRatings Image YCbCrPositioning EXIF ExifVersion EXIF ColorSpace Image Make 
+
+EXIF ExifImageWidth EXIF ExifImageLength 
+
+Fig. 7: Consistency map from different EXIF tags: We compute consistency map for each 
+metadata attribute independently (response map sort by localization accuracy). The merge 
+consistency map accurately localizes the splice car. 
+
+map. We can also qualitatively visualize the tamper image region by cluster the 
+affinity matrix, e.g. with Normalized Cuts [35]. 
+
+To help understand how different EXIF attribute vary in their consistency predic- 
+tions, we create response map for each tag for an example image (Figure 7). While the 
+individual tag provide a noisy consistency signal, the merge response map accurately 
+localizes the splice region. 
+
+4 Results 
+
+We evaluate our self-consistency model on two closely related tasks: splice detection 
+and splice localization. In the former, our goal be to simply classify image a be 
+splice vs. authentic. In the latter, the goal be to localize the splice region within an 
+image. 
+
+4.1 Benchmarks 
+
+We evaluate our method on five different datasets. This include three exist datasets: 
+the widely use Columbia dataset [36], which consists of 180 relatively simple splices, 
+and two more challenge datasets, Carvalho et al. [37] (94 images) and Realistic 
+Tampering [38] (220 images), which combine splice with post-processing operations. 
+
+One potential shortcoming of these exist datasets be that they be create by 
+a small number of artist and may not be representative of the variety of forgery en- 
+counter online. To address this issue, we introduce a new In-the-Wild forensics dataset 
+that consists of 201 image scrap from THE ONION, a parody news website (i.e. fake 
+news), and REDDIT PHOTOSHOP BATTLES, an online community of user who create 
+and share manipulate images. Since ground truth label be not available for internet 
+
+
+
+Fighting Fake News: Image Splice Detection via Learned Self-Consistency 9 
+
+Dataset Columbia [36] Carvalho [37] RT [38] 
+
+CFA [39] 0.83 0.64 0.54 
+DCT [40] 0.58 0.63 0.52 
+NOI [41] 0.73 0.66 0.52 
+
+Supervised FCN 0.57 0.56 0.56 
+
+Camera Classification 0.70 0.73 0.15 
+Image-Consistency 0.96 0.65 0.35 
+EXIF-Consistency 0.98 0.87 0.55 
+
+Table 1: Splice Detection: We compare our splice detection accuracy on 3 different datasets. For 
+each one, we measure the mean average precision (mAP) of detect whether an image have be 
+spliced. The number be compute on the validation set. 
+
+splices, we annotate the dataset by hand and obtain approximate ground truth (refer- 
+ring to the source image when they be available). 
+
+Finally, we also want to evaluate our method on automatically-generated splices. 
+For this, we use the scene completion data from Hays and Efros [1], which come with 
+inpainting results, masks, and source image for a total of 55 splices. We note that the 
+ground-truth mask be only approximate, since the scene completion algorithm may 
+alter a small region of pixel outside the mask in order to produce seamless splices. 
+
+4.2 Comparisons 
+
+We compare three baseline algorithms, all of which use classic image processing tech- 
+niques to explicitly model and exploit image artifacts: Color Filter Array (CFA) [39] 
+detects artifact in color pattern interpolation; JPEG DCT [40] detects inconsistency 
+over JPEG coefficients; and Noise Variance (NOI) [41] detects anomalous noise pat- 
+tern use wavelets. We use implementation of these algorithm provide by [42]. 
+
+Since we also want to compare our unsupervised method with approach that 
+be train on label data, we report result from a learning-based method: E-MFCN 
+[16]. Given a dataset of splice image and mask a training data, they use a supervise 
+fully convolutional network (FCN) [43] to predict splice mask and boundary in test 
+images. As a supervise method, their model require a large training set of splices. 
+Since their model and data be not publicly available, we implement a simplify 
+version of their algorithm use a standard FCN that be train with a training split 
+of the Columbia, Carvalho, and Realistic Tampering datasets. We split every dataset in 
+half to construct train/validation sets. 
+
+Finally, we present two simplify version of our full EXIF-Consistency model. The 
+first, Camera-Classification, be train to directly predict which camera model pro- 
+duced a give image patch. We evaluate the output of the camera classification model by 
+sample image patch from a test image and assign the most frequently predict 
+camera a the natural image and everything else a the splice region. We consider an 
+image to be untampered when every patch’s predict camera model be the same. 
+
+The second model, Image-Consistency, be a network that directly predicts whether 
+two patch be sample from the same image (Section 3.4). An image be consider 
+likely to have be tamper if it constituent patch be predict to have come from 
+
+
+
+10 Huh et al. 
+
+Columbia [36] Carvalho [37] RT [38] In-the-Wild Hays [1] 
+
+Model MCC F1 p-mAP MCC F1 p-mAP p-mAP p-mAP p-mAP 
+
+CFA [39] 0.23 0.47 0.84 0.16 0.29 0.58 0.69 0.56 0.58 
+DCT [40] 0.33 0.52 0.58 0.19 0.31 0.60 0.53 0.55 0.52 
+NOI [41] 0.41 0.57 0.69 0.25 0.34 0.66 0.58 0.65 0.60 
+
+Supervised FCN 0.37 0.57 0.80 0.07 0.57 0.58 0.58 0.55 0.57 
+
+Camera Classification 0.29 0.51 0.59 0.15 0.55 0.53 0.51 0.54 0.55 
+Image-Consistency 0.55 0.59 0.91 0.20 0.76 0.67 0.58 0.72 0.69 
+EXIF-Consistency 0.69 0.71 0.97 0.37 0.91 0.75 0.59 0.72 0.75 
+
+Table 2: Splice Localization: We evaluate our model on 5 datasets use a mean average 
+precision-based metric (p-mAP). We also include MCC and F1 metrics, follow [16]. For these 
+two metrics, we obtain a binary mask by thresholding our consistency map at 0.5. 
+
+Columbia [36] Carvalho [37] 
+
+Model MCC F1 MCC F1 
+
+E-MFCN [16] 0.48 0.61 0.41 0.48 
+
+Image-Consistency 0.58 0.62 0.17 0.71 
+EXIF-Consistency 0.70 0.72 0.32 0.86 
+
+Table 3: Comparison against Salloum et. al: We compare against number report by [16] for 
+splice localization. We note that they compute their number after find individual threshold 
+that optimizes their score per image, while we threshold our probability at 0.5. 
+
+different images. The evaluation of the simplify model be perform the same way 
+a our full EXIF-Consistency model. 
+
+We train all our models, include our variant models, use a ResNet50 [44] 
+pretrained on ImageNet [45]. We use a batch size of 128 and optimize our objective 
+use Adam [46] with a learn rate of 1e − 4. For EXIF-Consistency and Image- 
+Consistency, we report our result after training for 1 million iterations. The 2 fully 
+connect layer use to compute patch consistency on top of the EXIF-Consistency 
+model prediction be train for 10, 000 iterations. 
+
+4.3 Splice Detection 
+
+We evaluate splice detection use the three datasets that contain both untampered and 
+manipulate images: Columbia, Carvalho, and Realistic Tampering. For each algo- 
+rithm, we extract the localization map and obtain an overall score by average the 
+output pixels. The image be ranked base on their overall scores, and we compute the 
+mean average precision (mAP) for the whole dataset. We chose to use mAP a it be a 
+condense representation of the precision-recall curve previously use by [42, 39, 40, 
+41]. 
+
+Table 1 show the mAP for detect manipulate images. Our EXIF-Consistency 
+model achieves state-of-the-art performance on Columbia and Carvalho while produc- 
+ing result comparable to supervise FCN on Realistic Tampering. 
+
+
+
+Fighting Fake News: Image Splice Detection via Learned Self-Consistency 11 
+
+Input Ground TruthConsistency Input Ground TruthConsistency Normalized CutNormalized Cut 
+
+Fig. 8: Detecting Fakes: EXIF Consistency successfully localizes manipulation across many 
+different datasets. We show qualitative result on image from Carvalho, In-the-Wild, Hays and 
+Realistic Tampering. 
+
+
+
+12 Huh et al. 
+
+Input Consistency Input Consistency 
+
+Fig. 9: Response on real images: Our algorithm’s response map contains few inconsistency 
+when give an untampered images. 
+
+Input Ground TruthConsistency Normalized Cut Input Ground TruthConsistency Normalized Cut 
+
+Fig. 10: Failure Cases: We present typical failure mode of our model. As we can see with 
+outdoor images, overexposure frequently lead to false positive in the sky. In addition some 
+splice be too small that we cannot effectively locate them use consistency. Finally the flower 
+copy-move confuses EXIF Consistency because inconsistent post-processing augmentation will 
+disagree with consistent EXIF values. 
+
+4.4 Splice Localization 
+
+Having see that our model can distinguish splice and authentic images, we next 
+ask whether it can also localize splice region within images. For each image in our 
+dataset, our algorithm produce an unnormalized probability that each pixel be part of a 
+splice. 
+
+Since it be sometimes ill-defined which of the two segment be splice (e.g. when the 
+splice be approximately half of the image), we evaluate our performance use a metric 
+that be invariant to permutation of the two regions. We use a metric similar to mAP, 
+but with symmetry and permutation invariance built in (we denote it p-mAP). Given 
+
+
+
+Fighting Fake News: Image Splice Detection via Learned Self-Consistency 13 
+
+CFA DCT NOIInput FCNImage-ConsistencyGround Truth Mask EXIF-Consistency 
+
+Fig. 11: Comparing Methods: We visualize the qualitative difference between Self-Consistency 
+and baselines. Our model can correctly localizes image splice from In-the-Wild, Columbia and 
+Carvalho that other method make mistake on. 
+
+an image’s ground-truth binary mask m and unnormalized splice probability p, we 
+compute max(s(m, p), s(1−m, p)), where s(m, p) be symmetrize average precision: 
+1 
+2 (AP (m, p) + AP (1 − m, 1 − p)). We also evaluate our result use MCC and 
+F1 measures, so that we could directly compare with previous forensics work [16]. 
+However, these metric evaluate a binary segmentation, and hence require thresholding 
+the predict probabilities. We threshold our prediction at p = 0.5 for all images. 
+Since [16] report their number on the full Columbia and Carvalho, we evaluate our 
+method on the full dataset and report the comparison in Table 3. 
+
+The quantitative result on Table 2 show that our Self-Consistency model achieves 
+the best performance across all datasets with the exception of the Realistic Tamper- 
+ing (RT) dataset. Notably, the model generally outperform the supervise baselines, 
+which be train with actual manipulate images, despite the fact that our model never 
+saw a tamper image during training. We suspect that the supervise models’ poor per- 
+formance may be due to the difficulty in generalize to manipulation make by artist 
+whose work be not present at training time. 
+
+We also observe that EXIF-Consistency consistently outperform Image-Consistency 
+across different datasets. We suspect that this may be due to “shortcuts” Image-Consistency 
+learns during training (3.4). For example, during training it often suffices to analyze the 
+similarity of the content of the patch (e.g., their color histograms). At test time, how- 
+ever, these shortcut be not maladaptive since a forger will have intentionally conceal 
+such obvious cues. 
+
+It be also instructive to look at the qualitative result of our method, which we show 
+in Figure 8. We see that our method can localize manipulation on a wide range of 
+different splices. Furthermore, in Figure 9, we show that our method produce highly 
+consistent prediction when test on real images. We can also look at the qualitative 
+difference between our method and the baseline in Figure 11. 
+
+Finally, we ask which EXIF tag be useful for perform the splice localization 
+task. To study this, we compute a response map for individual tag on the Columbia 
+
+
+
+14 Huh et al. 
+
+dataset, which we show in Figure 7. We see that the most successful tag tend to be 
+associate with the dimension of the camera and the camera model. 
+Failure case In Figure 10 we show some common failure cases. Our performance 
+on Realistic Tampering illustrates some shortcoming with EXIF-Consistency. First, our 
+model be not well-suited to find small splice that be common in RT. When splice 
+region be small, the model’s large stride will completely skip over splice regions, 
+mistakenly suggest that no manipulation exist. Second, over- and under-exposed 
+region be sometimes flag by our model to be inconsistent because they lack any 
+meta-data signal (e.g. because they be nearly uniformly black or white). Finally, RT 
+contains a significant number of additional manipulations, such a copy-move, that can- 
+not be consistently detect via meta-data consistency since the manipulate content 
+come from exactly the same photo. 
+
+5 Discussion 
+
+In this paper, we have propose a self-supervised method for detect image manipu- 
+lations. Our experiment show that the propose method obtains state-of-the-art result 
+on several datasets, even though it do not use label data during training. However, 
+our work also raise a number of questions. In contrast to physically motivate forensics 
+method [2], our model’s result be not easily interpretable, and in particular, it be not 
+clear which visual cue it us to solve the task. It also remains an open question how 
+best to fuse consistency measurement across an image for localize manipulations. 
+Finally, while our model be train without any human annotations, it be still affected in 
+complex way by design decision that go into the self-supervision task, such a the 
+way that EXIF tag be balance during training. 
+
+Self-supervised approach to visual forensics hold the promise of generalize to 
+a wide range of manipulation — potentially beyond those that can feasibly be learn 
+through supervise training. However, for a forensics algorithm to be truly general, it 
+must also model the action of intelligent forger that adapt to the detection algorithms. 
+Work in adversarial machine learn [47, 48] suggests that have a self-learning 
+forger in the loop will make the forgery detection problem much more difficult to solve, 
+require new technical advance to solve. 
+
+As new advance in computer vision and image-editing emerge, there be an increas- 
+ingly urgent need for effective visual forensics methods. We see our approach, which 
+successfully detects manipulation without see example of manipulate images, a 
+be an initial step toward building general-purpose forensics tools. 
+
+Acknowledgements 
+
+This work be supported, in part, by DARPA grant FA8750-16-C-0166 and UC Berke- 
+ley Center for Long-Term Cybersecurity. We thank Hany Farid and Shruti Agarwal for 
+their advice, assistance, and inspiration in building this project, David Fouhey and Al- 
+lan Jabri for help with the editing, and Abhinav Gupta for let u use his GPUs. 
+Finally, we thank the many Reddit and Onion artist who unknowingly contribute to 
+our dataset. 
+
+
+
+Fighting Fake News: Image Splice Detection via Learned Self-Consistency 15 
+
+References 
+
+1. Hays, J., Efros, A.A.: Scene completion use million of photographs. In: ACM Transac- 
+tions on Graphics (TOG). Volume 26., ACM (2007) 4 1, 2, 9, 10 
+
+2. Farid, H.: Photo forensics. MIT Press (2016) 1, 3, 14 
+3. Zhu, J.Y., Krahenbuhl, P., Shechtman, E., Efros, A.A.: Learning a discriminative model for 
+
+the perception of realism in composite images. In: The IEEE International Conference on 
+Computer Vision (ICCV). (December 2015) 2 
+
+4. Tsai, Y.H., Shen, X., Lin, Z., Sunkavalli, K., Lu, X., Yang, M.H.: Deep image harmonization. 
+In: CVPR. (2017) 2 
+
+5. Barnes, C., Shechtman, E., Finkelstein, A., Goldman, D.B.: Patchmatch: A randomize 
+correspondence algorithm for structural image editing. ACM Trans. Graph. 28(3) (2009) 
+24–1 2 
+
+6. Pathak, D., Krahenbuhl, P., Donahue, J., Darrell, T., Efros, A.A.: Context encoders: Feature 
+learn by inpainting. In: The IEEE Conference on Computer Vision and Pattern Recogni- 
+tion (CVPR). (June 2016) 2 
+
+7. Suwajanakorn, S., Seitz, S.M., Kemelmacher-Shlizerman, I.: Synthesizing obama: learn 
+lip sync from audio. ACM Transactions on Graphics (TOG) 36(4) (2017) 95 2 
+
+8. Chung, J.S., Jamaludin, A., Zisserman, A.: You say that? arXiv preprint arXiv:1705.02966 
+(2017) 2 
+
+9. of Standards, N.I., Technology: The 2017 nimble challenge evaluation datasets. https: 
+//www.nist.gov/itl/iad/mig/nimble-challenge 2 
+
+10. Liu, Q.: Detection of misalign crop and recompression with the same quantization 
+matrix and relevant forgery. (2011) 3 
+
+11. Luo, W., Huang, J., Qiu, G.: Jpeg error analysis and it application to digital image forensics. 
+IEEE Transactions on Information Forensics and Security 5(3) (2010) 480–491 3 
+
+12. Huang, F., Huang, J., Shi, Y.Q.: Detecting double jpeg compression with the same quantiza- 
+tion matrix. IEEE Transactions on Information Forensics and Security 5(4) (2010) 848–856 
+3 
+
+13. Popescu, A.C., Farid, H.: Exposing digital forgery by detect trace of resampling. IEEE 
+Transactions on signal processing 53(2) (2005) 758–767 3 
+
+14. Swaminathan, A., Wu, M., Liu, K.R.: Digital image forensics via intrinsic fingerprints. 3(1) 
+(2008) 101–117 3 
+
+15. Agarwal, S., Farid, H.: Photo forensics from jpeg dimples. Workshop on Image Forensics 
+and Security (2017) 3 
+
+16. Salloum, R., Ren, Y., Kuo, C.J.: Image splice localization use A multi-task fully convo- 
+lutional network (MFCN). CoRR abs/1709.02016 (2017) 3, 9, 10, 13 
+
+17. Bondi, L., Baroffio, L., Gera, D., Bestagini, P., Delp, E.J., Tubaro, S.: First step toward 
+camera model identification with convolutional neural networks. IEEE Signal Processing 
+Letters 24(3) (March 2017) 259–263 3, 5 
+
+18. Bondi, L., Lameri, S., Güera, D., Bestagini, P., Delp, E.J., Tubaro, S.: Tampering detection 
+and localization through cluster of camera-based cnn features. In: Proceedings of the 
+IEEE Conference on Computer Vision and Pattern Recognition Workshops. (2017) 1855– 
+1864 3 
+
+19. Chen, B.C., Ghosh, P., Morariu, V.I., Davis., L.S.: Detection of metadata tamper through 
+discrepancy between image content and metadata use multi-task deep learning. IEEE 
+Conference on Computer Vision and Pattern Recognition Workshops (CVPRW) (2017) 3 
+
+20. Barni, M., Bondi, L., Bonettini, N., Bestagini, P., Costanzo, A., Maggini, M., Tondi, B., 
+Tubaro, S.: Aligned and non-aligned double JPEG detection use convolutional neural 
+networks. CoRR abs/1708.00930 (2017) 3 
+
+https://www.nist.gov/itl/iad/mig/nimble-challenge 
+https://www.nist.gov/itl/iad/mig/nimble-challenge 
+
+
+16 Huh et al. 
+
+21. Amerini, I., Uricchio, T., Ballan, L., Caldelli, R.: Localization of jpeg double compression 
+through multi-domain convolutional neural networks. In: Proc. of IEEE CVPR Workshop 
+on Media Forensics. (2017) 3 
+
+22. Wen, L., Qi, H., Lyu, S.: Contrast enhancement estimation for digital image forensics. arXiv 
+preprint arXiv:1706.03875 (2017) 3 
+
+23. de Sa, V.: Learning classification with unlabeled data. In: Neural Information Processing 
+Systems. (1994) 3 
+
+24. Doersch, C., Gupta, A., Efros, A.A.: Unsupervised visual representation learn by context 
+prediction. ICCV (2015) 3, 5 
+
+25. Jayaraman, D., Grauman, K.: Learning image representation tie to ego-motion. In: ICCV. 
+(December 2015) 3 
+
+26. Agrawal, P., Carreira, J., Malik, J.: Learning to see by moving. In: ICCV. (2015) 3 
+27. Owens, A., Wu, J., McDermott, J.H., Freeman, W.T., Torralba, A.: Ambient sound provide 
+
+supervision for visual learning. (2016) 3 
+28. Zhang, R., Isola, P., Efros, A.A.: Split-brain autoencoders: Unsupervised learn by cross- 
+
+channel prediction. (2017) 3 
+29. Isola, P., Zoran, D., Krishnan, D., Adelson, E.H.: Learning visual group from co- 
+
+occurrence in space and time. (2016) 3, 7 
+30. Kuthirummal, S., Agarwala, A., Goldman, D.B., Nayar, S.K.: Priors for large photo col- 
+
+lections and what they reveal about cameras. In: European conference on computer vision, 
+Springer (2008) 74–87 4 
+
+31. Hoai, M., De la Torre, F.: Max-margin early event detectors. International Journal of Com- 
+puter Vision 107(2) (2014) 191–202 4 
+
+32. Mahadevan, V., Li, W., Bhalodia, V., Vasconcelos, N.: Anomaly detection in crowd scenes. 
+In: Computer Vision and Pattern Recognition (CVPR), 2010 IEEE Conference on, IEEE 
+(2010) 1975–1981 4 
+
+33. Lalonde, J.F., Efros, A.A.: Using color compatibility for assess image realism. In: Com- 
+puter Vision, 2007. ICCV 2007. IEEE 11th International Conference on, IEEE (2007) 1–8 
+7 
+
+34. Cheng, Y.: Mean shift, mode seeking, and clustering. IEEE Transactions on Pattern Analysis 
+and Machine Intelligence 17(8) (Aug 1995) 790–799 7 
+
+35. Shi, J., Malik, J.: Normalized cut and image segmentation. IEEE Transactions on Pattern 
+Analysis and Machine Intelligence 22(8) (Aug 2000) 888–905 8 
+
+36. Ng, T.T., Chang, S.F.: A data set of authentic and splice image blocks. (2004) 8, 9, 10 
+37. d. Carvalho, T.J., Riess, C., Angelopoulou, E., Pedrini, H., d. R. Rocha, A.: Exposing dig- 
+
+ital image forgery by illumination color classification. IEEE Transactions on Information 
+Forensics and Security 8(7) (July 2013) 1182–1194 8, 9, 10 
+
+38. Korus, P., Huang, J.: Evaluation of random field model in multi-modal unsupervised tam- 
+pering localization. In: Proc. of IEEE Int. Workshop on Inf. Forensics and Security. (2016) 
+8, 9, 10 
+
+39. Ferrara, P., Bianchi, T., Rosa, A.D., Piva, A.: Image forgery localization via fine-grained 
+analysis of cfa artifacts. IEEE Trans. Information Forensics and Security 7(5) (2012) 1566– 
+1577 9, 10 
+
+40. Ye, S., Sun, Q., Chang, E.C.: Detecting digital image forgery by measure inconsistency 
+of block artifact. In: ICME07. (2017) 9, 10 
+
+41. Mahdian, B., Saic, S.: Using noise inconsistency for blind image forensics. In: IVC09. 
+(2009) 9, 10 
+
+42. Zampoglou, M., Papadopoulos, S., Kompatsiaris, Y., Bouwmeester, R., Spangenberg, J.: 
+Web and social medium image forensics for news professionals. In: Social Media In the News- 
+Room, SMNews16@CWSM, Tenth International AAAI Conference on Web and Social Me- 
+dia workshops. (2016) 9, 10 
+
+
+
+Fighting Fake News: Image Splice Detection via Learned Self-Consistency 17 
+
+43. Shelhamer, E., Long, J., Darrell, T.: Fully convolutional network for semantic segmentation. 
+CoRR abs/1605.06211 (2016) 9 
+
+44. He, K., Zhang, X., Ren, S., Sun, J.: Deep residual learn for image recognition. In: 
+Proceedings of the IEEE conference on computer vision and pattern recognition. (2016) 
+770–778 10 
+
+45. Deng, J., Dong, W., Socher, R., Li, L.J., Li, K., Fei-Fei, L.: ImageNet: A Large-Scale Hier- 
+archical Image Database. In: CVPR09. (2009) 10 
+
+46. Kingma, D.P., Ba, J.: Adam: A method for stochastic optimization. CoRR abs/1412.6980 
+(2014) 10 
+
+47. Ian J. Goodfellow, Y.B.: Generative adversarial networks. arXiv preprint arXiv:1406.2661 
+(2014) 14 
+
+48. Szegedy, C., Zaremba, W., Sutskever, I., Bruna, J., Erhan, D., Goodfellow, I., Fergus, R.: 
+Intriguing property of neural networks. arXiv preprint arXiv:1312.6199 (2013) 14 
+
+
+
+18 Huh et al. 
+
+A1 Appendix 
+EXIF attribute definition We have abbreviate the definition that be originally 
+source from http://www.exiv2.org/tags.html. Please visit our website for additional 
+EXIF information such as: distributions, common values, and prediction rankings. 
+
+EXIF Attribute Definition 
+EXIF BrightnessValue The value of brightness. 
+EXIF ColorSpace The color space information tag be always record a the color space speci- 
+
+fier. Normally sRGB be use to define the color space base on the PC monitor 
+condition and environment. If a color space other than sRGB be used, Uncali- 
+brated be set. Image data record a Uncalibrated can be treat a sRGB when 
+it be convert to FlashPix. 
+
+EXIF ComponentsConfiguration Information specific to compress data. The channel of each component be 
+arrange in order from the 1st component to the 4th. For uncompressed data 
+the data arrangement be give in the tag. However, since can only express the 
+order of Y, Cb and Cr, this tag be provide for case when compress data us 
+component other than Y, Cb, and Cr and to enable support of other sequences. 
+
+EXIF CompressedBitsPerPixel Specific to compress data; state the compress bit per pixel. 
+EXIF Contrast This tag indicates the direction of contrast processing apply by the camera 
+
+when the image be shot. 
+EXIF CustomRendered This tag indicates the use of special processing on image data, such a ren- 
+
+dering gear to output. When special processing be performed, the reader be 
+expect to disable or minimize any further processing. 
+
+EXIF DateTimeDigitized The date and time when the image be store a digital data. 
+EXIF DateTimeOriginal The date and time when the original image data be generated. 
+EXIF DigitalZoomRatio This tag indicates the digital zoom ratio when the image be shot. If the nu- 
+
+merator of the record value be 0, this indicates that digital zoom be not 
+used. 
+
+EXIF ExifImageLength The number of row of image data. In JPEG compress data a JPEG marker 
+be use instead of this tag. 
+
+EXIF ExifImageWidth The number of column of image data, equal to the number of pixel per row. 
+In JPEG compress data a JPEG marker be use instead of this tag. 
+
+EXIF ExifVersion The version of this standard supported. Nonexistence of this field be take to 
+mean nonconformance to the standard 
+
+EXIF ExposureBiasValue The exposure bias. 
+EXIF ExposureMode This tag indicates the exposure mode set when the image be shot. In auto- 
+
+bracketing mode, the camera shoot a series of frame of the same scene at 
+different exposure settings. 
+
+EXIF ExposureProgram The class of the program use by the camera to set exposure when the picture 
+be taken. 
+
+EXIF ExposureTime Exposure time, give in seconds. 
+EXIF FileSource Indicates the image source. If a DSC record the image, this tag value of this 
+
+tag always be set to 3, indicate that the image be record on a DSC. 
+EXIF Flash Indicates the status of flash when the image be shot. 
+EXIF FlashPixVersion The FlashPix format version support by a FPXR file. 
+EXIF FNumber The F number. 
+EXIF FocalLength The actual focal length of the lens, in mm. 
+EXIF FocalLengthIn35mmFilm This tag indicates the equivalent focal length assume a 35mm film camera, in 
+
+mm. A value of 0 mean the focal length be unknown. Note that this tag differs 
+from the tag. 
+
+EXIF FocalPlaneResolutionUnit Unit of measurement for FocalPlaneXResolution and FocalPlaneYResolution. 
+EXIF FocalPlaneXResolution Number of pixel per FocalPlaneResolutionUnit in ImageWidth direction for 
+
+main image. 
+EXIF FocalPlaneYResolution Number of pixel per FocalPlaneResolutionUnit in ImageLength direction for 
+
+main image. 
+EXIF GainControl This tag indicates the degree of overall image gain adjustment. 
+EXIF InteroperabilityOffset Unknown 
+EXIF ISOSpeedRatings Indicates the ISO Speed and ISO Latitude of the camera or input device a 
+
+specify in ISO 12232. 
+EXIF LensMake This tag record the lens manufacturer a an ASCII string. 
+EXIF LensModel This tag record the lens’s model name and model number a an ASCII string. 
+EXIF LensSpecification This tag note minimum focal length, maximum focal length, minimum F num- 
+
+ber in the minimum focal length, and minimum F number in the maximum 
+focal length, which be specification information for the lens that be use in 
+photography. When the minimum F number be unknown, the notation be 0/0 
+
+EXIF LightSource The kind of light source. 
+
+http://www.exiv2.org/tags.html 
+
+
+Fighting Fake News: Image Splice Detection via Learned Self-Consistency 19 
+
+EXIF MaxApertureValue The small F number of the lens. 
+EXIF MeteringMode The meter mode. 
+EXIF OffsetSchema Unknown 
+EXIF Saturation This tag indicates the direction of saturation processing apply by the camera 
+
+when the image be shot. 
+EXIF SceneCaptureType This tag indicates the type of scene that be shot. It can also be use to record 
+
+the mode in which the image be shot. Note that this differs from the tag. 
+EXIF SceneType Indicates the type of scene. If a DSC record the image, this tag value must 
+
+always be set to 1, indicate that the image be directly photographed. 
+EXIF SensingMethod Type of image sensor. 
+EXIF SensitivityType The SensitivityType tag indicates which one of the parameter of ISO12232 be 
+
+the PhotographicSensitivity tag. 
+EXIF Sharpness This tag indicates the direction of sharpness processing apply by the camera 
+
+when the image be shot. 
+EXIF ShutterSpeedValue Shutter speed. 
+EXIF SubjectArea This tag indicates the location and area of the main subject in the overall scene. 
+EXIF SubjectDistanceRange This tag indicates the distance to the subject. 
+EXIF SubSecTime A tag use to record fraction of second for the tag. 
+EXIF SubSecTimeDigitized A tag use to record fraction of second for the tag. 
+EXIF SubSecTimeOriginal A tag use to record fraction of second for the tag. 
+EXIF UserComment A tag for Exif user to write keywords or comments. 
+EXIF WhiteBalance This tag indicates the white balance mode set when the image be shot. 
+GPS GPSAltitude Indicates the altitude base on the reference in GPSAltitudeRef. 
+GPS GPSAltitudeRef Indicates the altitude use a the reference altitude. 
+GPS GPSDate A character string record date and time information relative to UTC (Coor- 
+
+dinated Universal Time). 
+GPS GPSImgDirection Indicates the direction of the image when it be captured. 
+GPS GPSImgDirectionRef Indicates the reference for give the direction of the image when it be captured. 
+GPS GPSLatitude Indicates the latitude. 
+GPS GPSLatitudeRef Indicates whether the latitude be north or south latitude. 
+GPS GPSLongitude Indicates the longitude. 
+GPS GPSLongitudeRef Indicates whether the longitude be east or west longitude. 
+GPS GPSTimeStamp Indicates the time a UTC (Coordinated Universal Time). 
+GPS GPSVersionID Indicates the version of GPS. 
+Image Artist This tag record the name of the camera owner, photographer or image creator. 
+Image Copyright Copyright information. 
+Image ExifOffset Image ExifOffset. 
+Image GPSInfo A pointer to the GPS Info IFD. 
+Image ImageDescription A character string give the title of the image. 
+Image Make The manufacturer of the record equipment. 
+Image Model The model name or model number of the equipment. 
+Image Orientation The image orientation view in term of row and columns. 
+Image PrintImageMatching Print Image Matching, description needed. 
+Image ResolutionUnit The unit for measure YResolution and XResolution. The same unit be use 
+
+for both. 
+Image Software This tag record the name and version of the software or firmware of the camera 
+
+or image input device use to generate the image. 
+Image XResolution Number of pixel per FocalPlaneResolutionUnit in ImageWidth direction for 
+
+main image. 
+Image YCbCrPositioning The position of chrominance component in relation to the luminance compo- 
+
+nent. 
+Image YResolution Number of pixel per FocalPlaneResolutionUnit in ImageLength direction for 
+
+main image. 
+Inter InteroperabilityIndex Indicates the identification of the Interoperability rule. 
+Inter InteroperabilityVersion Interoperability version. 
+Inter RelatedImageLength Image height. 
+Inter RelatedImageWidth Image width. 
+
+

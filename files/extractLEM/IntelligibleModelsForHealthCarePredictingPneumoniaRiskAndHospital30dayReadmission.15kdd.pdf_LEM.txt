@@ -1,0 +1,2057 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Intelligible Models for HealthCare: Predicting Pneumonia 
+Risk and Hospital 30-day Readmission 
+
+Rich Caruana 
+Microsoft Research 
+
+rcaruana@microsoft.com 
+
+Yin Lou 
+LinkedIn Corporation 
+
+ylou@linkedin.com 
+
+Johannes Gehrke 
+Microsoft 
+
+johannes@microsoft.com 
+
+Paul Koch 
+Microsoft Research 
+
+paulkoch@microsoft.com 
+
+Marc Sturm 
+NewYork-Presbyterian Hospital 
+
+mas9161@nyp.org 
+
+Noémie Elhadad 
+Columbia University 
+
+noemie.elhadad@columbia.edu 
+
+ABSTRACT 
+In machine learn often a tradeoff must be make between 
+accuracy and intelligibility. More accurate model such a 
+boost trees, random forests, and neural net usually be 
+not intelligible, but more intelligible model such a logistic 
+regression, naive-Bayes, and single decision tree often have 
+significantly bad accuracy. This tradeoff sometimes limit 
+the accuracy of model that can be apply in mission-critical 
+application such a healthcare where be able to under- 
+stand, validate, edit, and trust a learn model be important. 
+We present two case study where high-performance gener- 
+alized additive model with pairwise interaction (GA2Ms) 
+be apply to real healthcare problem yield intelligible 
+model with state-of-the-art accuracy. In the pneumonia 
+risk prediction case study, the intelligible model uncovers 
+surprising pattern in the data that previously have pre- 
+vent complex learn model from be field in this 
+domain, but because it be intelligible and modular allows 
+these pattern to be recognize and removed. In the 30- 
+day hospital readmission case study, we show that the same 
+method scale to large datasets contain hundred of thou- 
+sand of patient and thousand of attribute while remain- 
+ing intelligible and provide accuracy comparable to the 
+best (unintelligible) machine learn methods. 
+
+Categories and Subject Descriptors 
+I.2.6 [Computing Methodologies]: Learning—Induction 
+
+Keywords 
+intelligibility; classification; interaction detection; additive 
+models; logistic regression; healthcare; risk prediction 
+
+1. MOTIVATION 
+In the mid 90’s, a large multi-institutional project be 
+
+fund by Cost-Effective HealthCare (CEHC) to evaluate 
+
+Permission to make digital or hard copy of all or part of this work for personal or 
+classroom use be grant without fee provide that copy be not make or distribute 
+for profit or commercial advantage and that copy bear this notice and the full citation 
+on the first page. Copyrights for component of this work own by others than the 
+author(s) must be honored. Abstracting with credit be permitted. To copy otherwise, or 
+republish, to post on server or to redistribute to lists, require prior specific permission 
+and/or a fee. Request permission from Permissions@acm.org. 
+KDD’15, August 10-13, 2015, Sydney, NSW, Australia. 
+Copyright be held by the owner/author(s). Publication right license to ACM. 
+ACM 978-1-4503-3664-2/15/08 ...$15.00. 
+DOI: http://dx.doi.org/10.1145/2783258.2788613 . 
+
+the application of machine learn to important problem in 
+healthcare such a predict pneumonia risk. In the study, 
+the goal be to predict the probability of death (POD) for 
+patient with pneumonia so that high-risk patient could be 
+admit to the hospital while low-risk patient be treat 
+a outpatients. In the study [3, 2], the most accurate mod- 
+el that could be train be multitask neural nets.1 On 
+one dataset the neural net outperform traditional meth- 
+od such a logistic regression by wide margin (the neural 
+net have AUC=0.86 compare to 0.77 for logistic regression), 
+and on the other dataset use in this paper outperform 
+logistic regression by about 0.02 (see Table 2). Although 
+the neural net be the most accurate models, after careful 
+consideration they be consider too risky for use on real 
+patient and logistic resgression be use instead. Why? 
+
+One of the method be evaluate be rule-based learn- 
+ing [1]. Although model base on rule be not a accurate 
+a the neural net models, they be intelligible, i.e., inter- 
+pretable by humans. On one of the pneumonia datasets, 
+the rule-based system learn the rule “HasAsthama(x) ⇒ 
+LowerRisk(x)”, i.e., that patient with pneumonia who have 
+a history of asthma have low risk of die from pneumo- 
+nia than the general population. Needless to say, this rule 
+be counterintuitive. But it reflect a true pattern in the 
+training data: patient with a history of asthma who pre- 
+sented with pneumonia usually be admit not only to 
+the hospital but directly to the ICU (Intensive Care Unit). 
+The good news be that the aggressive care receive by asth- 
+matic pneumonia patient be so effective that it lower 
+their risk of die from pneumonia compare to the general 
+population. The bad news be that because the prognosis for 
+these patient be good than average, model train on the 
+data incorrectly learn that asthma lower risk, when in fact 
+asthmatic have much high risk (if not hospitalized). 
+
+One of the goal of the study be to perform a clinical trial 
+to determine if machine learn could be use to predict 
+risk prior to hospitalization so that a more inform decision 
+about hospitalization could to be made. The ultimate goal 
+be to reduce healthcare cost by reduce hospital admis- 
+sions, while maintain (or even improving) outcome by 
+more accurately identify patient that need hospitaliza- 
+tion. As the most accurate models, neural net be a strong 
+candidate for clinical trial. Deploying neural net model that 
+could not be understood, however, be deem too risky — 
+
+1SVMs and boost tree be not in common use yet, and 
+Random Forests have not yet be invented. 
+
+1721 
+
+
+
+if the rule-based system have learn that asthma lower risk, 
+certainly the neural net have learn it, too. The rule-based 
+system be intelligible and modular, make it easy to recog- 
+nize and remove dangerous rule like the asthma rule. While 
+there be method for repair the neural net so they do 
+not incorrectly predict that asthmatic be at low risk and 
+thus less likely to need hospitalization, e.g., re-train without 
+asthmatic in the population, remove the asthma feature, 
+modify the target for asthmatic to “1” in the data to re- 
+flect the care they receive (unfortunately confound care 
+with death), the decision be make to not use the neural net 
+not because the asthma problem could not be solved, but be- 
+cause the lack of intelligibility make it difficult to know what 
+other problem might also need fixing. Because the neural 
+net be more accurate than the rules, it be possible that 
+the neural net have learn other pattern that could put 
+some kind of patient at risk if use in a clinical trial. For 
+example, perhaps pregnant woman with pneumonia also re- 
+ceive aggressive treatment that lower their risk compare 
+to the general population. The neural net might learn that 
+pregnancy lower risk, and thus recommend not admit 
+pregnant women, thus put them at increase risk. In an 
+effort to “do no harm”, the decision be make to go forward 
+only with model that be intelligible such a logistic regres- 
+sion, even if they have low AUC than other unintelligible 
+models. The logistic regression model also learn that hav- 
+ing asthma lower risk, but this could easily be correct 
+by change the weight on the asthma feature from negative 
+to positive (or to zero). 
+
+Jumping two decade forward to the present, we now 
+have a number of new learn method that be very ac- 
+curate, but unfortunately also relatively unintelligible such 
+a boost trees, random forests, bag trees, kernelized- 
+SVMs, neural nets, deep neural nets, and ensemble of these 
+methods. Applying any of these method to mission-critical 
+problem such a healthcare remains problematic, in part 
+because usually it be not ethical to modify (or randomize) 
+the care deliver to patient to collect data set that will 
+not suffer from the kind of bias described above. Learning 
+must be do with the data that be available, not the data 
+one would want. But it be critical that model train on 
+real-world data be validate prior to use l some patient 
+be put at risk, which make use the most accurate learn 
+method challenging. 
+
+In this paper we describe the application of a learn 
+method base on high-performance generalize additive mod- 
+el [5, 6] to the pneumonia problem described above, and to 
+a modern, much large problem predict 30-day hospital 
+readmission. On both of these problem our GA2M model 
+yield state-of-the-art accuracy while remain intelligible, 
+modular, and editable. We believe this class of model repre- 
+sent a significant step forward in training model with high 
+accuracy that be also intelligible. The main contribution of 
+this paper be that it: show that GA2Ms yield competitive 
+accuracy on real problems; demonstrates that the learn 
+model be intelligible; demonstrates that the prediction 
+make by the model for individual case (patients) also be 
+intelligible, and demonstrates how, because the model be 
+modular, they can be edit by experts. 
+
+The remainder of the paper be organize a follows. Sec- 
+tion 2 provide a brief introduction to GAM and GA2M. 
+Sections 3 and 4 present our case study of training intelli- 
+gible GA2M model on the pneumonia and the 30-day read- 
+
+mission data, respectively. Section 5 discus a wide range 
+of issue that arise when learn with intelligible model 
+and our general lesson for the research community. 
+
+2. INTELLIGIBLE MODELS 
+Let D = {(xi, yi)}N1 denote a training dataset of size N , 
+
+where xi = (xi1, ..., xip) be a feature vector with p feature 
+and yi be the target (response). We use xj to denote the jth 
+variable in the feature space. 
+
+Generalized additive model (GAMs) be the gold stan- 
+dard for intelligibility when low-dimensional term be con- 
+sidered [4, 5, 6]. Standard GAMs have the form 
+
+g(E[y]) = β0 + 
+∑ 
+
+fj(xj), (1) 
+
+where g be the link function and for each term fj , E[fj ] = 0. 
+Generalized linear model (GLMs), such a logistic regres- 
+sion, be a special form of GAMs where each fj be restrict 
+to be linear. Since the contribution of a single feature to the 
+final prediction can be easily understood by examine fj , 
+such model be consider intelligible. 
+
+To improve accuracy, pairwise interaction can be add 
+to standard GAMs, lead to a model call GA2Ms [6]: 
+
+g(E[y]) = β0 + 
+∑ 
+j 
+
+fj(xj) + 
+∑ 
+i6=j 
+
+fij(xi, xj). (2) 
+
+Note that pairwise interaction be intelligible because they 
+can be visualize a a heat map. GA2M build the best 
+GAM first and then detects and rank all possible pair of 
+interaction in the residuals. The top k pair be then in- 
+cluded in the model (k be determine by cross-validation). 
+
+There be various method to train GAMs and GA2Ms. 
+Each component can be represent use splines, lead to 
+an optimization problem which balance the smoothness of 
+spline and empirical error [7]. Other representation include 
+regression tree on a single or a pair of features. Empirical 
+study show gradient boost with bagging of shallow re- 
+gression tree yield a component very good accuracy [5]. 
+Interested reader be refer to [5, 6] for details.2 
+
+3. CASE STUDY: PNEUMONIA RISK 
+In this case study we use one of the pneumonia datasets 
+
+discuss early in the motivation [3]. This dataset have 
+14,199 pneumonia patients. To facilitate comparison with 
+prior work, we use the same train and test set fold from the 
+early study: the train set contains 9847 patient and the 
+test set have 4352 patient (a 70:30 train:test split). There 
+be 46 feature describe each patient. These range from 
+history feature such a age and gender, to simple measure- 
+ments take at a routine physical such a heart rate, blood 
+pressure, and respiration rate, to lab test such a White 
+Blood Cell count (WBC) and Blood Urea Nitrogen (BUN), 
+to feature read from a chest x-ray such a lung collapse or 
+pleural effusion. See Table 1 for a complete list. 
+
+As discuss earlier, the goal be to predict probability of 
+death (POD) so that patient at high risk can be admit- 
+ted to the hospital, while patient at low risk be treat a 
+outpatients.3 10.86% of the patient in the dataset (1542 pa- 
+tients) die from pneumonia. The GAM/GA2M model be 
+2Code be available at https://github.com/yinlou/mltk. 
+3Hospitals be dangerous places, particularly for patient 
+with impaired immune systems. Treating low-risk patient 
+a outpatient not only save money, but be actually safer. 
+
+1722 
+
+https://github.com/yinlou/mltk 
+
+
+Patient-history finding 
+chronic lung disease - age C 
+re-admission to hospital - gender - 
+admit through ER - diabetes mellitus - 
+admit from nursing home - asthma - 
+congestive heart failure - cancer - 
+ischemic heart disease - number of disease C 
+cerebrovascular disease - history of seizure - 
+chronic liver disease - renal failure - 
+history of chest pain - 
+
+Physical examination finding 
+diastolic blood pressure C wheeze - 
+gastrointestinal bleeding - stridor - 
+respiration rate C heart murmur - 
+alter mental status - temperature C 
+heart rate C 
+
+Laboratory finding 
+liver function test - BUN level C 
+glucose level C creatinine level C 
+potassium level C albumin level C 
+hematocrit C WBC count C 
+percentage band C pH C 
+pO2 C pCO2 C 
+sodium level C 
+
+Chest X-ray finding 
+positive chest x-ray - lung infiltrate - 
+pleural effusion - pneumothorax - 
+cavitation/empyema - chest mass - 
+lobe or lung collapse - 
+
+Table 1: Pneumonia attributes, grouped by 
+type. Continuous feature that will be shape by 
+GAM/GA2M model be marked with a “C”. 
+
+train on this data use 100 round of bagging. Bagging be 
+do to reduce overfitting, and to provide pseudo-confidence 
+interval for the graph in the intelligible model. 
+
+The AUC area for different model train on this data be 
+show in Table 2. On this dataset logistic regression achieves 
+AUC = 0.843, Random Forests achieves 0.846, LogitBoost 
+0.849, GAM 0.854, and GA2M be best with AUC = 0.857.4 
+
+The difference in AUC between the method be not huge (less 
+than 0.02), but it be reassure to see the GAM/GA2M meth- 
+od achieve the best accuracy on this problem. The im- 
+portant question be if the GAM/GA2M model be able to 
+achieve this accuracy while remain intelligible? 
+
+Figure 1 show 28 of the 56 term in the GA2M model 
+for pneumonia. Unfortunately, the compact representation 
+necessary for the paper reduces intelligibility. For small 
+model like this with few than 100 term we would pre- 
+fer to present all terms, possibly sort by their importance 
+to the model. In the actual deployment, for each term we 
+would also show a histogram of data density for different 
+value of the feature, descriptive statistic about the fea- 
+ture, several different measure of term importance in the 
+model, and link to online resource that provide informa- 
+tion about the term, e.g., link to a hospital database, or 
+Wikipedia or WebMD page that describe features, how they 
+be measured, what the normal range are, and what abnor- 
+mal value indicate. Because of space limitation we have 
+suppress all of this auxiliary information (including some 
+axis labels!) and just present shape plot for some of the 
+more interest terms. Presenting the term in multicol- 
+umn format without the auxiliary information further hin- 
+ders intelligibility — the model be more readable when 
+
+4The GA2M model us 10 of the 46∗45/2 = 1035 possible 
+pairwise interaction term (k chosen by cross-validation). 
+
+Model Pneumonia Readmission 
+
+Logistic Regression 0.8432 0.7523 
+
+GAM 0.8542 0.7795 
+GA2M 0.8576 0.7833 
+
+Random Forests 0.8460 0.7671 
+LogitBoost 0.8493 0.7835 
+
+Table 2: AUC for different learn method on the 
+pneumonia and 30-day readmission tasks. 
+
+present in sort order a a scrollable list of graph plus 
+auxiliary information. 
+
+The 1st term in the model be for age. Age (in years) on the 
+x-axis range from 18-106 year old (the pneumonia dataset 
+contains only adults). The vertical axis be the risk score 
+predict by the model for patient a a function of age. The 
+risk score for this term varies from -0.25 for patient with age 
+less than 50, to a high of about 0.35 for patient age 85 and 
+above. The green errorbars be pseudo-errorbars of the risk 
+score predict for each age: each errorbar be ±1 standard 
+deviation of the variation in the risk score measure by 100 
+round of bagging. We use ±1 standard deviation instead 
+of the standard error of the mean because it be well know 
+that bagging underestimate the variance of prediction from 
+complex models. We believe it be safer to be conservative 
+than to present unrealistically narrow confidence intervals. 
+(See the top of Figure 3(a) for an enlarge version of this 
+graph, and the discussion in Section 5.5 for more detailed 
+analysis of the age feature.) 
+
+The 2nd term in the model, asthma, be the one that cause 
+trouble in the CEHC study in the mid-90’s and prevent 
+clinical trial with the very accurate neural net model. The 
+GA2M model have found the same pattern discover back 
+then: that have asthma lower the risk of die from pneu- 
+monia. As with the logistic regression and rule-based mod- 
+el train then, but unlike with the neural net models, this 
+term be easy to recognize and fix in the GA2M model. We 
+can “repair” the model by eliminate this term (effectively 
+set the weight on this graph to zero), or by use hu- 
+man expertise to redraw the graph so that the risk score 
+for asthma=1 be positive, not negative. Because asthma be 
+boolean, it be not necessary to use a graph, and we could 
+present a weight and offset (RiskScore = w*hasAsthma + 
+b) instead. We prefer to use graph for boolean term like 
+asthma for three reasons: 1) it be necessary to show graph 
+for feature with multiple or continuous value such a age 
+a well a for interaction between features, and it be awk- 
+ward for the user to jump from term present a graph to 
+term present a equations; 2) we find graph provide an 
+intuitive display of risk where up implies high risk, down 
+implies low risk, and the magnitude of the change in risk be 
+capture by the distance moved; and 3) some user be not 
+a comfortable with number a they be with graphs, and 
+it be important that the model be intelligible to real users, 
+whatever their background. 
+
+The 3rd term in the model be BUN (Blood Urea Nitro- 
+gen) level. Most patient have BUN=0 because, a in many 
+medical datasets, if the variable be not measure or assume 
+normal it be cod a 0. The model say risk be reduce 
+for patient where BUN be not measured, suggest that 
+this test typically be not order for patient who appear 
+to be healthy. BUN level below 30 appear to be low risk, 
+
+1723 
+
+
+
+-0.4 
+-0.2 
+
+0 
+0.2 
+0.4 
+0.6 
+0.8 
+
+1 
+1.2 
+
+20 30 40 50 60 70 80 90 100 
+
+-0.4 
+-0.2 
+
+0 
+0.2 
+0.4 
+0.6 
+0.8 
+
+1 
+1.2 
+
+-1 -0.5 0 0.5 1 
+
+-0.4 
+-0.2 
+
+0 
+0.2 
+0.4 
+0.6 
+0.8 
+
+1 
+1.2 
+
+0 50 100 150 200 250 
+
+-0.4 
+-0.2 
+
+0 
+0.2 
+0.4 
+0.6 
+0.8 
+
+1 
+1.2 
+
+-1 -0.5 0 0.5 1 
+
+age asthma BUN level cancer 
+
+-0.4 
+-0.2 
+
+0 
+0.2 
+0.4 
+0.6 
+0.8 
+
+1 
+1.2 
+
+-1 -0.5 0 0.5 1 
+
+-0.4 
+-0.2 
+
+0 
+0.2 
+0.4 
+0.6 
+0.8 
+
+1 
+1.2 
+
+-1 -0.5 0 0.5 1 
+
+-0.4 
+-0.2 
+
+0 
+0.2 
+0.4 
+0.6 
+0.8 
+
+1 
+1.2 
+
+-1 0 1 2 3 4 5 6 7 8 
+
+-0.4 
+-0.2 
+
+0 
+0.2 
+0.4 
+0.6 
+0.8 
+
+1 
+1.2 
+
+0 50 100 150 200 
+
+chronic lung disease congestive heart failure # of disease heart rate 
+
+-0.4 
+-0.2 
+
+0 
+0.2 
+0.4 
+0.6 
+0.8 
+
+1 
+1.2 
+
+-20 0 20 40 60 80 
+
+-0.4 
+-0.2 
+
+0 
+0.2 
+0.4 
+0.6 
+0.8 
+
+1 
+1.2 
+
+30 32 34 36 38 40 42 
+
+-0.4 
+-0.2 
+
+0 
+0.2 
+0.4 
+0.6 
+0.8 
+
+1 
+1.2 
+
+-20 0 20 40 60 80 
+
+-0.4 
+-0.2 
+
+0 
+0.2 
+0.4 
+0.6 
+0.8 
+
+1 
+1.2 
+
+-1 -0.5 0 0.5 1 
+
+respiration rate temperature diastolic blood pressure history of chest pain 
+
+-0.4 
+-0.2 
+
+0 
+0.2 
+0.4 
+0.6 
+0.8 
+
+1 
+1.2 
+
+-1 -0.5 0 0.5 1 1.5 2 2.5 
+
+-0.4 
+-0.2 
+
+0 
+0.2 
+0.4 
+0.6 
+0.8 
+
+1 
+1.2 
+
+0 20 40 60 80 
+
+-0.4 
+-0.2 
+
+0 
+0.2 
+0.4 
+0.6 
+0.8 
+
+1 
+1.2 
+
+0 5 10 15 20 25 
+
+-0.4 
+-0.2 
+
+0 
+0.2 
+0.4 
+0.6 
+0.8 
+
+1 
+1.2 
+
+0 500 1000 1500 
+
+albumin level % band creatinine level glucose level 
+
+-0.4 
+-0.2 
+
+0 
+0.2 
+0.4 
+0.6 
+0.8 
+
+1 
+1.2 
+
+-10 -5 0 5 10 15 20 25 
+
+-0.4 
+-0.2 
+
+0 
+0.2 
+0.4 
+0.6 
+0.8 
+
+1 
+1.2 
+
+0 2 4 6 8 
+
+-0.4 
+-0.2 
+
+0 
+0.2 
+0.4 
+0.6 
+0.8 
+
+1 
+1.2 
+
+-100 -50 0 50 100 150 
+
+-0.4 
+-0.2 
+
+0 
+0.2 
+0.4 
+0.6 
+0.8 
+
+1 
+1.2 
+
+6 6.5 7 7.5 8 
+
+hematocrit potassium level sodium level pH 
+
+-0.4 
+-0.2 
+
+0 
+0.2 
+0.4 
+0.6 
+0.8 
+
+1 
+1.2 
+
+-20 0 20 40 60 
+
+-0.4 
+-0.2 
+
+0 
+0.2 
+0.4 
+0.6 
+0.8 
+
+1 
+1.2 
+
+-40 -20 0 20 40 60 80 100 
+
+-0.4 
+-0.2 
+
+0 
+0.2 
+0.4 
+0.6 
+0.8 
+
+1 
+1.2 
+
+0 20 40 60 80 100 120 
+
+"-" 
+
+-20 0 20 40 60 80 
+
+20 
+30 
+40 
+50 
+60 
+70 
+80 
+90 
+
+100 
+
+-0.2 
+-0.15 
+-0.1 
+-0.05 
+0 
+0.05 
+0.1 
+0.15 
+0.2 
+0.25 
+0.3 
+
+pO2 pCO2 WBC count age vs. respiration rate 
+
+"-" 
+
+-1 -0.5 0 0.5 1 
+
+20 
+30 
+40 
+50 
+60 
+70 
+80 
+90 
+
+100 
+
+-0.2 
+-0.1 
+0 
+0.1 
+0.2 
+0.3 
+0.4 
+0.5 
+
+"-" 
+
+0 50 100 150 200 250 
+-20 
+
+0 
+20 
+40 
+60 
+80 
+
+-0.1 
+-0.05 
+0 
+0.05 
+0.1 
+0.15 
+
+"-" 
+
+0 500 1000 1500 
+
+0 
+50 
+
+100 
+150 
+200 
+250 
+
+-0.3 
+-0.2 
+-0.1 
+0 
+0.1 
+0.2 
+0.3 
+0.4 
+0.5 
+
+"-" 
+
+-100 -50 0 50 100 150 
+
+0 
+50 
+
+100 
+150 
+200 
+250 
+
+-0.3 
+-0.2 
+-0.1 
+0 
+0.1 
+0.2 
+0.3 
+0.4 
+0.5 
+0.6 
+
+age vs. cancer respiration rate vs. BUN BUN vs. glucose BUN vs. sodium 
+
+Figure 1: 28 (of 56 total) component for the GA2M model train on the pneumonia data. The line graph 
+be term that contain single features. The heat map at the bottom be pairwise interaction terms. The 
+vertical scale on all line graph be the same to facilitate rapid scan of the relative contribution of each 
+term. The green errorbars be pseudo-errorbars from bagging. Boolean feature such a asthma be present 
+a graph because this aid interpretation among other feature that must be present a graphs. 
+
+1724 
+
+
+
+while level from 50-200 indicate high risk. This be con- 
+sistent with medical knowledge which suggests that normal, 
+healthy BUN be 10-20, and that elevate level above 30 may 
+indicate kidney damage, congestive heart failure, or bleeding 
+in the gastrintestinal tract. 
+
+The cancer term in the model be clear: have cancer sig- 
+nificantly increase the risk of die from pneumonia, prob- 
+ably because it explains why the patient have pneumonia (ei- 
+ther from lung cancer, from immuno suppressive drug use 
+to treat cancer, or from hospitalization associate with can- 
+cer) and/or because it explains the stage of cancer (terminal 
+stage of cancer frequently lead to fail health and be 
+bed-ridden, both of which can lead to pneumonia). 
+
+The next term in the model, chronic lung disease, and the 
+history of chest pain term that occurs later, be interest 
+because the model suggests that chronic lung disease and a 
+history of chest pain both decrease POD. We suspect that 
+this may be a similar problem a asthma: patient with 
+lung disease and chest pain may receive care earlier, and 
+may receive more aggressive care. If further investigation 
+suggests this to be the case, both term would be remove 
+from the model, or edited, similar to the asthma term. 
+
+The # of disease (# of comorbid conditions) be a general 
+measure of illness. The graph suggests that have no dis- 
+eas other than pneumonia lower risk, that risk increase 
+slowly a the number of comorbid condition increase from 
+1-3, then be flat or decrease until it rise dramatically above 
+6, but the errorbars be large enough to be consistent with 
+risk be somewhat flat for 3-8 comorbidities. 
+
+Heart rate be an unusual look graph. 91% patient 
+have rate=0, indicate it be not measure or assume 
+normal. Risk be high for very low heart rate (10-30), and 
+for very high rate (125-200), but the model do not ap- 
+pear to discriminate between patient with heart rate 40- 
+120. On further inspection, there be no patient with heart 
+rate record between 40-120! Apparently all patient in 
+this range be consider “normal” and cod a 0. (Nor- 
+mal heart rate in adult be about 60-100, 40-60 for athletes, 
+and somewhat high than 100 for patient with “White 
+Coat” Syndrome). The unusual shape of the graph for heart 
+rate have lead u to discover a surprising aspect of the data, 
+though it be not clear what risk we would want to model to 
+predict for rate between 40-120 where there be no data? 
+
+The respiration rate term be very clear: rate=0 (missing) 
+or 20-28 be low risk, and risk rise rapidly a breathing rate 
+climb from 28-60. Normal respiration rate for adult be 
+16-20. In the body temperature term, temp from 36◦C- 
+40◦C be low risk (normal be 37◦C), risk be somewhat elevate 
+at low body temp (32◦C-36◦C), and greatly elevate for 
+temp above 40.5◦C (fever this high often be a sign of serious 
+infection). Having a fever above 41.5◦C increase the risk 
+score by a full point or more.5 Diastolic blood pressure also 
+can dramatically increase risk: low diastolic in the range 20- 
+50 (normal be 60-80) increase risk a much a a full point. % 
+band be also a strong term (bands in a blood test be a sign 
+of bacterial infection—bacterial pneumonia be more deadly 
+than viral pneumonia): band above 40% indicate elevate 
+risk, with band above 80% indicate very elevate risk. 
+
+Before leave pneumonia, let u examine one of the inter- 
+action terms. In the age vs. cancer term, we see that risk be 
+high for the young patient (probably cancer acquire 
+
+5An increase in risk of 1 point more than double the odds 
+of dying. See Section 5.1. 
+
+in childhood but not cure when the patient reach age 18), 
+and decline for patient who acquire cancer late in life, but 
+for patient without cancer risk rise a expect with age. 
+This be a classic interaction effect that likely result from the 
+difference between childhood and adult cancers. 
+
+Space prevents u from discuss each term individually, 
+or from discuss term in great detail. See Section 5.5 for a 
+deeper dive on the age term. To summarize this section, the 
+GA2M model discover the same asthma pattern that cre- 
+ated problem in the CEHC study, provide a simple mech- 
+anism to correct this problem, and uncovered other similar 
+problem (chronic lung disease and history of chest pain) 
+that be not recognize in the CEHC study but which war- 
+rant further investigation and probably repair. As hoped, 
+the GA2M model be accurate, intelligible, and repairable. 
+
+4. CASE STUDY: 30-DAY READMISSION 
+In this section we apply GA2M to a modern and much 
+
+large dataset for 30-day hospital readmission. The data 
+come from a collaboration with a large hospital. There 
+be 195,901 patient in the train set (2011-2012), 100,823 
+patient in the test set (2013), and 3,956 feature for each 
+patient. Features include lab test results, summary of doc- 
+tor notes, and detail of previous hospitalizations. In this 
+problem, the goal be to predict which patient be likely to 
+be readmitted to the hospital within 30 day after be re- 
+lease from the hospital. All patient in this dataset have 
+already be hospitalize at least once, and the goal be to 
+predict if they will need to return to the hospital unusually 
+quickly (within 30 days). Hospitals with abnormally high 
+30-day readmission rate be penalize financially because 
+a high rate suggests the hospital do not provide adequate 
+care on the early admission, or may have release the pa- 
+tient prematurely, or do not provide adequate instruction 
+to the patient when they be released, or do not perform 
+adequate follow-up after release. In the data 8.91% of pa- 
+tients be readmitted within 30 days. For this problem we 
+use 10 iteration of bagging. Training the 10 model take 
+2-3 day on a small cluster of 10 general purpose computers. 
+Table 2 show the AUC for different model on this data. 
+
+In Section 3 we examine the GA2M model for the pneu- 
+monia problem. Unfortunately, the readmission dataset con- 
+tains almost 100 time a many features. Instead of try 
+to examine the full model, we instead examine the predic- 
+tions make by the model for three patients. Two of these 
+patient have very high predict probability of readmission 
+(p=0.9326 and p=0.9264), and one of the patient have a typ- 
+ical readmission probability (p=0.0873). This allows u to 
+demonstrate that the model be intelligible not only take 
+a a whole, but that the prediction GA2M model make for 
+individual patient also be intelligible. 
+
+In Figure 2, each of the three column be a patient, and 
+each row be a term in the model. Terms be sort for each 
+patient (in each column) by the risk they contribute to that 
+patient for 30-day readmission. Space limit u to show 
+the top 6 term for each patient that contribute most to 
+risk. Patient #1 have a very high probability of readmission 
+within 30 days: p=0.9326. The four term that contribute 
+most to their high probability of readmission are: their total 
+number of visit to the hospital be 40, they have be an in- 
+patient in the hospital 19 time in the last 12 months, they 
+have be in the hospital 10 time in the last 6 months, and 
+4 time in the last 3 months. This be not unusual: the most 
+
+1725 
+
+
+
+Patient 1: 0.9326 Patient 2: 0.9264 Patient 3: 0.0873 
+
+-0.2 
+
+0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0 10 20 30 40 50 
+
+0.3140 
+
+-0.2 
+
+0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0 20 40 60 80 100 120 140 160 
+
+0.3334 
+
+-0.2 
+
+0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0 5 10 15 20 25 30 35 
+
+0.0704 
+
+# inpatient visit ever prednisone preparation endometrial carcinoma 
+
+-0.2 
+
+0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0 5 10 15 20 25 
+
+0.3017 
+
+-0.2 
+
+0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0 500 1000 1500 2000 2500 
+
+0.3144 
+
+-0.2 
+
+0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0 5 10 15 20 25 30 35 40 
+
+0.0301 
+
+# inpatient visit last 12 month etoposide preparation Malignant adenomatous neoplasm 
+
+-0.2 
+
+0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0 2 4 6 8 10 12 14 16 
+
+0.2780 
+
+-0.2 
+
+0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0 2000 4000 6000 8000 10000 
+
+0.2536 
+
+-0.2 
+
+0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0 20 40 60 80 100 120 140 
+
+0.0251 
+
+# inpatient visit last 6 month mesna prepartions clonazepam preparation 
+
+-0.2 
+
+0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0 2 4 6 8 10 
+
+0.2144 
+
+-0.2 
+
+0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0 50 100 150 200 250 300 350 400 
+
+0.2451 
+
+-0.2 
+
+0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+-20 0 20 40 60 80 
+
+0.0250 
+
+# inpatient visit last 3 month doxorubicin preparation whole blood hematocrit test max 
+
+-0.2 
+
+0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0 500 1000 1500 2000 
+
+0.1990 
+
+-0.2 
+
+0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0 20 40 60 80 100 
+
+0.2102 
+
+-0.2 
+
+0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0 5 10 15 20 
+
+0.0239 
+
+amoxicillin preparation dexamethasone preparation Intraductal carcinoma of breast 
+
+-0.2 
+
+0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0 50 100 150 200 250 300 350 400 450 
+
+0.1867 
+
+-0.2 
+
+0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0 5 10 15 20 
+
+0.1830 
+
+-0.2 
+
+0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0 50 100 150 200 250 300 350 400 450 
+
+0.0220 
+
+verapamil preparation ondansetron hydrochloride preparation # outpatient visit ever 
+
+Figure 2: Top 6 term (of 4456) in the GA2M for three patients. The patient on the left have high risk of 
+readmission. The patient on the right have moderate risk. Terms be sort by their contribution to risk. 
+Blue line highlight feature value and correspond risk scores. Six term cannot tell the full story for these 
+patients, but even these few term provide insight into the patient and their risk of readmission. 
+
+1726 
+
+
+
+predictive term in the 30-day readmission model measure 
+the number of visit patient have make in the last 12 month, 
+6 months, and 3 month to the ER, a an outpatient, and a 
+an inpatient. As we see with this patient, a large number of 
+recent inpatient visit (admissions) be associate with a high 
+probability of readmission.6 The next two term suggest 
+why patient #1 may have be in the hospital often: this 
+patient have receive large dos of amoxicillin (an antibiotic 
+use to treat infection like strep and pneumonia) and ver- 
+apamil (a treatment for hypertension and angina), i.e., they 
+have an ongoing infection that may not be respond to 
+antibiotics, and also probably have heart disease. The main 
+reason this patient be predict to be likely to return be be- 
+cause they have be in the hospital often in the last year, 
+but the first few term in the model also give u a hint of 
+the medical condition that put them at elevate risk. 
+
+The term that be most important for patient #2 (also 
+high risk: p=0.9364) be different from the term that be 
+important for patient #1. The most important 6 term 
+be preparation that the patient receive during their last 
+visit: prednisone be a corticosteroid use a an imummo- 
+suppressant, etoposide in an anticancer drug, mesna be a 
+cancer chemotherapy drug, doxorubicin be a treatment for 
+blood and skin cancers, dexamethosone be another immuno- 
+suppressant steroid, and ondansetron be a drug use to treat 
+nausea from chemotherapy. Patient #2 have receive dos 
+of each of these preparation that suggest cancer may not be 
+respond well to treatment and that they be receive ag- 
+gressive chemotherapy. The contribution to risk from these 
+6 term alone be great than +1.5, i.e., these 6 term alone 
+triple the odds of their be readmitted within 30-days. 
+
+Patient #3 have moderate risk: p=0.0873 (baseline rate 
+be 8.91%). This 6 term that increase this patient’s read- 
+mission risk the most are: 1) the patient have endrometrial 
+carcinoma (a cancer common in post-menopausal woman 
+that often can be treat effectively by hysterectomy with- 
+out radiation- or chemo-therapy); 2) a benign abdominal 
+tumor (malignant adenomatous neplasm =3); 3) a relaxant 
+typically prescribed to calm patient or reduce spasms; 4) a 
+fairly typical (i.e. low risk) hematocrit test result; 5) a pre- 
+cancerous non-invasive lesion in the breast; and 6) a small 
+number of outpatient visit suggest they have be re- 
+ceiving treatment a an outpatient without need to be 
+hospitalize (the inpatient and ER risk factor for this pa- 
+tient be all low). Patient #3 be a typical patient a far a 30- 
+day readmission be considered. They be post-menopausal, 
+have cancer that respond well to treatment if caught early, 
+the treatment themselves be relatively low-risk, and they 
+have not need unusual medication or to be hospitalize 
+often in the last year. 
+
+The patient above provide a small glimpse of what the 
+GA2M model learn from a 200,000 patient train set with 
+4,000 features: we have only be able to examine three 
+patients, and have only look at the top 6 term for each 
+of these patients. To a medical expert, the sort term 
+
+6A large number of visit to the ER also be associate with 
+increase chance of readmission, but outpatient visit be 
+more interesting: a small number of recent outpatient visit 
+increase risk of readmission, but a very large number of 
+outpatient visit (100-200 in the last year) indicates low 
+risk of readmission because the patient be receive primary 
+care a an outpatient—many of these patient be dialysis 
+patient who visit the hospital 1-2 time per week. 
+
+RiskScore Probability RiskScore Probability 
+
+-5.0 0.0067 +5.0 0.9933 
+-4.0 0.0180 +4.0 0.9820 
+-3.0 0.0474 +3.0 0.9526 
+-2.0 0.1192 +2.0 0.8808 
+-1.0 0.2689 +1.0 0.7311 
+0.0 0.5000 
+
+Table 3: Risk score (log odds) and the correspond- 
+ing probabilities. 
+
+for each patient present a comprehensive picture of the risk 
+factor that contribute to the probability of readmission pre- 
+dicted for a patient. The model be not causal — it do not 
+say that because the patient have X, they receive treatment 
+A, B, and C, and we can see from the amount of A, B, and 
+C they receive that they be not respond well. Instead, 
+it learns that high dos of A, B, and C be associate with 
+high risk or readmission, and it be up to the human expert 
+to infer the underlie causal reason for the feature value 
+and the risk they predict. Nevertheless, compare to an un- 
+intelligible model such a an ensemble of 1000 boost tree 
+or a complex neural net, the model be fairly transparent, and 
+the prediction it make can be fully “understood”, both at 
+the per-patient level, and at the macro-model level. 
+
+5. DISCUSSION 
+
+5.1 How To Interpret Risk Scores 
+Each term in the intelligible model return a risk score 
+
+(log odds) that be add to the patient’s aggregate predict 
+risk. Terms with risk score above zero increase risk; term 
+with score below zero decrease risk. The term risk score 
+be add to a baseline risk, and the sum convert to a 
+probability. Both penumonia and 30-day readmission have 
+baseline rate near 0.1, which corresponds to TotalRiskScore 
+= -2.197. So patient with aggregate risk score above -2.2 
+have high than average risk, and patient with total risk 
+score below -2.2 have low than average risk scores. A pa- 
+tient with TotalRiskScore = 0 (including the baseline offset) 
+have quite high risk: p = 1/(1+exp(−1∗TotalRiskSccore) = 
+1/(1 + exp(0)) = 0.5. Table 3 show a sample of total risk 
+score and the correspond probabilities. 
+
+5.2 Modularity 
+In the intelligible model discuss in this paper, the av- 
+
+erage risk score for each graph (i.e., each term: each feature 
+or pair of features) average across the training set be set 
+to zero by subtract the mean score. A single bias term 
+be then add to the model so that the average predict 
+probability across all patient equal the observe baseline 
+rate. This be do to make model identifiable and modular. 
+Because of this property, each graph can be remove from 
+the model (zeroed out) without introduce bias to the pre- 
+dictions. If all term be remove from the model, the only 
+remain term would be the bias term, and the probability 
+predict for all patient would be the observe baseline rate 
+in the training set. Adding term (graphs) to the model in- 
+crease the model’s discriminativeness without alter the 
+prior. This be important because it increase modularity and 
+make it easy to interpret the contribution of each term: 
+
+1727 
+
+
+
+negative score decrease risk, and positive score increase 
+risk compare to the baseline risk. 
+
+5.3 Sorting Terms by Importance 
+If a model contains a modest number of term (e.g., less 
+
+than 50), it be best to show term in the model to expert 
+in the order they be most familiar with. Because expert 
+be often use to see feature in logical groupings, inter- 
+pretation be aid by preserve these grouping when the 
+model be presented. However, when the number of term 
+grows large, it becomes infeasible for expert to examine all 
+term carefully. Term importance often follow a power-law 
+distribution, with a few term be very important, a mod- 
+est number of term be somewhat important, and many 
+term be of little importance. When this be the case, in- 
+telligibility can be improve by sort term by a measure 
+of importance such a the drop in AUC when the term be 
+removed, or the skill of the term measure in isolation, or 
+the maximum contribution (positive or negative) that the 
+term can make for any patient. No one measure be correct 
+or best, and we find that a sort that reflect a combination 
+of these metric seem to work well. 
+
+It be much easy to sort term by importance when make 
+prediction for a single patient: because each term yield a 
+single risk score for each patient at the point where that 
+patient’s feature value lie on the term graph, it be possible to 
+sort term by how much they increase or decrease risk for the 
+patient. This provide a well-defined order of the term 
+for a patient from term that increase risk most to term that 
+decrease risk most. Often this order quickly identifies 
+the key patient characteristic that best explain the model’s 
+prediction, and which help expert quickly understand the 
+patient’s condition. This be the method we use to describe 
+the prediction make by the 30-day readmission model — 
+although that model contains more than 4000 terms, the 
+number of term that be relevant for each patient are, in 
+practice, often quite small (e.g., less than 100). 
+
+5.4 Feature Shaping vs. Expert Discretization 
+Significant effort be make in the CEHC pneumonia study 
+
+to train accurate model with logistic regression and other 
+method that could not handle continuous attributes. Med- 
+ical expert carefully discretized each continuous attribute 
+into clinically meaningful range use to define boolean vari- 
+ables. For example, the interval for age be 18-39, 40-54, 
+55-63, 64-68, 69-72, 73-75, 76-79, 80-83, 84-88, and 89+. We 
+use these expert-defined interval for the logistic regression 
+model report in Table 2. We also train a GA2M model 
+with these discretized features, and observe a drop in AUC 
+of about 0.01 on the test set compare to the GA2M train 
+with the continuous features, suggest that the GA2M model 
+gain some of it accuracy by shape continuous feature 
+more accurately than expert discretization. 
+
+5.5 Deep Dive: Risk a a Function of Age 
+In this section we drill down on how the feature “Age” 
+
+be shape by the pneumonia and 30-day readmission mod- 
+els. Age be present in both data set and measure in years. 
+But the relevance of age to the two prediction task be very 
+different. In pneumonia, age be a critical factor that can ex- 
+plain why a patient have acquire pneumonia, and what the 
+
+-0.4 
+
+-0.2 
+
+0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+20 30 40 50 60 70 80 90 100 
+
+P 
+ne 
+
+um 
+on 
+
+ia 
+R 
+
+be 
+k 
+
+S 
+co 
+
+re 
+
+age 
+
+0 
+
+0.03 
+
+20 30 40 50 60 70 80 90 100 
+
+D 
+en 
+
+si 
+ty 
+
+(a) Pneumonia 
+
+-0.06 
+-0.04 
+-0.02 
+
+0 
+0.02 
+0.04 
+0.06 
+
+0 20 40 60 80 100R 
+e- 
+
+A 
+dm 
+
+be 
+si 
+
+on 
+R 
+
+be 
+k 
+
+S 
+co 
+
+re 
+
+age 
+
+0 
+
+0.15 
+
+0 20 40 60 80 100 
+
+D 
+en 
+
+si 
+ty 
+
+(b) 30-day Readmission 
+
+-0.1 
+
+-0.05 
+
+0 
+
+0.05 
+
+0.1 
+
+0 0.5 1 1.5 2R 
+e- 
+
+A 
+dm 
+
+be 
+si 
+
+on 
+R 
+
+be 
+k 
+
+S 
+co 
+
+re 
+
+age 
+(c) 30-day Readmission (zoomed in) 
+
+Figure 3: Risk a a function of Age for the Pneumo- 
+nia and 30-day Readmission problems. 
+
+outcome be likely to be.7 In 30-day all-cause readmission, 
+
+7Pneumonia be sometimes call “The Old Man’s Best 
+Friend”, not because pneumonia be good for elderly patients, 
+but because it often result in rapid death for patient that 
+otherwise could linger for month or year before their pri- 
+mary illness cause death. 
+
+1728 
+
+
+
+20 40 60 80 100 
+
+−4 
+−2 
+
+0 
+2 
+
+4 
+
+age 
+
+P 
+ne 
+
+um 
+on 
+
+ia 
+R 
+
+be 
+k 
+
+S 
+co 
+
+re 
+
+6.0 6.5 7.0 7.5 8.0 
+
+−4 
+−2 
+
+0 
+2 
+
+4 
+
+pH 
+
+P 
+ne 
+
+um 
+on 
+
+ia 
+R 
+
+be 
+k 
+
+S 
+co 
+
+re 
+
+30 32 34 36 38 40 42 
+
+−4 
+−2 
+
+0 
+2 
+
+4 
+
+temperature 
+
+P 
+ne 
+
+um 
+on 
+
+ia 
+R 
+
+be 
+k 
+
+S 
+co 
+
+re 
+
+Figure 4: Selected spline in pneumonia dataset. 
+
+however, age be just one of thousand of factor that affect 
+a patient’s health and course of illness. Moreover, because 
+the prediction task be hospital readmission, not probability 
+of death, age represent a weaker, more generic characteriza- 
+tion of patient health and their likeliness to need additional 
+hospitalization within 30 days. If the patient be elderly, but 
+just have a successful hip replacement or kidney stone re- 
+moved, they be not likely to need to return to the hospital 
+within 30 day for this condition. Similarly, an elderly pa- 
+tient who be admit to the hospital because of pneumo- 
+nia, but who be now be release because they respond 
+to treatment, be unlikely to need further care for pneumonia 
+within 30 day if they take proper medications. All-cause 
+readmission be very different from probability of death for a 
+specific condition such a pneumonia. 
+
+Figure 3(a) show the risk profile for age in the pneumo- 
+nia model, and the distribution of age in the pneumonia 
+data. The majority of pneumonia patient be age 60-90. 
+Qualitatively, the risk of die from pneumonia be low and 
+constant from age 18-50, rise slowly from age 50-66, then 
+rise quickly from age 66-90, and then level off at very high 
+risk above age 90. The low-risk region to the left of age 50 be 
+remarkably flat, suggest that the underlie tree rarely 
+if ever found it useful to split this region into subregions. 
+Note that the risk score for this region be -0.27, suggest 
+that be young significantly reduces the risk of die from 
+pneumonia. But risk slowly increase a age increase above 
+50, though the contribution to risk do not become positive 
+until about 70 years. Beyond 70 year old, the contribution 
+to risk rise rapidly from 0.0 at 70 to +0.20 at age 82 and 
++0.35 at age 86. According to the model, the increase in 
+risk of go from 70 to 86 be large than the decrease be risk 
+of go from 70 down to 50 or less. 
+
+Beyond the risk vs. age profile described above, there be 
+intrigue detail in the graph. 1) There be a small jump 
+in risk at age 67, and again at age 86. The error bar be 
+reasonably tight around age 65-70, suggest that the jump 
+in risk at 67 may be real. One possible explanation for this 
+be that in a dataset from the 90’s, many patient would have 
+retire at around age 65, and that this may yield differ- 
+ences in activity levels, health insurance, and willingness to 
+get access healthcare early enough to improve outcome — 
+pneumonia responds well to treatment with antibiotics, but 
+can be life threaten if not treated. The 2nd jump in risk 
+around age 86 be harder to explain. It may be that practi- 
+tioners, either consciously or subconsciously, treat patient 
+
+old than 85 differently, and that this ultimately increase 
+their POD. Or the jump at 86 may be an artifact of the 
+model — the error bar at age 86 and above be larger. One 
+approach to investigate this issue further would be to train 
+on another sample sample of data (or on different subsam- 
+ples) to see if the rise at age 86 persists.8 2) There be an 
+apparent drop in risk above age 100. We suspect that this 
+drop probably be not real and may be due to mild overfit- 
+ting — there be very few patient age 95 and older, and the 
+error bar from age 90 to 106 be large and consistent with 
+risk be constant in this region.9 3) Surprisingly, there be 
+no evidence that risk, although very high, increase above 
+age 85. Either medical treatment be equally effective for 
+patient old than 85, or other medical condition be more 
+likely to be responsible for death at this age than pneumo- 
+nia, or risk do increase above 85 and the model have fail 
+to learn it. 
+
+Figure 3(b) show the age term and density for 30-day 
+readmission. One of the key difference between the pneu- 
+monia and 30-day readmission datasets be that pneumonia 
+dataset contains only adult patient age 18 and older, but 
+the readmission dataset contains patient of all age, includ- 
+ing newborn infants. The importance of age to 30-day read- 
+mission be very different. Age have little effect on readmission 
+between age 2 and 50, risk slowly increase from age 50 to 80, 
+and then increase a little more above age 80. The large 
+increase in score be +0.03 at age 90 and above. There be 
+many reason why age be less important for readmission than 
+for pneumonia: most patient independent of age would not 
+be release if the hospital thought they be likely to need 
+to be readmitted in less than a month, in this dataset there 
+be thousand of other more specific variable that can bet- 
+ter explain variance in the risk of readmission (the model 
+be more illness specific) than age, and some patient who 
+be very elderly will die at home (either unexpectedly or by 
+choice) and thus will not be readmitted. 
+
+8It be only because the model be so intelligible that we be 
+able to recognize and question such fine detail in the risk vs. 
+age profile. We assume that similar jump in predict risk 
+occur in other accurate model such a boost tree a well, 
+but because those model be less intelligible the jump be 
+not recognize or investigated. 
+9Or it might be due to successful agers, a rare but geneti- 
+cally identifiable class of people with trait that good en- 
+able them to survive into old age 
+
+1729 
+
+
+
+An interest feature of the model for 30-day readmis- 
+sion be highlight in Figure 3(c) where the x axis have be 
+expand to show age 0-2. In this dataset newborn infant 
+be born into the hospital, and thus will be treat a read- 
+mitted if they need to be hospitalize within 30 day after 
+go home. In part because newborn would not be re- 
+lease if they be at risk, the risk score for newborn age 
+0-2 month be -0.04—this be a large negative risk score than 
+the increase in risk for elderly patients. This suggests that 
+most newborn tend to be healthy when they be release 
+from the hospital and be less likely to need to be readmitted 
+within 30 days. But this reduction in risk from be new- 
+born diminishes after 2-3 months, and the model suggests 
+that infant age 3-15 month have slightly high positive 
+risk of be readmitted to the hospital. Thus infant age 3- 
+15 month have high risk of readmission than infant that 
+be young or older, and it be not until age 45 that the risk 
+of readmission rise to this level again. 
+
+5.6 Shaping with Splines 
+Generalized additive model be often fit with spline [7]. 
+
+Splines allow GAMs to be train with careful control over 
+regularization and provide more principled error bars. Un- 
+fortunately, the spline method tend to over regularize, yield 
+less accuracy than GA2M models, and yield risk profile that 
+sometimes miss detail discover by GA2M models. Figure 4 
+show three term from a spline GAM model train on the 
+pneumonia data. The 1st term be age, the 2nd be pH, and the 
+3rd be temperature. Although the spline capture the basic 
+trend (e.g., risk increase with age, pH risk be least around 
+7.6, and fever risk rise above 40◦C), the spline miss detail 
+learn by GA2M. For example, the GA2M model for age 
+be much more nuanced, and the spline model may not prop- 
+erly model temperature in the normal range 36◦C-38◦C. The 
+spline GAM model have accuracy closer to logistic regression 
+than GA2M, so the extra detail learn by GA2M increase 
+accuracy and probably reflect genuine structure. 
+
+5.7 Correlation Does Not Imply Causation 
+Because the model in this paper be intelligible, it be 
+
+tempt to interpret them causally. Although the model 
+accurately explain the prediction they make, they be still 
+base on correlation. If feature be add to or subtract 
+and the model retrained, the graph for some term that have 
+remain in the model would change because of correlation 
+with the feature add or subtracted. Although detail of 
+some of the shape plot be suggestive (e.g., do pneumonia 
+risk truly jump a age increase above 65, and again above 
+85?), it be not (yet) clear if some detail like this be due to a) 
+overfitting; b) correlation with other variables; c) interaction 
+with other variables; d) correlation or interaction with un- 
+measure variables; or e) due to true underlie phenomenon 
+such a retirement and change in insurance provider. 
+
+Perhaps the strong statement we can make right now be 
+that the model be intelligible enough to provide a window 
+into the data and prediction problem that be miss with 
+many other learn methods, and that this window allows 
+question to be raise that will require investigation and 
+further data analysis to answer. In future version of these 
+model we hope to automate some of these analysis so that 
+it be clearer what feature in the intelligible model be “real” 
+or due to random factor such a overfitting and spurious 
+
+correlation. Adding causal analysis to the model would be 
+tremendously useful, but is, of course, difficult. 
+
+6. CONCLUSIONS 
+We present two case study on real medical data where 
+
+GA2Ms achieve state-of-the-art accuracy while remain in- 
+telligible. On the pneumonia case study the GA2M model 
+learns pattern that previously prevent complex machine 
+learn model from be deployed, but because GA2M be 
+intelligible and modular it be possible to edit the model to re- 
+duce deployment risk. On the larger, more complex 30-day 
+hospital readmission task the GA2M model achieves excel- 
+lent accuracy while yield a manageable, surprisingly intel- 
+ligible model despite incorporate over 4000 terms. Using 
+this problem we demonstrate how GA2Ms can be use to 
+explain the prediction the model make for individual pa- 
+tients in a concise way that place focus on the most impor- 
+tant/relevant term for each patient. We believe GA2Ms rep- 
+resent a significant step forward in the tradeoff between 
+model accuracy and intelligibility that should make it easy 
+to deploy high-accuracy learn model in application such 
+a healthcare where model verification and debuggability be 
+a important a accuracy. 
+
+Acknowledgements. We thank Michael Fine, MD, Uni- 
+versity of Pittsburgh School of Medicine, and Greg Cooper, 
+MD, PhD, University of Pittburgh for help with the Pneu- 
+monia data and model. We thank Eric Horvitz, MD, PhD, 
+Microsoft Research Redmond for help with the 30-day hos- 
+pital readmission data and model. The 30-day hospital read- 
+mission experiment be review and approve by the insti- 
+tutional review board at Columbia University Medical Cen- 
+ter. 
+
+7. REFERENCES 
+[1] R. Ambrosino, B. Buchanan, G. Cooper, and M. Fine. 
+
+The use of misclassification cost to learn rule-based 
+decision support model for cost-effective hospital 
+admission strategies. In Proceedings of the Annual 
+Symp. on Comp. Application in Medical Care, 1995. 
+
+[2] G. Cooper, V. Abraham, C. Aliferis, J. Aronis, 
+B. Buchanan, R. Caruana, M. Fine, J. Janosky, 
+G. Livingston, T. Mitchell, S. Montik, and P. Spirtes. 
+Predicting dire outcome of patient with community 
+acquire pneumonia. Journal of Biomedical 
+Informatics, 38(5):347–366, 2005. 
+
+[3] G. Cooper, C. Aliferis, R. Ambrosino, J. Aronis, 
+B. Buchanan, R. Caruana, M. Fine, C. Glymour, 
+G. Gordon, B. Hanusa, J. Janosky, C. Meek, 
+T. Mitchell, T. Richardson, and P. Spirtes. An 
+evaluation of machine-learning method for predict 
+pneumonia mortality. Artificial Intelligence in 
+Medicine, 9(2):107–138, 1997. 
+
+[4] T. Hastie and R. Tibshirani. Generalized additive 
+models. Chapman & Hall/CRC, 1990. 
+
+[5] Y. Lou, R. Caruana, and J. Gehrke. Intelligible model 
+for classification and regression. In KDD, 2012. 
+
+[6] Y. Lou, R. Caruana, J. Gehrke, and G. Hooker. 
+Accurate intelligible model with pairwise interactions. 
+In KDD, 2013. 
+
+[7] S. Wood. Generalized additive models: an introduction 
+with R. CRC Press, 2006. 
+
+1730 
+
+
+Motivation 
+Intelligible Models 
+Case Study: Pneumonia Risk 
+Case Study: 30-Day Readmission 
+Discussion 
+How To Interpret Risk Scores 
+Modularity 
+Sorting Terms by Importance 
+Feature Shaping vs. Expert Discretization 
+Deep Dive: Risk a a Function of Age 
+Shaping with Splines 
+Correlation Does Not Imply Causation 
+
+Conclusions 
+References 
+
+
+

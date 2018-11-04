@@ -1,0 +1,1594 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Deep Neuroevolution: Genetic Algorithms be a Competitive Alternative for Training Deep Neural Networks for Reinforcement Learning 
+
+
+Deep Neuroevolution: Genetic Algorithms be a Competitive Alternative for 
+Training Deep Neural Networks for Reinforcement Learning 
+
+Felipe Petroski Such Vashisht Madhavan Edoardo Conti Joel Lehman Kenneth O. Stanley Jeff Clune 
+
+Uber AI Labs 
+{felipe.such, jeffclune}@uber.com 
+
+Abstract 
+Deep artificial neural network (DNNs) be typ- 
+ically train via gradient-based learn al- 
+gorithms, namely backpropagation. Evolution 
+strategy (ES) can rival backprop-based algo- 
+rithms such a Q-learning and policy gradient 
+on challenge deep reinforcement learn (RL) 
+problems. However, ES can be consider a 
+gradient-based algorithm because it performs 
+stochastic gradient descent via an operation sim- 
+ilar to a finite-difference approximation of the 
+gradient. That raise the question of whether 
+non-gradient-based evolutionary algorithm can 
+work at DNN scales. Here we demonstrate they 
+can: we evolve the weight of a DNN with a sim- 
+ple, gradient-free, population-based genetic al- 
+gorithm (GA) and it performs well on hard deep 
+RL problems, include Atari and humanoid lo- 
+comotion. The Deep GA successfully evolves 
+network with over four million free parameters, 
+the large neural network ever evolve with 
+a traditional evolutionary algorithm. These re- 
+sults (1) expand our sense of the scale at which 
+GAs can operate, (2) suggest intriguingly that 
+in some case follow the gradient be not the 
+best choice for optimize performance, and (3) 
+make immediately available the multitude of 
+technique that have be developed in the neu- 
+roevolution community to improve performance 
+on RL problems. To demonstrate the latter, we 
+show that combine DNNs with novelty search, 
+which be design to encourage exploration on 
+task with deceptive or sparse reward functions, 
+can solve a high-dimensional problem on which 
+reward-maximizing algorithm (e.g. DQN, A3C, 
+ES, and the GA) fail. Additionally, the Deep 
+GA parallelizes good than ES, A3C, and DQN, 
+and enables a state-of-the-art compact encode 
+technique that can represent million-parameter 
+DNNs in thousand of bytes. 
+
+1. Introduction 
+A recent trend in machine learn and AI research be that 
+old algorithm work remarkably well when combine with 
+sufficient compute resource and data. That have be 
+the story for (1) backpropagation apply to deep neu- 
+ral network in supervise learn task such a com- 
+puter vision (Krizhevsky et al., 2012) and voice recog- 
+nition (Seide et al., 2011), (2) backpropagation for deep 
+neural network combine with traditional reinforcement 
+learn algorithms, such a Q-learning (Watkins & Dayan, 
+1992; Mnih et al., 2015) or policy gradient (PG) method 
+(Sehnke et al., 2010; Mnih et al., 2016), and (3) evolution 
+strategy (ES) apply to reinforcement learn bench- 
+mark (Salimans et al., 2017). One common theme be 
+that all of these method be gradient-based, include ES, 
+which involves a gradient approximation similar to finite 
+difference (Williams, 1992; Wierstra et al., 2008; Sali- 
+man et al., 2017). This historical trend raise the question 
+of whether a similar story will play out for gradient-free 
+methods, such a population-based GAs. 
+
+This paper investigates that question by test the perfor- 
+mance of a simple GA on hard deep reinforcement learn 
+(RL) benchmarks, include Atari 2600 (Bellemare et al., 
+2013; Brockman et al., 2016; Mnih et al., 2015) and Hu- 
+manoid Locomotion in the MuJoCo simulator (Todorov 
+et al., 2012; Schulman et al., 2015; 2017; Brockman et al., 
+2016). We compare the performance of the GA with that 
+of contemporary algorithm apply to deep RL (i.e. DQN 
+(Mnih et al., 2015), a Q-learning method, A3C (Mnih et al., 
+2016), a policy gradient method, and ES). One might ex- 
+pect GAs to perform far bad than other method because 
+they be so simple and do not follow gradients. Surpris- 
+ingly, we found that GAs turn out to be a competitive al- 
+gorithm for RL – perform good on some domain and 
+bad on others – add a new family of algorithm to the 
+toolbox for deep RL problems. We also validate the effec- 
+tiveness of learn with GAs by compare their perfor- 
+mance to that of random search. While the GA always out- 
+performs random search, interestingly we discover that 
+in some Atari game random search outperforms power- 
+
+ar 
+X 
+
+iv 
+:1 
+
+71 
+2. 
+
+06 
+56 
+
+7v 
+2 
+
+[ 
+c 
+
+.N 
+E 
+
+] 
+4 
+
+J 
+an 
+
+2 
+01 
+
+8 
+
+
+
+ful deep RL algorithm (DQN on 4/13 game and A3C on 
+5/13) and ES (3/13), suggest that these domain may 
+be easy than previously thought, at least for some algo- 
+rithms, and that local optima, saddle points, noisy gradi- 
+ent estimates, or some other force be impede progress on 
+these problem for gradient-based methods. Note that al- 
+though deep neural network often do not struggle with lo- 
+cal optimum in supervise learn (Pascanu et al., 2014), 
+local optimum remain an issue in RL because the reward sig- 
+nal may deceptively encourage the agent to perform action 
+that prevent it from discover the globally optimal behav- 
+ior. 
+
+Like ES and the deep RL algorithms, the GA have unique 
+benefits. One be that, through a new technique we intro- 
+duce, GAs turn out to be faster than ES due to their be- 
+ing even more amenable to parallelization. The GA and ES 
+be both faster than Q-learning and policy gradient method 
+when substantial distribute computation be available (here, 
+720 CPU core across dozen of machines). Another bene- 
+fit be that, via this same new technique, even multi-million- 
+parameter network train by GAs can be encode with 
+very few (thousands of) bytes, yield what we believe to 
+be a state-of-the-art compact encode method. 
+
+In general, the unexpectedly competitive performance of 
+the GA (and even random search) suggests that the struc- 
+ture of the search space in some of these domain be not 
+always amenable to gradient-based search. That realiza- 
+tion can open up new research directions, focus on when 
+and how to exploit the region where a gradient-free search 
+might be more appropriate. It also expands the toolbox of 
+idea and method applicable for RL and may lead to new 
+kind of hybrid algorithms. 
+
+2. Background 
+At a high level, an RL problem challenge an agent to max- 
+imize some notion of cumulative reward (e.g. total, or dis- 
+counted) for a give problem without supervision a to how 
+to accomplish that goal (Sutton & Barto, 1998). A host 
+of traditional RL algorithm perform well on small, tab- 
+ular state space (Sutton & Barto, 1998). However, scal- 
+ing to high-dimensional problem (e.g. learn to act di- 
+rectly from pixels) be challenge until RL algorithm 
+harness the representational power of deep neural net- 
+work (DNNs), thus catalyze the field of deep reinforce- 
+ment learn (deep RL) (Mnih et al., 2015). Three broad 
+family of deep learn algorithm have show promise 
+on RL problem so far: Q-learning method such a DQN 
+(Mnih et al., 2015), policy gradient method (Sehnke et al., 
+2010) (e.g. A3C (Mnih et al., 2016), TRPO (Schulman 
+et al., 2015), PPO (Schulman et al., 2017)), and more re- 
+cently evolution strategy (ES) (Salimans et al., 2017). 
+
+Deep Q-learning algorithm approximate the optimal Q 
+function with DNNs, yield policy that, for a give 
+state, choose the action that maximizes the Q-value 
+(Watkins & Dayan, 1992; Mnih et al., 2015; Hessel et al., 
+2017). Policy gradient method directly learn the parame- 
+ters of a DNN policy that output the probability of take 
+each action in each state. A team from OpenAI recently 
+experiment with a simplify version of Natural Evolu- 
+tion Strategies (Wierstra et al., 2008), specifically one that 
+learns the mean of a distribution of parameters, but not it 
+variance. They found that this algorithm, which we will 
+refer to simply a evolution strategy (ES), be competitive 
+with DQN and A3C on difficult RL benchmark problems, 
+with much faster training time (i.e. faster wall-clock time 
+when many CPUs be available) due to good paralleliza- 
+tion (Salimans et al., 2017). 
+
+All of these method can be consider gradient-based 
+methods, a they all calculate or approximate gradient in a 
+DNN and optimize those parameter via stochastic gradient 
+descent/ascent (although they do not require differentiate 
+through the reward function, such a a simulator). DQN 
+calculates the gradient of the loss of the DNN Q-value func- 
+tion approximator via backpropagation. Policy gradient 
+sample behavior stochastically from the current policy and 
+then reinforce those that perform well via stochastic gradi- 
+ent ascent. ES do not calculate gradient analytically, but 
+instead approximates the gradient of the reward function in 
+the parameter space (Salimans et al., 2017; Wierstra et al., 
+2008). 
+
+Here we test whether a truly gradient-free method – a sim- 
+ple GA – can perform well on challenge deep RL tasks. 
+We find GAs perform surprisingly well and thus can be 
+consider a new addition to the set of algorithm for deep 
+RL problems. We first describe our genetic algorithm and 
+other contemporary methods, and then report the experi- 
+mental result that lead to our conclusions. 
+
+3. Methods 
+The next section describe the method use in this paper’s 
+experiments, namely, the GA that be apply across all ex- 
+periments, and the novelty search algorithm with which the 
+GA be combine in one set of experiments. 
+
+3.1. Genetic Algorithm 
+
+We purposefully test with an extremely simple GA to set a 
+baseline for how well gradient-free evolutionary algorithm 
+work for RL problems. We expect future work to reveal 
+that add the legion of enhancement that exist for GAs 
+(Fogel & Stayton, 1994; Haupt & Haupt, 2004; Caponetto 
+et al., 2003; Clune et al., 2011; Mouret & Doncieux, 2009; 
+Lehman & Stanley, 2011b; Pugh et al., 2016; Stanley et al., 
+
+
+
+2009; Stanley, 2007; Mouret & Clune, 2015) will improve 
+their performance on deep RL tasks. 
+
+A genetic algorithm (Holland, 1992; Eiben et al., 2003) 
+evolves a population P of N individual (here, neural net- 
+work parameter vector θ, often call genotypes). At ev- 
+ery generation, each θi be evaluated, produce a fitness 
+score (aka reward) F (θi). Our GA variant performs trun- 
+cation selection, wherein the top T individual become the 
+parent of the next generation. To produce the next genera- 
+tion, the follow process be repeat N − 1 times: A par- 
+ent be select uniformly at random with replacement and be 
+mutate by apply additive Gaussian noise to the param- 
+eter vector: θ′ = θ + σ� where � ∼ N (0, I). The appro- 
+priate value of σ be determine empirically for each ex- 
+periment, a described in Supplementary Information (SI) 
+Table 3. The N th individual be an unmodified copy of the 
+best individual from the previous generation, a technique 
+call elitism. Historically, GAs often involve crossover 
+(i.e. combine parameter from multiple parent to pro- 
+duce an offspring), but for simplicity we do not include 
+it. The new population be then evaluate and the process 
+repeat for G generation or until some other stop cri- 
+terion be met. Algorithm 1 outline pseudo-code for this 
+approach. 
+
+We plan to release open source code and parameter config- 
+urations for all of our experiment a soon a possible. Hy- 
+perparameters be fix for all Atari games, chosen once 
+at the outset before any experimentation base on our intu- 
+itions for which one would work well for this architecture 
+size. The result on Atari would thus likely improve with 
+different hyperparameters. We do run an extensive hyper- 
+parameter search for the Humanoid Locomotion task. The 
+hyperparameters for all experiment be list in SI. 
+
+Algorithm 1 Simple Genetic Algorithm 
+Input: mutation power σ, population size N , number of 
+select individual T , policy initialization routine φ. 
+for g = 1, 2...G generation do 
+
+for i = 1, ..., N in next generation’s population do 
+if g = 1 then 
+Pgi = φ(N (0, I)) {initialize random DNN} 
+F gi = F (P 
+
+g 
+i ) {assess it fitness} 
+
+else 
+if i = 1 then 
+Pgi = P 
+
+g−1 
+i ;F 
+
+g 
+i = F 
+
+g−1 
+i {copy the elite} 
+
+else 
+k = uniformRandom(1, T ) {select parent} 
+Sample � ∼ N (0, I) 
+Pgi = P 
+
+g−1 
+k + σ� {mutate parent} 
+
+F gi = F (P 
+g 
+i ) {assess it fitness} 
+
+Sort Pg and F g with descend order by F g 
+Return: high perform policy, Pg1 
+
+GA implementation traditionally store each individual a 
+a parameter vector θ, but this approach scale poorly in 
+memory and network transmission cost with large popu- 
+lations and parameter vector (e.g. deeper and wider neural 
+networks). We propose a novel method to store large pa- 
+rameter vector compactly by represent each parameter 
+vector a an initialization seed plus the list of random seed 
+that produce the series of mutation apply to θ. This inno- 
+vation be essential to enable GAs to work at the scale of 
+deep neural networks, and we thus call it a Deep GA. This 
+technique also have the benefit of offering a state-of-the-art 
+compression method (Section 5). 
+
+One motivation for choose ES versus Q-learning and pol- 
+icy gradient method be it faster wall-clock time with dis- 
+tributed computation, owe to good parallelization (Sal- 
+imans et al., 2017). We found that the Deep GA not only 
+preserve this benefit, but slightly improves upon it. The 
+GA be faster than ES for two main reasons: (1) for every 
+generation, ES must calculate how to update it neural net- 
+work parameter vector θ. It do so via a weight aver- 
+age across many (10,000 in Salimans et al. 2017) pseudo- 
+offspring (random θ perturbations) weight by their fit- 
+ness. This average operation be slow for large neural net- 
+work and large number of pseudo-offspring (the latter be 
+require for healthy optimization), and be not require for 
+the Deep GA. (2) The ES require require virtual batch nor- 
+malization to generate diverse policy amongst the pseudo- 
+offspring, which be necessary for accurate finite difference 
+approximation (Salimans et al., 2016). Virtual batch nor- 
+malization require additional forward pass for a refer- 
+ence batch–a random set of observation chosen at the start 
+of training–to compute layer normalization statistic that 
+be then use in the same manner a batch normalization 
+(Ioffe & Szegedy, 2015). We found that the random GA pa- 
+rameter perturbation generate sufficiently diverse policy 
+without virtual batch normalization and thus avoid these 
+additional forward pass through the network. 
+
+3.2. Novelty Search 
+
+One benefit of training deep neural network with simple 
+GAs be that do so enables u to immediately take advan- 
+tage of algorithm previously developed in the neuroevolu- 
+tion community. As a demonstration, we experiment with 
+novelty search (NS) (Lehman & Stanley, 2011a), which 
+be design for deceptive domain in which reward-based 
+optimization mechanism converge to local optima. NS 
+avoids these local optimum by ignore the reward function 
+during evolution and instead reward agent for perform- 
+ing behavior that have never be perform before (i.e. 
+that be novel). Surprisingly, it can often outperform algo- 
+rithms that utilize the reward signal, a result demonstrate 
+on maze navigation and simulated biped locomotion task 
+(Lehman & Stanley, 2011a). Here we apply NS to see 
+
+
+
+how it performs when combine with DNNs on a decep- 
+tive image-based RL problem (that we call the Image Hard 
+Maze). We refer to the GA that optimizes for novelty a 
+GA-NS. 
+
+NS require a behavior characteristic (BC) that describes 
+the behavior of a policy BC(π) and a behavioral dis- 
+tance function between the BCs of any two policies: 
+dist(BC(πi), BC(πj)). After each generation, member 
+of the population have a probability p (here, 0.01) of hav- 
+ing their BC store in an archive. The novelty of a policy 
+be define a the average distance to the k (here, 25) near- 
+est neighbor (sorted by behavioral distance) in the pop- 
+ulation or archive. Novel individual be thus determine 
+base on their behavioral distance to current or previously 
+see individuals. The GA otherwise proceeds a normal, 
+substitute novelty for fitness (reward). For reporting and 
+plot purpose only, we identify the individual with the 
+high reward per generation. The algorithm be present 
+in SI Sec. 8. 
+
+4. Experiments 
+Our experiment focus on the performance of the GA on 
+the same challenge problem that have validate the ef- 
+fectiveness of state-of-the-art deep RL algorithm and ES 
+(Salimans et al., 2017). They include learn to play Atari 
+directly from pixel (Mnih et al., 2015; Schulman et al., 
+2017; Mnih et al., 2016; Bellemare et al., 2013) and a con- 
+tinuous control problem involve a simulated humanoid 
+robot learn to walk (Brockman et al., 2016; Schulman 
+et al., 2017; Salimans et al., 2017; Todorov et al., 2012). We 
+also test on an Atari-scale maze domain that have a clear 
+local optimum (Image Hard Maze) to study how well these 
+algorithm avoid deception (Lehman & Stanley, 2011a). 
+
+For all our experiment we record the best agent found 
+in each of multiple, independent, randomly initialize GA 
+runs: 5 for the Atari domains, 5 for Humanoid Locomotion, 
+and 10 for the Image Hard Maze. During evolution, each 
+agent be evaluate n time (n=1 for Atari and Image Hard 
+Maze domain and n=5 for the Humanoid Locomotion do- 
+main) and fitness be the mean reward. However, because 
+false positive can arise with so few evaluations, for report- 
+ing (only) at every generation, the individual with high 
+mean fitness (the elite) be re-evaluated 30 time to good 
+estimate it true mean fitness. The high 30-evaluation 
+reward across all generation be consider the final reward 
+of an individual run. For each treatment, we then report 
+the median value across run of those final per-run reward 
+values. 
+
+4.1. Atari 
+
+Training deep neural network to play Atari – mapping di- 
+rectly from pixel to action – be a celebrate feat that 
+arguably launch the deep RL era and expand our un- 
+derstanding of the difficulty of RL domain that machine 
+learn could tackle (Mnih et al., 2015). Here we test how 
+the performance of DNNs evolve by a simple GA com- 
+pare to DNNs train by the major family of deep RL al- 
+gorithms and ES. Due to limited computational resources, 
+we compare result on 13 Atari games. Some be chosen 
+because they be game on which ES performs well (Frost- 
+bite, Gravitar, Kangaroo, Venture, Zaxxon) or poorly (Ami- 
+dar, Enduro, Skiing, Seaquest) and the remain game 
+be chosen from the ALE (Bellemare et al., 2013) set in 
+alphabetical order (Assault, Asterix, Asteroids, Atlantis). 
+To facilitate comparison with result report in Salimans 
+et al. (2017), we keep the number of game frame agent 
+experience over the course of a GA run constant (at one bil- 
+lion frames). The frame limit result in a differ number 
+of generation per independent GA run (SI Sec. Table 2), a 
+policy of different quality in different run may see more 
+frame in some game (e.g. if the agent life longer). 
+
+During training, each agent be evaluate on a full episode 
+(capped at 20k frames), which can include multiple lives, 
+and fitness be the final episode reward. The follow be 
+identical to DQN (Mnih et al., 2015): (1) data preprocess- 
+ing, (2) network architecture, and (3) the stochastic envi- 
+ronment that start each episode with up to 30 random, ini- 
+tial no-op operations. We use the large DQN architecture 
+from Mnih et al. (2015) consist of 3 convolutional lay- 
+er with 32, 64, and 64 channel follow by a hidden layer 
+with 512 units. The convolutional layer use 8 × 8, 4 × 4, 
+and 3 × 3 filter with stride of 4, 2, and 1, respectively. 
+All hidden layer be follow by a rectifier nonlinearity 
+(ReLU). The network contains over 4M parameters. 
+
+Comparing our result with those from other algorithm 
+fairly be extremely difficult, a such comparison be in- 
+herently apple and orange in many different ways. One 
+important consideration be whether agent be evaluate on 
+random start (a random number of no-op actions), which 
+be the regime they be train on, or start randomly sam- 
+plead from human play, which test for generalization (Nair 
+et al., 2015). Because we do not have a database of hu- 
+man start to sample from, our agent be evaluate with 
+random starts. Where possible, we compare our result to 
+those for other algorithm for which such random start re- 
+sults be available. That be true for DQN and ES, but not 
+true for A3C, where we have to include result on human 
+starts. 
+
+We also attempt to control for the number of frame see 
+during training, but because DQN be far slow to run, we 
+present result from the literature that train on few frame 
+
+
+
+(200M, which require 7-10 day of computation vs. hour 
+of computation need for ES and the GA to train on 1B 
+frames). There be many variant of DQN that we could 
+compare to, include the Rainbow (Hessel et al., 2017) al- 
+gorithm that combine many different recent improvement 
+to DQN (Van Hasselt et al., 2016; Wang et al., 2015; Schaul 
+et al., 2015; Sutton & Barto, 1998; Bellemare et al., 2017; 
+Fortunato et al., 2017). However, we choose to compare 
+the GA to the original, vanilla DQN algorithm, partly be- 
+cause we also introduce a vanilla GA, without the many 
+modification and improvement that have be previously 
+developed (Haupt & Haupt, 2004). 
+
+In what will likely be a surprise to many, the simple GA 
+be able to train deep neural network to play many Atari 
+game roughly a well a DQN, A3C, and ES (Table 1). 
+Among the 13 game we tried, DQN, ES, and the GA 
+each produce the best score on 3 games, while A3C pro- 
+duced the best score on 4. On Skiing, the GA produce 
+a score high than any other algorithm to date that we 
+be aware of, include all the DQN variant in the Rain- 
+bow DQN paper (Hessel et al., 2017). On some games, 
+the GA performance advantage over DQN, A3C, and ES be 
+considerable (e.g. Frostbite, Venture, Skiing). Videos of 
+policy evolve by the GA can be view here: https: 
+//goo.gl/QBHDJ9. In a head-to-head comparison on 
+these 13 games, the GA performs good on 6 vs. ES, 6 vs. 
+A3C, and 5 vs. DQN. 
+
+There be also many game in which the GA performs 
+worse, continue a theme in deep RL where different fam- 
+ilies of algorithm perform differently across different do- 
+main (Salimans et al., 2017). We note that all such com- 
+parisons be preliminary because we do not have the com- 
+putational resource to gather sufficient sample size (and 
+test on enough games) to see if the algorithm be signif- 
+icantly different; instead the key takeaway be that they all 
+tend to perform roughly similarly in that each do well on 
+different games. 
+
+Because performance do not plateau in the GA runs, we 
+test whether the GA improves further give additional com- 
+putation. We thus run the GA four time longer (4B frames) 
+and in all game but one, it score improves (Table 1). With 
+these post-4B-frame scores, the GA outperforms each of 
+the other algorithm (A3C, ES, and DQN) on 7 of the 13 
+game in head-to-head comparisons. In most games, the 
+GA’s performance still have not converge at 4B frames, 
+leave open the question of to how well the GA will ul- 
+timately perform when run even longer. To our knowledge, 
+this 4M+ parameter neural network be the large neural net- 
+work ever evolve with a simple GA. 
+
+One remarkable fact be how quickly the GA find high- 
+perform individuals. Because we employ a large popu- 
+lation size (5,000), each run last relatively few generation 
+
+(min 72, max 409, SI Sec. Table 2). In fact, in many games, 
+the GA find a solution good than DQN in only one or ten 
+of generations! Specifically, the median GA performance 
+be high than the final DQN performance in 1, 1, 1, 29, 
+and 58 generation for Frostbite, Venture, Skiing, Gravitar, 
+and Kangaroo, respectively. Similar result hold for ES, 
+where 1, 1, 3, and 14 generation of the GA be need 
+to obtain high performance than ES for Frostbite, Skiing, 
+Amidar, and Venture, respectively. The number of gener- 
+ations require to beat A3C be 1, 1, 1, 1, 1, 16, and 52 
+for Enduro, Frostbite, Kangaroo, Skiing, Venture, Gravitar, 
+and Amidar, respectively. 
+
+Each generation, the GA tends to make small-magnitude 
+change to the parameter vector control by σ (see Meth- 
+ods). That the GA outperforms DQN, A3C, and ES in so 
+few generation – especially when it do so in the first 
+generation (which be before a round of selection) – suggests 
+that many high-quality policy exist near the origin (to be 
+precise, in or near the region in which the random initializa- 
+tion function generates policies). That raise the question: 
+be the GA do anything more than random search? 
+
+To answer this question, we evaluate many policy ran- 
+domly generate by the GA’s initialization function φ and 
+report the best score. We give random search approx- 
+imately the same amount of frame and computation a 
+the GA and compare their performance (Table 1). In ev- 
+ery case, the GA significantly outperform random search 
+(Fig. 1, p < 0.05, this and all future p value be via a 
+Wilcoxon rank-sum test). The improve performance sug- 
+gests the GA be perform healthy optimization over gen- 
+erations. 
+
+Surprisingly, give how celebrate and impressive DQN, 
+ES and A3C are, random search actually outperforms DQN 
+on 4 out of 13 game (Asteroids, Frostbite, Skiing, & Ven- 
+ture), ES on 3 (Amidar, Frostbite, & Skiing), and A3C on 
+5 (Enduro, Frostbite, Kangaroo, Skiing, & Venture). Inter- 
+estingly, some of these policy produce by random search 
+be not trivial, degenerate policies. Instead, they appear 
+quite sophisticated. Consider the follow example from 
+the game Frostbite, which require an agent to perform a 
+long sequence of jump up and down row of iceberg mov- 
+ing in different direction (while avoid enemy and op- 
+tionally collect food) to build an igloo brick by brick 
+(Fig. 2). Only after the igloo be built can the agent en- 
+ter the igloo to receive a large payoff. Over it first two 
+lives, a policy found by random search completes a series 
+of 17 actions, jumping down 4 row of iceberg move in 
+different direction (while avoid enemies) and back up 
+again three time to construct an igloo. Then, only once 
+the igloo be built, the agent immediately move towards 
+it and enters it, at which point it get a large reward. It 
+then repeat the entire process on a harder level, this time 
+
+https://goo.gl/QBHDJ9 
+https://goo.gl/QBHDJ9 
+
+
+DQN Evolution Strategies Random Search GA GA A3C 
+Frames, Time 200M, ∼7-10d 1B, ∼ 1h 1B, ∼ 1h 1B, ∼ 1h 4B, ∼ 4h 1.28B, 4d 
+Forward Passes 450M 250M 250M 250M 1B 960M 
+Backward Passes 400M 0 0 0 0 640M 
+Operations 1.25B U 250M U 250M U 250M U 1B U 2.24B U 
+
+Amidar 978 112 151 216 294 264 
+Assault 4,280 1,674 642 819 1,006 5,475 
+Asterix 4,359 1,440 1,175 1,885 2,392 22,140 
+Asteroids 1,365 1,562 1,404 2,056 2,056 4,475 
+Atlantis 279,987 1,267,410 45,257 79,793 125,883 911,091 
+Enduro 729 95 32 39 50 -82 
+Frostbite 797 370 1,379 4,801 5,623 191 
+Gravitar 473 805 290 462 637 304 
+Kangaroo 7,259 11,200 1,773 8,667 10,920 94 
+Seaquest 5,861 1,390 559 807 1,241 2,355 
+Skiing -13,062 -15,442 -8,816 -6,995 -6,522 -10,911 
+Venture 163 760 547 810 1,093 23 
+Zaxxon 5,363 6,380 2,943 5,183 6,827 24,622 
+
+Table 1. The Atari result reveal a simple genetic algorithm be competitive with Q-learning (DQN), policy gradient (A3C), and 
+evolution strategy (ES). Shown be game score (higher be better). Comparing performance between algorithm be inherently chal- 
+lenging (see main text), but we attempt to facilitate comparison by show estimate for the amount of computation (operations, the 
+sum of forward and backward neural network passes), data efficiency (the number of game frame from training episodes), and how 
+long in wall-clock time the algorithm take to run. The GA, DQN, and ES, perform best on 3 game each, while A3C win on 4 games. 
+Surprisingly, random search often find policy superior to those of DQN, A3C, and ES (see text for discussion). Note the dramatic 
+difference in the speed of the algorithm, which be much faster for the GA and ES, and data efficiency, which favor DQN. The score 
+for DQN be from Hessel et al. (2017) while those for A3C and ES be from Salimans et al. (2017). For A3C, DQN, and ES, we cannot 
+provide error bar because they be not report in the original literature; GA and random search error bar be visualize in (Fig. 1). 
+The wall-clock time be approximate because they depend on a variety of hard-to-control-for factors. We found the GA run slightly 
+faster than ES on average. 
+
+also gathering food and thus earn bonus point (video: 
+https://youtu.be/CGHgENV1hII). That policy re- 
+sulted in a very high score of 3,620 in less than 1 hour of 
+random search, vs. an average score of 797 produce by 
+DQN after 7-10 day of optimization. One may think that 
+random search found a lucky open loop sequence of ac- 
+tions overfit to that particular stochastic environment. Re- 
+markably, we found that this policy actually generalizes to 
+other initial condition too, achieve a median score of 
+3,170 (with 95% bootstrapped median confidence interval 
+of 2,580 - 3,170) on 200 different test environment (each 
+with up to 30 random initial no-ops, a standard test pro- 
+cedure (Hessel et al., 2017; Mnih et al., 2015)). 
+
+These example and the success of RS versus DQN, A3C, 
+and ES suggest that many Atari game that seem hard base 
+on the low performance of lead deep RL algorithm may 
+not be a hard a we think, and instead that these algorithm 
+for some reason be perform extremely poorly on task 
+that be actually quite easy. They further suggest that some- 
+time the best search strategy be not to follow the gradient, 
+but instead to conduct a dense search in a local neighbor- 
+hood and select the best point found, a subject we return to 
+
+in the discussion (Sec. 6). 
+
+4.2. Humanoid Locomotion 
+
+We next test the GA on a challenge continuous control 
+problem, specifically humanoid locomotion (Fig. 3a). We 
+test with the MuJoCo Humanoid-v1 environment in Ope- 
+nAI Gym (Todorov et al., 2012; Brockman et al., 2016), 
+which involves a simulated humanoid robot learn to 
+walk. Solving this problem have validate modern, pow- 
+erful algorithm such a A3C (Mnih et al., 2016), TRPO 
+(Schulman et al., 2015), and ES (Salimans et al., 2017). 
+
+This problem involves mapping a vector of 376 scalar that 
+describe the state of the humanoid (e.g. it position, ve- 
+locity, angle) to 17 joint torques. The robot receives a 
+scalar reward that be a combination of four component 
+each timestep. It get positive reward for stand and it 
+velocity in the positive x direction, and negative reward the 
+more energy it expends and for how hard it impact the 
+ground. These four term be sum over every timestep 
+in an episode to calculate the total reward. 
+
+To stabilize training, we normalize each dimension of the 
+
+https://youtu.be/CGHgENV1hII 
+
+
+Figure 1. GA and random search performance across generation on Atari 2600 games. The GA significantly outperforms random 
+search in every game (p < 0.05). The performance of the GA and random search to DQN, A3C, and ES depends on the game. We plot 
+final score (as dash lines) for DQN, A3C, and ES because we do not have their performance value across training and because they 
+train on different number of game frame (see Table 1). For GA and RS, we report the median and 95% bootstrapped confidence 
+interval of the median across 5 experiment of the best mean evaluation score (over 30 stochastic rollouts) see up to that point in 
+training. 
+
+input space separately by subtract the mean and divide 
+by the variance of data for that input gather in the domain 
+by 10,000 random policies. We also apply anneal to 
+the mutation power σ, decrease it to 0.001 after 1,000 
+generations, which result in a small performance boost 
+at the end of training. 
+
+The architecture have two 256-unit hidden layer with tanh 
+activation functions. This architecture be the one in the 
+configuration file include in the source code release by 
+Salimans et al. (2017). The architecture described in their 
+paper be similar, but smaller, have 64 neuron per layer 
+(Salimans et al., 2017). Although relatively shallow by 
+deep learn standards, and much small than the Atari 
+DNNs, this architecture still contains ∼167k parameters, 
+which be order of magnitude great than the large neu- 
+ral network evolve for robotics task that we be aware 
+
+of, which contain 1,560 (Huizinga et al., 2016) and be- 
+fore that 800 parameter (Clune et al., 2011). Many as- 
+sum evolution would fail at large scale (e.g. network 
+with hundred of thousand or million of weights, a in 
+this paper). Previous work have call the problem solve 
+with a score around 6,000 (Salimans et al., 2017). The GA 
+achieves a median above that level after ∼1,500 genera- 
+tions. However, it require far more computation than ES 
+to do so (ES require ∼100 generation for median per- 
+formance to surpass the 6,000 threshold). It be not clear 
+why the GA require so much more computation and hy- 
+perparameter tune on this problem, especially give how 
+quickly the GA found high-performing policy in the Atari 
+domain. While the GA need far more computation in this 
+domain, it be interest nevertheless that it do eventu- 
+ally solve it by produce an agent that can walk and score 
+over 6,000. Considering it very fast discovery of high- 
+
+
+
+Figure 2. Example of high-performing individual on Frostbite 
+found through random search. See text for a description of the 
+behavior of this policy. Its final score be 3,620 in this episode, 
+which be high than the score produce by DQN, A3C and ES, 
+although not a high a the score found by the GA (Table 1). 
+
+(a) (b) 
+
+Figure 3. Two different test domains. Left: The Human Loco- 
+motion domain. The humanoid robot have to learn to walk effi- 
+ciently. Shown be an example policy evolve with a GA. Right: 
+The Image Hard Maze domain. A small wheel robot must nav- 
+igate to the goal with this bird’s-eye view a pixel inputs. Shown 
+be an example image frame a see by the robot’s neural network. 
+The text annotation and arrow be not visible to the robot. The 
+robot start in the bottom left corner face right. 
+
+perform solution in Atari, clearly the GA’s advantage 
+versus other method depends on the domain, and under- 
+stand this dependence be an important target for future 
+research. 
+
+4.3. Image Hard Maze 
+
+The Hard Maze domain be a staple in the neuroevolution 
+community, where it demonstrates the problem of local op- 
+tima (aka deception) in reinforcement learn (Lehman & 
+Stanley, 2011a). In it, a robot receives more reward the 
+closer it get to the goal. Specifically, a single reward be 
+provide at the end of an episode consist of the nega- 
+tive of the straight-line distance between the final position 
+of the agent and the goal. The problem be deceptive be- 
+cause greedily get closer to the goal lead an agent to 
+permanently get stuck in one of the deceptive trap in the 
+maze (Fig. 3b). Optimization algorithm that do not con- 
+duct sufficient exploration suffer this fate. Novelty search 
+(NS) solves this problem easily because it ignores the re- 
+ward entirely and encourages agent to visit new places, 
+which ultimately lead to some reach the goal (Lehman 
+
+& Stanley, 2011a). 
+
+The original version of this problem involves only a few 
+input (radar sensor to sense walls) and two continuous 
+outputs, one that control speed (forward or backward) and 
+another that control rotation, make it solvable by small 
+neural network (on the order of ten of connections). Be- 
+cause here we want to demonstrate the benefit of NS at 
+the scale of deep neural networks, we introduce a new ver- 
+sion of the domain call Image Hard Maze. Like many 
+Atari games, it show a bird’s-eye view of the world to 
+the agent in the form of an 84 × 84 pixel image. This 
+change make the problem easy in some way (e.g. now 
+it be fully observable), but harder because it be much higher- 
+dimensional: the neural network must learn to process this 
+pixel input and take actions. For temporal context, the cur- 
+rent frame and previous three frame be all input at each 
+timestep, follow Mnih et al. (2015). An example frame 
+be show in Fig. 3b. The output remain the same a in the 
+original problem formulation. 
+
+Following previous work in the original Hard Maze 
+(Lehman & Stanley, 2011a), the BC be the (x, y) position 
+of the robot at the end of the episode (400 timesteps), and 
+the behavioral distance function be the square Euclidean 
+distance between these final (x, y) positions. Both the en- 
+vironment and the agent be deterministic. The simple sim- 
+ulator reject forward or backward motion that result in 
+the robot penetrate wall (i.e. the position of the robot 
+remains unchanged from the previous timestep in such 
+cases); these dynamic prohibit a robot from slide along 
+a wall, although rotational motor command still have their 
+usual effect in such situations. 
+
+We confirm that the result that held for small neural net- 
+work on the original, radar-based version of this task also 
+hold for the high-dimensional, visual version of this task 
+with deep neural networks. With a 4M+ parameter net- 
+work processing pixels, the GA-based novelty search (GA- 
+NS) be able to solve the task by find the goal (Fig. 4). 
+The GA optimizes for reward only and, a expected, get 
+stuck in the local optimum of Trap 2 (Fig. 5) and thus fails 
+to solve the problem (Fig. 4), significantly underperform- 
+ing GA-NS (p < 0.001). These result thus confirm that 
+intuition gain in small neural network about local op- 
+tima in reward function hold for much larger, deep neural 
+networks. While local optimum may not be a problem with 
+deep neural network in supervise learn where the cor- 
+rect answer be always give (Pascanu et al., 2014), the same 
+be not true in reinforcement learn problem with sparse 
+or deceptive rewards. Our result confirm that we be able 
+to use exploration method such a novelty search to solve 
+this sort of deception, even in high-dimensional problem 
+such a those involve learn directly from pixels. 
+
+This be the large neural network optimize by novelty 
+
+
+
+search to date by three order of magnitude. In an com- 
+panion paper (Conti et al., 2017), we also demonstrate a 
+similar finding, by hybridize novelty search with ES to 
+create NS-ES, and show that it too can help deep neural net- 
+work avoid deception in challenge RL benchmark do- 
+mains. We hope these result encourage more investigation 
+into combine deep neural network with novelty search 
+and similar methods, such a quality diversity algorithms, 
+which seek to collect a set of high-performing, yet interest- 
+ingly different policy (Lehman & Stanley, 2011b; Cully 
+et al., 2015; Pugh et al., 2016). 
+
+Figure 4. Image Hard Maze result reveal that novelty search 
+can train deep neural network to avoid local optimum that 
+stymie other algorithms. The GA, which solely optimizes for 
+reward and have no incentive to explore, get stuck on the local 
+optimum of Trap 2 (the goal and trap be visualize in Fig. 3b). 
+The GA optimize for novelty (GA-NS) be encourage to ignore 
+reward and explore the whole map, enable it to eventually find 
+the goal. ES performs even bad than the GA, a discuss in the 
+main text. DQN and A2C also fail to solve this task. For ES, the 
+performance of the mean θ policy each iteration be plotted. For 
+GA and GA-NS, the performance of the highest-scoring individ- 
+ual per generation be plotted. Because DQN and A2C do not have 
+the same number of evaluation per iteration a the evolutionary 
+algorithms, we plot their final median reward a dash lines. Fig. 
+5 show the behavior of these algorithm during training. 
+
+As expected, ES also fails to solve the task because it fo- 
+cu solely on maximize reward (Fig. 5). It be surpris- 
+ing, however, that it significantly underperforms the GA 
+(p < 0.001). In 8 of 10 run it get stuck near Trap 1, 
+not because of deception, but instead seemingly because 
+it cannot reliably learn to pas through a small bottleneck 
+corridor. This phenomenon have never be observe with 
+population-based GAs, suggest the ES (at least with 
+these hyperparameters) be qualitatively different than GAs 
+in this regard (Lehman et al., 2017). We believe this differ- 
+
+ence occurs because ES optimizes for the average reward 
+of the population sample from a probability distribution. 
+Even if the maximum fitness of agent sample from that 
+distribution be high further along a corridor, ES will not 
+move in that direction if the average population be low 
+(e.g. if other policy sample from the distribution crash 
+into the walls, or experience other low-reward fates). In a 
+companion paper, we investigate this interest difference 
+between ES and GAs (Lehman et al., 2017). Note, how- 
+ever, that even when ES move through this bottleneck (2 
+out of 10 runs), because it be solely reward-driven, it get 
+stuck in Trap 2. 
+
+We also test Q-learning (DQN) and policy gradient on this 
+problem. We do not have source code for A3C, but be 
+able to obtain source code for A2C, which have similar per- 
+formance (Wu et al., 2017): the only difference (explaining 
+why it have one few ‘A’) be that it be synchronous instead 
+of asynchronous. For these experiment we modify the 
+reward of the domain to step-by-step reward (the nega- 
+tive change in distance to goal since the last time-step), but 
+for plot purposes, we record the final distance to the 
+goal. Having per-step reward be more standard for these 
+algorithm and give them more information, but do not 
+remove the deception. Because DQN require discrete out- 
+puts, for it we discretize each of the two continuous output 
+into to five equally size bins. Because it need to be able 
+to specify all possible output combinations, it thus learns 
+52 = 25 Q-values. 
+
+Also a expected, DQN and A2C fail to solve this problem 
+(Fig. 4, Fig. 5). Their default exploration mechanism be 
+not enough to find the global optimum give the deceptive 
+reward function in this domain. DQN be drawn into the 
+expect Trap 2. For reason that be not clear to us, even 
+though A2C visit Trap 2 frequently early in training, it 
+converges on get stuck in a different part of the maze. 
+
+Overall the result for the Image Hard Maze domain con- 
+firm that the Deep GA allows algorithm developed for 
+small-scale neural network to operate at DNN scale, and 
+can thus be harness on hard, high-dimensional problem 
+that require DNNs. In future work, it will be interest- 
+ing to test the benefit that novelty search provide when 
+combine with a GA on more domains, include Atari 
+and robotics domains. More importantly, our demonstra- 
+tion suggests that other algorithm that enhance GAs can 
+now be combine with DNNs. Perhaps most promising 
+be those that combine a notion of diversity (e.g. nov- 
+elty) and quality (i.e. be high performing) (Mouret & 
+Clune, 2015; Mouret & Doncieux, 2009; Lehman & Stan- 
+ley, 2011b; Cully et al., 2015; Pugh et al., 2016). 
+
+
+
+Figure 5. How different algorithm explore the deceptive Image Hard Maze over time. Traditional reward-maximization algorithm 
+do not exhibit sufficient exploration to avoid the local optimum (going up). In contrast, a GA optimize for novelty only (GA-NS) 
+explores the entire environment and ultimately find the goal. For the evolutionary algorithm (GA-NS, GA, ES), blue cross represent 
+the population (pseudo-offspring for ES), red cross represent the top T GA offspring, orange dot represent the final position of GA 
+elite and the current mean ES policy, and the black cross be entry in the GA-NS archive. All 3 evolutionary algorithm have the same 
+number of evaluations, but ES and the GA have many overlap point because they revisit location due to poor exploration, give 
+the illusion of few evaluations. For DQN and A2C, we plot the end-of-episode position of the agent for each of the 20K episode prior 
+to the checkpoint list above the plot. 
+
+5. Compact network encode 
+As mention before, the Deep GA method enables com- 
+pactly store DNNs by represent them a the series of 
+mutation require to reconstruct their parameters. This 
+technique be advantageous because the size of the com- 
+press parameter increase with the number of genera- 
+tions instead of with the size of the network (the latter be 
+often much large than the former). For example, a previ- 
+ously discussed, we be able to evolve competitive Atari- 
+play agent in some game in a little a ten of gen- 
+erations, enable u to compress the representation of a 
+4M+ parameter neural network to just thousand of byte 
+(a factor of 10,000-fold smaller). As far a we know, this 
+represent the state of the art in encode large network 
+compactly. However, it do not count a a general net- 
+work compression technique because it cannot take an ar- 
+bitrary network and compress it, and instead only work for 
+
+network evolve with a GA. Of course, one could harness 
+this approach to create a general compression technique by 
+evolve a network to match a target network, which be an 
+interest area for future research. 
+
+The compressibility of a network be entirely dependent on 
+the number of mutation need to achieve a certain per- 
+formance. For Humanoid Locomotion, this translates to 
+encode 160,000 parameter in just 6kB (27-fold com- 
+pression). This amount be the large number of muta- 
+tions need for any of the network we evolved. All of the 
+solution on the Image Hard Maze domain could be repre- 
+sented with 1kB or less (16,000 time smaller). The Atari 
+compression benefit change depend on the game due 
+variance in generation between experiment (Table 2), but 
+be always substantial: all Atari final network be com- 
+pressible to 300-2,000 byte (8,000-50,000-fold compres- 
+sion). It does, of course, require computation to reconstruct 
+
+
+
+the DNN weight vector from this compact encoding. 
+
+6. Discussion 
+The surprising success of the GA in domain thought to 
+require at least some degree of gradient estimation sug- 
+gests some heretofore under-appreciated aspect of high- 
+dimensional search spaces. The random search result 
+suggest that densely sample in a region around the ori- 
+gin be sufficient in some case to find far good solution 
+than those found by state-of-the-art, gradient-based meth- 
+od even with far more computation or wall-clock time, 
+suggest that gradient do not point to these solutions, or 
+that other optimization issue interfere with find them, 
+such a saddle point or noisy gradient estimates. The GA 
+result further suggest that sample in the region around 
+good solution be often sufficient to find even good solu- 
+tions, and that a sequence of such discovery be possible in 
+many challenge domains. That result in turn implies that 
+the distribution of solution of increase quality be unex- 
+pectedly dense, and that you do not need to follow a gradi- 
+ent to find them. 
+
+Another, non-mutually exclusive hypothesis, be that GAs 
+have improve performance due to temporally extend ex- 
+ploration (Osband et al., 2016). That mean they explore 
+consistently since all action in an episode be a function of 
+the same set of mutate parameters, which have be show 
+to improve exploration (Plappert et al., 2017). Such consis- 
+tency help with exploration for two reasons, (1) an agent 
+take the same action (or have the same distribution over ac- 
+tions) each time it visit the same state, which make it eas- 
+ier to learn whether the policy in that state be advantageous, 
+and (2) the agent be also more likely to have correlate ac- 
+tions across state (e.g. always go up) because mutation 
+to it internal representation can affect the action take in 
+many state similarly. 
+
+Perhaps more interest be the result that sometimes it be 
+actually bad to follow the gradient than sample locally 
+in the parameter space for good solutions. This scenario 
+probably do not hold in all domains, or even in all the 
+region of a domain where it sometimes holds, but that it 
+hold at all expands our conceptual understand of the 
+viability of different kind of search operators. A reason 
+GA might outperform gradient-based method be if local 
+optimum be present, a it can jump over them in the parame- 
+ter space, whereas a gradient method cannot (without addi- 
+tional optimization trick such a momentum, although we 
+note that ES utilized the modern ADAM optimizer in these 
+experiment (Kingma & Ba, 2014), which include mo- 
+mentum). One unknown question be whether GA-style lo- 
+cal, gradient-free search be good early on in the search pro- 
+cess, but switch to a gradient-based search late allows 
+further progress that would be impossible, or prohibitively 
+
+computationally expensive, for a GA to make. Another un- 
+know question be the promise of simultaneously hybridiz- 
+ing GA method with modern algorithm for deep RL, such 
+a Q-learning, policy gradients, or evolution strategies. 
+
+We emphasize that we still know very little about the ul- 
+timate promise of GAs versus compete algorithm for 
+training deep neural network on reinforcement learn 
+problems. On the Atari domain, we do not perform hy- 
+perparameter search, so the best GA result could be much 
+high a it be well know that hyperparameters can have 
+massive effect on the performance of optimization algo- 
+rithms, include GAs (Haupt & Haupt, 2004; Clune et al., 
+2008). We also have not yet see the algorithm con- 
+verge in most of these domains, so it ceiling be unknown. 
+Additionally, here we use an extremely simple GA, but 
+many technique have be invent to improve GA perfor- 
+mance (Eiben et al., 2003; Haupt & Haupt, 2004), includ- 
+ing crossover (Holland, 1992; Deb & Myburgh, 2016), in- 
+direct encode (Stanley, 2007; Stanley et al., 2009; Clune 
+et al., 2011), and encourage diversity (Lehman & Stan- 
+ley, 2011a; Mouret & Clune, 2015; Pugh et al., 2016) (a 
+subject we do take an initial look at here with our nov- 
+elty search experiments), just to name a few. Moreover, 
+many technique have be invent that dramatically im- 
+prove the training of DNNs with backpropagation, such a 
+residual network (He et al., 2015), virtual batch normal- 
+ization (Salimans et al., 2016), SELU or RELU activation 
+function (Krizhevsky et al., 2012; Klambauer et al., 2017), 
+LSTMs or GRUs (Hochreiter & Schmidhuber, 1997; Cho 
+et al., 2014), regularization (Hoerl & Kennard, 1970), 
+dropout (Srivastava et al., 2014), and anneal learn 
+rate schedule (Robbins & Monro, 1951). We hypothesize 
+that many of these technique will also improve neuroevo- 
+lution for large DNNs, a subject we be currently investi- 
+gating. 
+
+It be also possible that some of these enhancement may 
+remedy the poor data efficiency the GA show on the Hu- 
+manoid Locomotion problem. For example, indirect en- 
+coding, which allows genomic parameter to affect multi- 
+ple weight in the final neural network (in a way similar 
+to convolution’s tie weights, but with far more flexibil- 
+ity), have be show to dramatically improve performance 
+and data efficiency when evolve robot gait (Clune et al., 
+2011). Those result be found with the HyperNEAT al- 
+gorithm (Stanley et al., 2009), which have an indirect en- 
+cod that abstract the power of developmental biology 
+(Stanley, 2007), and be a particularly promising direction 
+for Humanoid Locomotion and Atari that we will investi- 
+gate in future work. More generally, it will be interest 
+to learn on which domain Deep GA tends to perform well 
+or poorly and understand why. For example, GAs could 
+perform well in other non-differentiable domains, such a 
+architecture search (Liu et al., 2017; Miikkulainen et al., 
+
+
+
+2017) and for training limited precision (including binary) 
+neural networks. 
+
+Finally, it be worth note that the GA (like ES before it) 
+benefit greatly from large-scale parallel computation in 
+these studies. In our experiments, each GA run be dis- 
+tributed across hundred or thousand of CPUs, depend 
+on available computation. That the availability of such re- 
+source so significantly change what be possible with such 
+a simple algorithm motivates further investment in large- 
+scale parallel compute infrastructure. While the depen- 
+dence of the result on hundred or thousand of CPUs in 
+parallel could be view a an obstacle for some, it could 
+also be interpret a an excite opportunity: a price 
+continue to decline and the availability of such resource 
+becomes more mainstream, more and more researcher 
+will have the opportunity to investigate an entirely new 
+paradigm of opportunities, not unlike the transformation 
+GPUs have enable in deep learning. 
+
+7. Conclusion 
+Our work introduces a Deep GA, which involves a sim- 
+ple parallelization trick that allows u to train deep neu- 
+ral network with GAs. We then document that GAs be 
+surprisingly competitive with popular algorithm for deep 
+reinforcement learn problems, such a DQN, A3C, and 
+ES, especially in the challenge Atari domain. We also 
+show that interest algorithm developed in the neu- 
+roevolution community can now immediately be test 
+with deep neural networks, by show that a Deep GA- 
+power novelty search can solve a deceptive Atari-scale 
+game. It will be interest to see future research investi- 
+gate the potential and limit of GAs, especially when com- 
+bin with other technique know to improve GA perfor- 
+mance. More generally, our result continue the story – 
+start by backprop and extend with ES – that old, sim- 
+ple algorithm plus modern amount of computation can 
+perform amazingly well. That raise the question of what 
+other old algorithm should be revisited. 
+
+Acknowledgements 
+We thank all of the member of Uber AI Labs for help- 
+ful suggestion throughout the course of this work, in par- 
+ticular Zoubin Ghahramani, Peter Dayan, Noah Goodman, 
+Thomas Miconi, and Theofanis Karaletsos. We also thank 
+Justin Pinkul, Mike Deats, Cody Yancey, and the entire 
+OpusStack Team at Uber for provide resource and tech- 
+nical support. 
+
+References 
+Bellemare, Marc G, Naddaf, Yavar, Veness, Joel, and 
+
+Bowling, Michael. The arcade learn environment: 
+An evaluation platform for general agents. J. Artif. In- 
+tell. Res.(JAIR), 47:253–279, 2013. 
+
+Bellemare, Marc G, Dabney, Will, and Munos, Rémi. 
+A distributional perspective on reinforcement learning. 
+arXiv preprint arXiv:1707.06887, 2017. 
+
+Brockman, Greg, Cheung, Vicki, Pettersson, Ludwig, 
+Schneider, Jonas, Schulman, John, Tang, Jie, and 
+Zaremba, Wojciech. OpenAI gym, 2016. 
+
+Caponetto, Riccardo, Fortuna, Luigi, Fazzino, Stefano, 
+and Xibilia, Maria Gabriella. Chaotic sequence to 
+improve the performance of evolutionary algorithms. 
+IEEE transaction on evolutionary computation, 7(3): 
+289–304, 2003. 
+
+Cho, Kyunghyun, Van Merriënboer, Bart, Bahdanau, 
+Dzmitry, and Bengio, Yoshua. On the property of neu- 
+ral machine translation: Encoder-decoder approaches. 
+arXiv preprint arXiv:1409.1259, 2014. 
+
+Clune, Jeff, Misevic, Dusan, Ofria, Charles, Lenski, 
+Richard E, Elena, Santiago F, and Sanjuán, Rafael. Nat- 
+ural selection fails to optimize mutation rate for long- 
+term adaptation on rugged fitness landscapes. PLoS 
+Computational Biology, 4(9):e1000187, 2008. 
+
+Clune, Jeff, Stanley, Kenneth O., Pennock, Robert T., and 
+Ofria, Charles. On the performance of indirect encode 
+across the continuum of regularity. IEEE Transactions 
+on Evolutionary Computation, 2011. 
+
+Conti, Edoardo, Madhavan, Vashisht, Petroski Such, Fe- 
+lipe, Lehman, Joel, Stanley, Kenneth O., and Clune, 
+Jeff. Improving exploration in evolution strategy for 
+deep reinforcement learn via a population of novelty- 
+seek agents. arXiv preprint to appear, 2017. 
+
+Cully, A., Clune, J., Tarapore, D., and Mouret, J.-B. Robots 
+that can adapt like animals. Nature, 521:503–507, 2015. 
+doi: 10.1038/nature14422. 
+
+Deb, Kalyanmoy and Myburgh, Christie. Breaking the 
+billion-variable barrier in real-world optimization use 
+a customize evolutionary algorithm. In GECCO ’16, 
+pp. 653–660. ACM, 2016. 
+
+Dhariwal, Prafulla, Hesse, Christopher, Plappert, Matthias, 
+Radford, Alec, Schulman, John, Sidor, Szymon, and Wu, 
+Yuhuai. Openai baselines. https://github.com/ 
+openai/baselines, 2017. 
+
+Eiben, Agoston E, Smith, James E, et al. Introduction to 
+evolutionary computing, volume 53. Springer, 2003. 
+
+https://github.com/openai/baselines 
+https://github.com/openai/baselines 
+
+
+Fogel, David B and Stayton, Lauren C. On the effective- 
+ness of crossover in simulated evolutionary optimization. 
+BioSystems, 32(3):171–182, 1994. 
+
+Fortunato, Meire, Azar, Mohammad Gheshlaghi, Piot, Bi- 
+lal, Menick, Jacob, Osband, Ian, Graves, Alex, Mnih, 
+Vlad, Munos, Remi, Hassabis, Demis, Pietquin, Olivier, 
+et al. Noisy network for exploration. arXiv preprint 
+arXiv:1706.10295, 2017. 
+
+Glorot, Xavier and Bengio, Yoshua. Understanding the dif- 
+ficulty of training deep feedforward neural networks. In 
+ICAI, pp. 249–256, 2010. 
+
+Haupt, Randy L and Haupt, Sue Ellen. Practical genetic 
+algorithms. John Wiley & Sons, 2004. 
+
+He, Kaiming, Zhang, Xiangyu, Ren, Shaoqing, and Sun, 
+Jian. Deep residual learn for image recognition. arXiv 
+preprint arXiv:1512.03385, 2015. 
+
+Hessel, Matteo, Modayil, Joseph, Van Hasselt, Hado, 
+Schaul, Tom, Ostrovski, Georg, Dabney, Will, Horgan, 
+Dan, Piot, Bilal, Azar, Mohammad, and Silver, David. 
+Rainbow: Combining improvement in deep reinforce- 
+ment learning. arXiv preprint arXiv:1710.02298, 2017. 
+
+Hochreiter, Sepp and Schmidhuber, Jürgen. Long short- 
+term memory. Neural computation, 9(8):1735–1780, 
+1997. 
+
+Hoerl, Arthur E and Kennard, Robert W. Ridge regression: 
+Biased estimation for nonorthogonal problems. Techno- 
+metrics, 12(1):55–67, 1970. 
+
+Holland, John H. Genetic algorithms. Scientific american, 
+267(1):66–73, 1992. 
+
+Huizinga, Joost, Mouret, Jean-Baptiste, and Clune, Jeff. 
+Does align phenotypic and genotypic modularity im- 
+prove the evolution of neural networks? In GECCO ’16, 
+pp. 125–132. ACM, 2016. 
+
+Ioffe, Sergey and Szegedy, Christian. Batch normalization: 
+Accelerating deep network training by reduce internal 
+covariate shift. ICML’15, pp. 448–456. JMLR.org, 2015. 
+
+Kingma, Diederik and Ba, Jimmy. Adam: A 
+method for stochastic optimization. arXiv preprint 
+arXiv:1412.6980, 2014. 
+
+Klambauer, Günter, Unterthiner, Thomas, Mayr, Andreas, 
+and Hochreiter, Sepp. Self-normalizing neural networks. 
+arXiv preprint arXiv:1706.02515, 2017. 
+
+Krizhevsky, Alex, Sutskever, Ilya, and Hinton, Geoffrey E. 
+Imagenet classification with deep convolutional neural 
+networks. In NIPS, pp. 1097–1105, 2012. 
+
+Lehman, Joel and Stanley, Kenneth O. Abandoning ob- 
+jectives: Evolution through the search for novelty alone. 
+Evolutionary Computation, 19(2):189–223, 2011a. 
+
+Lehman, Joel and Stanley, Kenneth O. Evolving a di- 
+versity of virtual creature through novelty search and 
+local competition. In GECCO ’11: Proceedings of 
+the 13th annual conference on Genetic and evolution- 
+ary computation, pp. 211–218, Dublin, Ireland, 12-16 
+July 2011b. ACM. ISBN 978-1-4503-0557-0. doi: 
+doi:10.1145/2001576.2001606. 
+
+Lehman, Joel, Chen, Jay, Clune, Jeff, and Stanley, Ken- 
+neth O. ES be more than just a traditional finite-difference 
+approximator. arXiv preprint to appear, 2017. 
+
+Liu, Hanxiao, Simonyan, Karen, Vinyals, Oriol, Fernando, 
+Chrisantha, and Kavukcuoglu, Koray. Hierarchical rep- 
+resentations for efficient architecture search. arXiv 
+preprint arXiv:1711.00436, 2017. 
+
+Miikkulainen, Risto, Liang, Jason, Meyerson, Elliot, 
+Rawal, Aditya, Fink, Dan, Francon, Olivier, Raju, 
+Bala, Navruzyan, Arshak, Duffy, Nigel, and Hodjat, 
+Babak. Evolving deep neural networks. arXiv preprint 
+arXiv:1703.00548, 2017. 
+
+Mnih, Volodymyr, Kavukcuoglu, Koray, Silver, David, 
+Rusu, Andrei A, Veness, Joel, Bellemare, Marc G, 
+Graves, Alex, Riedmiller, Martin, Fidjeland, Andreas K, 
+Ostrovski, Georg, et al. Human-level control through 
+deep reinforcement learning. Nature, 518(7540):529– 
+533, 2015. 
+
+Mnih, Volodymyr, Badia, Adria Puigdomenech, Mirza, 
+Mehdi, Graves, Alex, Lillicrap, Timothy, Harley, Tim, 
+Silver, David, and Kavukcuoglu, Koray. Asynchronous 
+method for deep reinforcement learning. In ICML, pp. 
+1928–1937, 2016. 
+
+Mouret, Jean-Baptiste and Clune, Jeff. Illuminating 
+search space by mapping elites. ArXiv e-prints, 
+abs/1504.04909, 2015. 
+
+Mouret, Jean-Baptiste and Doncieux, Stephane. Overcom- 
+ing the bootstrap problem in evolutionary robotics us- 
+ing behavioral diversity. In Proceedings of the IEEE 
+Congress on Evolutionary Computation (CEC-2009), 
+pp. 1161–1168. IEEE, 2009. 
+
+Nair, Arun, Srinivasan, Praveen, Blackwell, Sam, Alci- 
+cek, Cagdas, Fearon, Rory, De Maria, Alessandro, Pan- 
+neershelvam, Vedavyas, Suleyman, Mustafa, Beattie, 
+Charles, Petersen, Stig, et al. Massively parallel meth- 
+od for deep reinforcement learning. arXiv preprint 
+arXiv:1507.04296, 2015. 
+
+
+
+Osband, Ian, Blundell, Charles, Pritzel, Alexander, and 
+Van Roy, Benjamin. Deep exploration via bootstrapped 
+dqn. In NIPS, pp. 4026–4034, 2016. 
+
+Pascanu, Razvan, Dauphin, Yann N, Ganguli, Surya, and 
+Bengio, Yoshua. On the saddle point problem for non- 
+convex optimization. arXiv preprint arXiv:1405.4604, 
+2014. 
+
+Plappert, Matthias, Houthooft, Rein, Dhariwal, Prafulla, 
+Sidor, Szymon, Chen, Richard Y, Chen, Xi, Asfour, 
+Tamim, Abbeel, Pieter, and Andrychowicz, Marcin. Pa- 
+rameter space noise for exploration. arXiv preprint 
+arXiv:1706.01905, 2017. 
+
+Pugh, Justin K, Soros, Lisa B., and Stanley, Kenneth O. 
+Quality diversity: A new frontier for evolutionary com- 
+putation. 3(40), 2016. ISSN 2296-9144. 
+
+Robbins, Herbert and Monro, Sutton. A stochastic approx- 
+imation method. The annals of mathematical statistics, 
+pp. 400–407, 1951. 
+
+Salimans, T., Ho, J., Chen, X., Sidor, S., and Sutskever, I. 
+Evolution Strategies a a Scalable Alternative to Rein- 
+forcement Learning. ArXiv e-prints, 1703.03864, March 
+2017. 
+
+Salimans, Tim, Goodfellow, Ian, Zaremba, Wojciech, Che- 
+ung, Vicki, Radford, Alec, and Chen, Xi. Improved tech- 
+niques for training gans. In NIPS, pp. 2234–2242, 2016. 
+
+Salimans, Tim, Ho, Jonathan, Chen, Xi, and Sutskever, 
+Ilya. Evolution strategy a a scalable alternative to re- 
+inforcement learning. arXiv preprint arXiv:1703.03864, 
+2017. 
+
+Schaul, Tom, Quan, John, Antonoglou, Ioannis, and Sil- 
+ver, David. Prioritized experience replay. arXiv preprint 
+arXiv:1511.05952, 2015. 
+
+Schulman, John, Levine, Sergey, Abbeel, Pieter, Jordan, 
+Michael, and Moritz, Philipp. Trust region policy opti- 
+mization. In ICML ’15, pp. 1889–1897, 2015. 
+
+Schulman, John, Wolski, Filip, Dhariwal, Prafulla, Rad- 
+ford, Alec, and Klimov, Oleg. Proximal policy optimiza- 
+tion algorithms. arXiv preprint arXiv:1707.06347, 2017. 
+
+Sehnke, Frank, Osendorfer, Christian, Rückstieß, Thomas, 
+Graves, Alex, Peters, Jan, and Schmidhuber, Jürgen. 
+Parameter-exploring policy gradients. Neural Networks, 
+23(4):551–559, 2010. 
+
+Seide, Frank, Li, Gang, and Yu, Dong. Conversational 
+speech transcription use context-dependent deep neu- 
+ral networks. In Interspeech 2011. International Speech 
+Communication Association, August 2011. 
+
+Srivastava, Nitish, Hinton, Geoffrey, Krizhevsky, Alex, 
+Sutskever, Ilya, and Salakhutdinov, Ruslan. Dropout: 
+A simple way to prevent neural network from overfit- 
+ting. The Journal of Machine Learning Research, 15(1): 
+1929–1958, 2014. 
+
+Stanley, Kenneth O. Compositional pattern produce net- 
+works: A novel abstraction of development. Genetic 
+Programming and Evolvable Machines Special Issue on 
+Developmental Systems, 8(2):131–162, 2007. 
+
+Stanley, Kenneth O., D’Ambrosio, David B., and Gauci, 
+Jason. A hypercube-based indirect encode for evolve 
+large-scale neural networks. Artificial Life, 15(2):185– 
+212, 2009. 
+
+Sutton, Richard S and Barto, Andrew G. Reinforcement 
+learning: An introduction, volume 1. MIT press Cam- 
+bridge, 1998. 
+
+Todorov, Emanuel, Erez, Tom, and Tassa, Yuval. Mujoco: 
+A physic engine for model-based control. In Intelli- 
+gent Robots and Systems (IROS), 2012 IEEE/RSJ Inter- 
+national Conference on, pp. 5026–5033. IEEE, 2012. 
+
+Van Hasselt, Hado, Guez, Arthur, and Silver, David. Deep 
+reinforcement learn with double q-learning. In AAAI, 
+pp. 2094–2100, 2016. 
+
+Wang, Ziyu, Schaul, Tom, Hessel, Matteo, Van Hasselt, 
+Hado, Lanctot, Marc, and De Freitas, Nando. Dueling 
+network architecture for deep reinforcement learning. 
+arXiv preprint arXiv:1511.06581, 2015. 
+
+Watkins, Christopher JCH and Dayan, Peter. Q-learning. 
+Machine learning, 8(3-4):279–292, 1992. 
+
+Wierstra, Daan, Schaul, Tom, Peters, Jan, and Schmid- 
+huber, Juergen. Natural evolution strategies. In 
+Evolutionary Computation, 2008. CEC 2008.(IEEE 
+World Congress on Computational Intelligence). IEEE 
+Congress on, pp. 3381–3387. IEEE, 2008. 
+
+Williams, Ronald J. Simple statistical gradient-following 
+algorithm for connectionist reinforcement learning. 
+Machine learning, 8(3-4):229–256, 1992. 
+
+Wu, Yuhuai, Mansimov, Elman, Grosse, Roger B, Liao, 
+Shun, and Ba, Jimmy. Scalable trust-region method for 
+deep reinforcement learn use kronecker-factored 
+approximation. In NIPS, pp. 5285–5294, 2017. 
+
+8. Supplementary Information 
+8.1. Hyperparameters 
+
+The policy initialization function φ generates an initial pa- 
+rameter vector. Bias weight for each neuron be set to 
+
+
+
+zero, and connection weight be drawn from a standard 
+normal distribution; these weight be then rescale so that 
+the vector of incoming weight for each neuron have unit 
+magnitude. This procedure be know a normalize col- 
+umn weight initialization and the implementation here be 
+take from the OpenAI baseline package (Dhariwal et al., 
+2017). Without this procedure, the variance of the distribu- 
+tion of a neuron’s activation depends on the number of it 
+inputs, which can complicate optimization of DNNs (Glo- 
+rot & Bengio, 2010). Other principled initialization rule 
+could likely be substitute in it place. 
+
+Game Minimum Median Maximum 
+Generations Generations Generations 
+
+Amidar 226 258 269 
+Enduro 121 121 121 
+Frostbite 348 409 494 
+Gravitar 283 292 304 
+Kangaroo 242 253 322 
+Seaquest 145 167 171 
+Skiing 81 86 88 
+Venture 71 72 75 
+Zaxxon 335 342 349 
+
+Table 2. The number of generation the GA need to reach 
+4B frames. 
+
+Hyperparameter Humanoid Image Atari 
+Locomotion Hard Maze 
+
+Population Size (N) 12,500+1 20,000+1 5,000+1 
+Mutation power (σ) 0.00224 0.005 0.005 
+Truncation Size (T) 625 61 10 
+Number of Trials 5 1 1 
+Archive Probability 0.01 
+
+Table 3. Hyperparameters. Population size be incremented to 
+account for elite (+1). Many of the unusual number be found 
+via preliminary hyperparameter search in other domains. 
+
+Algorithm 2 Novelty Search (GA-NS) 
+Input: mutation power σ, population size N , number 
+of individual select to reproduce per generation T , 
+policy initialization routine φ, empty archive A, archive 
+insertion probability p 
+for g = 1, 2...G generation do 
+
+for i = 1, ..., N in next generation’s population do 
+if g = 1 then 
+Pgi = φ(N (0, I)) {Initialize random DNN} 
+BCgi = BC(P 
+
+g 
+i ) 
+
+F gi = F (P 
+g 
+i ) 
+
+else 
+if i = 1 then 
+Pgi = P 
+
+g−1 
+i ;F 
+
+g 
+i = F 
+
+g−1 
+i {Copy most novel} 
+
+BCgi = BC 
+g−1 
+i 
+
+else 
+k = uniformRandom(1, T ) {Select parent} 
+Sample � ∼ N (0, I) 
+Pgi = P 
+
+g−1 
+k + σ� {mutate parent} 
+
+BCgi = BC(P 
+g 
+i ) 
+
+F gi = F (P 
+g 
+i ) 
+
+for i = 1, ..., N in next generation population do 
+N gi = dist(BC 
+
+g 
+i ,A ∪BCg) 
+
+Insert BCgi into A with probability p 
+Sort (Pg , BCg , F g) in descend order by N g 
+
+Return: high perform policy 
+
+

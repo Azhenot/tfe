@@ -1,0 +1,1619 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Multi-Level Variational Autoencoder: 
+Learning Disentangled Representations from 
+
+Grouped Observations 
+
+Diane Bouchacourt 
+OVAL Group 
+
+University of Oxford∗ 
+diane@robots.ox.ac.uk 
+
+Ryota Tomioka, Sebastian Nowozin 
+Machine Intelligence and Perception Group 
+
+Microsoft Research 
+Cambridge, UK 
+
+{ryoto,Sebastian.Nowozin}@microsoft.com 
+
+Abstract 
+We would like to learn a representation of the data which decomposes an obser- 
+vation into factor of variation which we can independently control. Specifically, 
+we want to use minimal supervision to learn a latent representation that reflect 
+the semantics behind a specific group of the data, where within a group the 
+sample share a common factor of variation. For example, consider a collection of 
+face image grouped by identity. We wish to anchor the semantics of the group 
+into a relevant and disentangle representation that we can easily exploit. How- 
+ever, exist deep probabilistic model often assume that the observation be 
+independent and identically distributed. We present the Multi-Level Variational 
+Autoencoder (ML-VAE), a new deep probabilistic model for learn a disen- 
+tangle representation of a set of grouped observations. The ML-VAE separate 
+the latent representation into semantically meaningful part by work both at 
+the group level and the observation level, while retain efficient test-time infer- 
+ence. Quantitative and qualitative evaluation show that the ML-VAE model (i) 
+learns a semantically meaningful disentanglement of grouped data, (ii) enables 
+manipulation of the latent representation, and (iii) generalises to unseen groups. 
+
+1 Introduction 
+Representation learn refers to the task of learn a representation of the data that can be easily 
+exploited, see Bengio et al. [2013]. In this work, our goal be to build a model that disentangles the data 
+into separate salient factor of variation and easily applies to a variety of task and different type of 
+observations. Towards this goal there be multiple difficulties. First, the representative power of the 
+learn representation depends on the information one wish to extract from the data. Second, the 
+multiple factor of variation impact the observation in a complex and correlate manner. Finally, we 
+have access to very little, if any, supervision over these different factors. If there be no specific meaning 
+to embed in the desire representation, the infomax principle, described in Linsker [1988], state that 
+an optimal representation be one of bound entropy which retains a much information about the 
+data a possible. However, we be interested in learn a semantically meaningful disentanglement 
+of interest latent factors. How can we anchor semantics in high-dimensional representations? 
+
+We propose group-level supervision: observation be organise in groups, where within a group the 
+observation share a common but unknown value for one of the factor of variation. For example, take 
+image of circle and stars, of possible color green, yellow and blue. A possible group organises 
+the image by shape (circled or starred). Group observation allow u to anchor the semantics of 
+the data (shape and color) into the learn representation. Group observation be a form of weak 
+supervision that be inexpensive to collect. In the above shape example, we do not need to know the 
+factor of variation that defines the grouping. 
+
+Deep probabilistic generative model learn expressive representation of a give set of observations. 
+Among them, Kingma and Welling [2014], Rezende et al. [2014] propose the very successful 
+
+∗The work be perform a part of an internship at Microsoft Research. 
+
+ar 
+X 
+
+iv 
+:1 
+
+70 
+5. 
+
+08 
+84 
+
+1v 
+1 
+
+[ 
+c 
+
+.L 
+G 
+
+] 
+2 
+
+4 
+M 
+
+ay 
+2 
+
+01 
+7 
+
+
+
+(a) Original VAE assumes i.i.d. ob- 
+servations. 
+
+(b) ML-VAE accumulates evi- 
+dence. 
+
+(c) ML-VAE generalises to unseen 
+shape and color and allows con- 
+trol on the latent code. 
+
+Figure 1: In (a) the VAE of Kingma and Welling [2014], Rezende et al. [2014], it assumes i.i.d. observations. In 
+comparison, (b) and (c) show our ML-VAE work at the group level. In (b) and (c) upper part of the latent 
+code be color, low part be shape. Black shape show the ML-VAE accumulate evidence on the shape from the 
+two grey shapes. E be the Encoder, D be the Decoder, G be the group operation. Best view in color. 
+
+Variational Autoencoder (VAE). In the VAE model, a network (the encoder) encodes an observation 
+into it latent representation (or latent code) and a generative network (the decoder) decodes an 
+observation from a latent code. The VAE model performs amortise inference, that is, the observation 
+parametrise the posterior distribution of the latent code, and all observation share a single set of 
+parameter to learn. This allows efficient test-time inference. However, the VAE model assumes 
+that the observation be independent and identically distribute (i.i.d.). In the case of grouped 
+observations, this assumption be no longer true. Considering the toy example of object grouped by 
+shape, the VAE model considers and process each observation independently. This be show in 
+Figure 1a. The VAE model take no advantage of the knowledge of the grouping. 
+
+How can we build a probabilistic model that easily incorporates this group information and 
+learns the correspond relevant representation? We could enforce equal representation within 
+group in a graphical model, use stochastic variational inference (SVI) for approximate posterior 
+inference, Hoffman et al. [2013]. However, such model pair with SVI cannot take advantage 
+of efficient amortise inference. As a result, SVI require more pass over the training data and 
+expensive test-time inference. Our propose model retains the advantage of amortise inference 
+while use the group information in a simple yet flexible manner. 
+
+We present the Multi-Level Variational Autoencoder (ML-VAE), a new deep probabilistic 
+model that learns a disentangle representation of a set of grouped observations. The ML-VAE 
+separate the latent representation into semantically meaningful part by work both at the group 
+level and the observation level. Without loss of generality we assume that there be two latent 
+factors, style and content. The content be common for a group, while the style can differ within 
+the group. We emphasise that our approach be general in that there can be more than two factors. 
+Moreover, for the same set of observations, multiple grouping be possible along different factor 
+of variation. To use group observation the ML-VAE us a group operation that separate the 
+latent representation into two parts, style and content, and sample in the same group have the same 
+content. This in turn make the encoder learn a semantically meaningful disentanglement. This 
+process be show in Figure 1b. For illustrative purposes, the upper part of the latent code represent 
+the style (color) and the low part the content (shape: circle or star). In Figure 1b, after be 
+encode the two circle share the same shape in the low part of the latent code (corresponding to 
+content). The variation within the group (style), in this case color, get naturally encode in the 
+upper part. Moreover, while the ML-VAE handle the case of a single sample in a group, if there be 
+multiple sample in a group the group operation increase the certainty on the content. This be 
+show in Figure 1b where black circle show that the model have accumulate evidence of the content 
+(circle) from the two disentangle code (grey circles). The group operation do not need to 
+know that the data be grouped by shape nor what shape and color represent; the only supervision be 
+the organisation of the data in groups. At test-time, the ML-VAE generalises to unseen realisation 
+of the factor of variation, for example the purple triangle in Figure 1c. Using the disentangle 
+representation, we can control the latent code and can perform operation such a swap part 
+of the latent representation to generate new observations, a show in Figure 1c. To sum-up, our 
+contribution be a follows. 
+
+• We propose the ML-VAE model to learn disentangle representation from group level 
+supervision; 
+
+2 
+
+
+
+• we extend amortize inference to the case of non-iid observations; 
+• we demonstrate experimentally that the ML-VAE model learns a semantically meaningful 
+
+disentanglement of grouped data; 
+• we demonstrate manipulation of the latent representation and generalises to unseen groups. 
+
+2 Related Work 
+Research have actively focus on the development of deep probabilistic model that learn to represent 
+the distribution of the data. Such model parametrise the learn representation by a neural network. 
+We distinguish between two type of deep probabilistic models. Implicit probabilistic model 
+stochastically map an input random noise to a sample of the model distribution. Examples of 
+implicit model include Generative Adversarial Networks (GANs) developed by Goodfellow et al. 
+[2014] and kernel base models, see Li et al. [2015], Dziugaite et al. [2015], Bouchacourt et al. 
+[2016]. The second type of model employ an explicit model distribution and build on variational 
+inference to learn it parameters. This be the case of the Variational Autoencoder (VAE) propose 
+by Kingma and Welling [2014], Rezende et al. [2014]. Both type of model have be extend to the 
+representation learn framework, where the goal be to learn a representation that can be effectively 
+employed. In the unsupervised setting, the InfoGAN model of Chen et al. [2016] adapts GANs to 
+the learn of an interpretable representation with the use of mutual information theory, and Wang 
+and Gupta [2016] use two sequentially connect GANs. The β-VAE model of Higgins et al. 
+[2017] encourages the VAE model to optimally use it capacity by increase the Kullback-Leibler 
+term in the VAE objective. This favor the learn of a meaningful representation. Abbasnejad 
+et al. [2016] us an infinite mixture a variational approximation to improve performance on 
+semi-supervised tasks. Contrary to our setting, these unsupervised model do not anchor a specific 
+meaning into the disentanglement. In the semi-supervised setting, i.e. when an output label be 
+partly available, Siddharth et al. [2017] learn a disentangle representation by introduce an 
+auxiliary variable. While related to our work, this model defines a semi-supervised factor of 
+variation. In the example of multi-class classification, it would not generalise to unseen classes. We 
+define our model in the group supervision setting, therefore we can handle unseen class at testing. 
+
+The VAE model have be extend to the learn of representation that be invariant to a 
+certain source of variation. In this context Alemi et al. [2017] build a meaningful representation 
+by use the Information Bottleneck (IB) principle, present by Tishby et al. [1999]. The 
+Variational Fair Autoencoder present by Louizos et al. [2016] encourages independence between 
+the latent representation and a sensitive factor with the use of a Maximum Mean Discrepancy 
+(MMD) base regulariser, while Edwards and Storkey [2015] us adversarial training. Finally, 
+Chen et al. [2017] control which part of the data get encode by the encoder and employ an 
+autoregressive architecture to model the part that be not encoded. While related to our work, these 
+model require supervision on the source of variation to be invariant to. In the specific case of 
+learn interpretable representation of images, Kulkarni et al. [2015] train an autoencoder with 
+minibatch where only one latent factor changes. Finally, Mathieu et al. [2016] learn a represen- 
+tation invariant to a certain source of data by combine autoencoders train in an adversarial manner. 
+
+Multiple work perform image-to-image translation between two unpaired image collec- 
+tions use GAN-based architectures, see Zhu et al. [2017], Kim et al. [2017], Yi et al. [2017], Fu 
+et al. [2017], Taigman et al. [2017], Shrivastava et al. [2017], Bousmalis et al. [2016], while Liu et al. 
+[2017] employ a combination of VAE and GANs. Interestingly, all these model require a form of 
+weak supervision that be similar to our setting. We can think of the two unpaired image collection 
+a two group of observe data, share image type (painting versus photograph for example). Our 
+work differs from theirs a we generalise to any type of data and number of groups. It be unclear how 
+to extend the cite model to the set of more than two group and other type of data. Also, we 
+do not employ multiple GANs model but a single VAE-type model. While not directly related to our 
+work, Murali et al. [2017] perform computer program synthesis use grouped user-supplied example 
+programs, and Allamanis et al. [2017] learn continuous semantic representation of mathematical and 
+logical expressions. Finally we mention the concurrent recent work of Donahue et al. [2017] which 
+disentangles the latent space of GANs. 
+3 Model 
+3.1 Amortised Inference with the Variational Autoencoder (VAE) Model 
+
+We define X = (X1, ..., XN ). In the probabilistic model framework, we assume that the observa- 
+tions X be generate by Z, the unobserved (latent) variables. The goal be to infer the value of the 
+
+3 
+
+
+
+Xi 
+
+Ziφi 
+
+θ 
+
+i ∈ [1, N ] 
+
+(a) SVI graphical model. 
+
+Xi 
+
+Ziφ 
+
+θ 
+
+i ∈ [1, N ] 
+
+(b) VAE graphical model. 
+
+Figure 2: VAE Kingma and Welling [2014], Rezende et al. [2014] and SVI Hoffman et al. [2013] graphical 
+models. Solid line denote the generative model, dash line denote the variational approximation. 
+
+latent variable that generate the observations, that is, to calculate the posterior distribution over the 
+latent variable p(Z|X; θ), which be often intractable. The original VAE model propose by Kingma 
+and Welling [2014], Rezende et al. [2014] approximate the intractable posterior with the use of a 
+variational approximation q(Z|X;φ), where φ be the variational parameters. Contrary to Stochastic 
+Variational Inference (SVI), the VAE model performs amortise variational inference, that is, the 
+observation parametrise the posterior distribution of the latent code, and all observation share a 
+single set of parameter φ. This allows efficient test-time inference. Figure 2 show the SVI and 
+VAE graphical models, we highlight in red that the SVI model do not take advantage of amortise 
+inference. 
+
+3.2 The ML-VAE for Grouped Observations 
+
+We now assume that the observation be organise in a set G of distinct groups, with a factor of 
+variation that be share among all observation within a group. The group form a partition 
+of [1, N ], i.e. each group G ∈ G be a subset of [1, N ] of arbitary size, disjoint of all other groups. 
+Without loss of generality, we separate the latent representation in two latent variable Z = (C, S) 
+with style S and content C. The content be the factor of variation along which the group be formed. 
+In this context, refer a the grouped observation case, the latent representation have a single 
+content latent variable per group CG. SVI can easily be adapt by enforce that all observation 
+within a group share a single content latent variable while the style remains untied, see Figure 3a. 
+However, employ SVI require iterative test-time inference since it do not perform amortise 
+inference. Experimentally, it also require more pass on the training data a we show in the 
+supplementary material. The VAE model assumes that the observation be i.i.d, therefore it do not 
+take advantadge of the grouping. In this context, the question be how to perform amortise inference 
+in the context of non-i.i.d., grouped observations? In order to tackle the aforementioned deficiency 
+we propose the Multi-Level VAE (ML-VAE). 
+
+We denote by XG the observation correspond to the group G. We explicitly model 
+each Xi in XG to have it independent latent representation for the style Si, and SG = (Si, i ∈ G). 
+CG be a unique latent variable share among the group for the content. The variational approxima- 
+tion q(CG,SG|XG;φ) factorises and φc and φs be the variational parameter for content and style 
+respectively. We assume that the style be independent in a group, so SG also factorises. Finally, give 
+style and content, the likelihood p(XG|CG,SG; θ) decomposes on the samples. This result in the 
+graphical model show Figure 3b. 
+We do not assume i.i.d. observations, but independence at the grouped observation level. The 
+
+average marginal log-likelihood decomposes over group of observation 
+1 
+
+|G| log p(X|θ) = 
+1 
+
+|G| 
+∑ 
+
+G∈G 
+log p(XG|θ). (1) 
+
+For each group, we can rewrite the marginal log-likelihood a the sum of the group Evidence 
+Lower Bound ELBO(G; θ, φs, φc) and the Kullback-Leibler divergence between the true poste- 
+rior p(CG,SG|XG; θ) and the variational approximation q(CG,SG|XG;φc). Since this Kullback- 
+Leibler divergence be always positive, the first term, ELBO(G; θ, φs, φc), be a low bound on the 
+marginal log-likelihood, 
+
+log p(XG|θ) = ELBO(G; θ, φs, φc) + KL(q(CG,SG|XG;φc)||p(CG,SG|XG; θ)) 
+≥ ELBO(G; θ, φs, φc). 
+
+(2) 
+
+4 
+
+
+
+Xi 
+
+Si CGφs,i φc,G 
+
+θ 
+
+i ∈ G 
+G ∈ G 
+
+(a) SVI for grouped observations. 
+
+Xi 
+
+Si CGφs φc 
+
+θ 
+
+i ∈ G 
+G ∈ G 
+
+(b) Our ML-VAE. 
+
+Figure 3: SVI Hoffman et al. [2013] and our ML-VAE graphical models. Solid line denote the generative model, 
+dash line denote the variational approximation. 
+
+The ELBO(G; θ, φs, φc) for a group be 
+
+ELBO(G; θ, φs, φc) = 
+∑ 
+
+i∈G 
+Eq(CG|XG;φc)[Eq(Si|Xi;φs)[log p(Xi|CG, Si; θ)]] 
+
+− 
+∑ 
+
+i∈G 
+KL(q(Si|Xi;φs)||p(Si))− KL(q(CG|XG;φc)||p(CG)). 
+
+(3) 
+
+We define the average group ELBO over the dataset, L(G, θ, φc, φs) := 
+1 
+
+|G| 
+∑ 
+
+G∈G 
+ELBO(G; θ, φs, φc) 
+
+and we maximise L(G, φc, φs, θ). It be a low bound on 
+1 
+
+|G| log p(X|θ) because each group Evidence 
+Lower Bound ELBO(G; θ, φs, φc) be a low bound on p(XG|θ), therefore, 
+
+1 
+
+|G| log p(X|θ) = 
+1 
+
+|G| 
+∑ 
+
+G∈G 
+log p(XG|θ) ≥ L(G, φc, φs, θ). (4) 
+
+In comparison, the original VAE model maximises the average ELBO over individual samples. In 
+practise, we build an estimate of L(G, θ, φc, φs) use minibatches of group. 
+
+L(Gb, θ, φc, φs) = 
+1 
+
+|Gb| 
+∑ 
+
+G∈Gb 
+ELBO(G; θ, φs, φc). (5) 
+
+If we take each group G ∈ Gb, in it entirety this be an unbiased estimate. When the group size 
+be too large, for efficiency, we subsample G and this estimate be biased. We discus the bias in the 
+supplementary material. The result algorithm be show in Algorithm 1. 
+
+For each group G, in step 7 of Algorithm 1 we build the group content distribution by accumulate 
+information from the result of encode each sample in G. The question be how can we accumulate 
+the information in a relevant manner to compute the group content distribution? 
+
+3.3 Accumulating Group Evidence use a Product of Normal density 
+
+Our idea be to build the variational approximation of the single group content variable, q(CG|XG;φc), 
+from the encode of the grouped observation XG. While any distribution could be employed, we 
+focus on use a product of Normal density functions. Other possibilities, such a a mixture of 
+density functions, be discuss in the supplementary material. 
+
+We construct the probability density function of the latent variable CG take the value c 
+by multiply |G| normal density functions, each of them evaluate the probability of CG = c 
+give Xi = xi, i ∈ G, 
+
+q(CG = c|XG = xG;φc) ∝ 
+∏ 
+
+i∈G 
+q(CG = c|Xi = xi;φc), (6) 
+
+where we assume q(CG|Xi = xi;φc) to be a Normal distribution N(µi,Σi). Murphy [2007] show 
+that the product of two Gaussians be a Gaussian. Similarly, in the supplementary material we show 
+
+5 
+
+
+
+that q(CG = c|XG = xG;φc) be the density function of a Normal distribution of mean µG and 
+variance ΣG 
+
+Σ−1G = 
+∑ 
+
+i∈G 
+Σ−1i , µ 
+
+T 
+GΣ 
+−1 
+G = 
+
+∑ 
+
+i∈G 
+µTi Σ 
+
+−1 
+i . (7) 
+
+It be interest to note that the variance of the result Normal distribution, ΣG, be inversely 
+proportional to the sum of the group’s observation inverse variance 
+
+∑ 
+i∈G Σ 
+
+−1 
+i . Therefore, we 
+
+expect that by increase the number of observation in a group, the variance of the result 
+distribution decreases. This be what we refer a “accumulating evidence”. We empirically in- 
+vestigate this effect in Section 4. Since the result distribution be a Normal distribution, the 
+term KL(q(CG|XG;φc)||p(CG)) can be evaluate in closed-form. We also assume a Normal distri- 
+bution for q(Si|Xi;φs), i ∈ G. 
+4 Experiments 
+We evaluate the ML-VAE on images, other form of data be possible and we leave these for future 
+work. In all experiment we use the Product of Normal method present in Section 3.3 to construct 
+the content latent representation. Our goal with the experiment be twofold. First, we want to evaluate 
+the performance of ML-VAE to learn a semantically meaningful disentangle representation. Second, 
+we want to explore the impact of “accumulating evidence” described in Section 3.3. Indeed when we 
+encode test image two strategy be possible: strategy 1 be disregard the group information 
+of the test samples, i.e. each test image be a group; and strategy 2 be consider the group 
+information of the test samples, i.e. take multiple test image per identity to construct the content 
+latent representation. 
+
+MNIST dataset. We evaluate the ML-VAE on MNIST Lecun et al. [1998]. We consider the data 
+grouped by digit label, i.e. the content latent code C should encode the digit label. We randomly 
+separate the 60, 000 training example into 50, 000 training sample and 10, 000 validation samples, 
+and use the standard MNIST test set. For both the encoder and decoder, we use a simple 
+architecture of 2 linear layer (detailed in the supplementary material). 
+
+MS-Celeb-1M dataset. Next, we evaluate the ML-VAE on the face align version of the MS- 
+Celeb-1M dataset Guo et al. [2016]. The dataset be construct by retrieve approximately 100 
+image per celebrity from popular search engines, and noise have not be remove from the dataset. 
+For each query, we consider the top ten result (note there be multiple query per celebrity, therefore 
+some identity have more than 10 images). This creates a dataset of 98, 880 entity for a total 
+of 811, 792 images, and we group the data by identity. Importantly, we randomly separate the dataset 
+in disjoints set of identity a the training, validation and test datasets. This way we evaluate the 
+ability of ML-VAE level to generalise to unseen group (unseen identities) at test-time. The training 
+dataset consists of 48, 880 identity (total 401, 406 images), the validation dataset consists of 25, 000 
+identity (total 205, 015 images) and the test dataset consists of 25, 000 identity (total 205, 371 
+images). The encoder and the decoder network architectures, compose of either convolutional or 
+
+Algorithm 1: ML-VAE training algorithm. 
+1 for Each epoch do 
+2 Sample minibatch of group Gb, 
+3 for G ∈ Gb do 
+4 for i ∈ G do 
+5 Encode xi into q(CG|Xi = xi;φc), q(Si|Xi = xi;φs), 
+6 end 
+7 Construct q(CG|XG = xG;φc) use q(CG|Xi = xi;φc),∀i ∈ G, 
+8 for i ∈ G do 
+9 Sample cG,i ∼ q(CG|XG = xG;φc), si ∼ q(Si|Xi = xi;φs) , 
+
+10 Decode cG,i, si to obtain p(Xi|CG = cG,i, Si = si; θ), 
+11 end 
+12 end 
+13 Update θ, φc, φs by take a gradient step of Equation (5): ∇θ,φc,φsL(Gb, θ, φc, φs) 
+14 end 
+
+6 
+
+
+
+(a) MNIST, test dataset. (b) MS-Celeb-1M, test dataset. 
+Figure 4: Swapping, first row and first column be test data sample (green boxes), second row and column be 
+reconstruct sample (blue boxes) and the rest be swap reconstruct sample (red boxes). Each row be 
+fix style and each column be a fix content. Best view in color on screen. 
+
+deconvolutional and linear layers, be detailed in the supplementary material. We resize the image 
+to 64× 64 pixel to fit the network architecture. 
+
+Qualitative Evaluation. As explain in Mathieu et al. [2016], there be no standard benchmark 
+dataset or metric to evaluate a model on it disentanglement performance. Therefore similarly 
+to Mathieu et al. [2016] we perform qualitative and quantitative evaluations. We qualitatively ass 
+the relevance of the learn representation by perform operation on the latent space. First we 
+perform swapping: we encode test images, draw a sample per image from it style and content 
+latent representations, and swap the style between images. Second we perform interpolation: we 
+encode a pair of test images, draw one sample from each image style and content latent codes, and 
+linearly interpolate between the style and content samples. We present the result of swap and 
+interpolation with accumulate evidence of 10 other image in the group (strategy 2). Results 
+without accumulate evidence (strategy 1) be also convincing and available in the supplementary 
+material. We also perform generation: for a give test identity, we build the content latent code by 
+accumulate image of this identity. Then take the mean of the result content distribution and 
+generate image with style sample from the prior. Finally in order to explore the benefit of take 
+into account the group information, for a give test identity, we reconstruct all image for this 
+identity use both these strategy and show the result images. Figure 4 show the swap 
+procedure, where the first row and the first column show the test data sample input to ML-VAE, 
+
+(a) Generation, the green boxed image be all the 
+test data image for this identity. On the right, sam- 
+pling from the random prior for the style and use 
+the mean of the grouped image latent code. 
+
+(b) Interpolation, from top left to bottom right row 
+correspond to a fix style and interpolate on the 
+content, column correspond to a fix content and 
+interpolate on the style. 
+
+Figure 5: Left: Generation. Right: Interpolation. Best view in color on screen. 
+
+7 
+
+
+
+(a) The four digit be of 
+the same label. 
+
+(b) The four image be of 
+the same person. 
+
+(c) Quantitative Evaluation. For clarity on MNIST 
+we show up to k = 10 a value stay stationary for 
+large k (in supplementary material). 
+
+Figure 6: Accumulating evidence (acc. ev.). Left column be test data samples, middle column be reconstruct 
+sample without acc. ev., right column be reconstruct sample with acc. ev. from the four images. In (a), 
+ML-VAE corrects inference (wrong digit label in first row second column) with acc. ev. (correct digit label in 
+first row third column). In (b), where image of the same identity be take at different ages, ML-VAE benefit 
+from group information and the facial trait with acc. ev. (third column) be more constant than without acc. ev. 
+(second column). Best view in color on screen. 
+
+second row and column be reconstruct samples. Each row be a fix style and each column be a 
+fix content. We see that the ML-VAE disentangles the factor of variation of the data in a relevant 
+manner. In the case of MS-Celeb-1M, we see that the model encodes the factor of variation that 
+grouped the data, that be the identity, into the facial trait which remain constant when we change 
+the style, and encodes the style into the remain factor (background color, face orientation for 
+example). The ML-VAE learns this meaningful disentanglement without the knowledge that the 
+image be grouped by identity, but only the organisation of the data into groups. Figure 5 show 
+interpolation and generation. We see that our model cover the manifold of the data, and that style 
+and content be disentangled. In Figures 6a and 6b, we reconstruct image of the same group with and 
+without take into account the group information. We see that the ML-VAE handle case where 
+there be no group information at test-time, and benefit from accumulate evidence if available. 
+Quantitative Evaluation. In order to quantitatively evaluate the disentanglement power of ML- 
+VAE, we use the style latent code S and content latent code C a feature for a classification task. The 
+quality of the disentanglement be high if the content C be informative about the class, while the style S 
+be not. In the case of MNIST the class be the digit label and for MS-Celeb-1M the class be the identity. 
+We emphasise that in the case of MS-Celeb-1M test image be all unseen class (unseen identities) 
+at training. We learn to classify the test image with a neural network classifier compose of two 
+linear layer of 256 hidden unit each, once use S and once use C a input features. Again we 
+explore the benefit of accumulate evidence: while we construct the variational approximation on 
+the content latent code by accumulate K image per class for training the classifier, we accumulate 
+only k ≤ K image per class at test time, where k = 1 corresponds to no group information. When k 
+increase we expect the performance of the classifer train on C to improve a the feature become 
+more informative and the performance use feature S to remain constant. We compare to the 
+original VAE model, where we also accumulate evidence by use the Product of Normal method on 
+the VAE latent code for sample of the same class. The result be show in Figure 6c. The ML-VAE 
+content latent code be a informative about the class a the original VAE latent code, both in term of 
+classification accuracy and conditional entropy. ML-VAE also provide relevant disentanglement a 
+the style remains uninformative about the class. Details on the choice of K and this experiment be 
+in the supplementary material. 
+5 Discussion 
+We propose the Multi-Level VAE model for learn a meaningful disentanglement from a set of 
+grouped observations. The ML-VAE model handle an arbitrary number of group of observations, 
+which need not be the same at training and testing. We propose different method for incorporate 
+the semantics embed in the grouping. Experimental evaluation show the relevance of our method, 
+a the ML-VAE learns a semantically meaningful disentanglement, generalises to unseen group and 
+enables control on the latent representation. For future work, we wish to apply the ML-VAE to text 
+data. 
+
+8 
+
+
+
+References 
+Ehsan Abbasnejad, Anthony R. Dick, and Anton van den Hengel. Infinite variational autoencoder for 
+
+semi-supervised learning. arXiv preprint arXiv:1611.07800, 2016. 
+
+Alexander A. Alemi, Ian Fischer, Joshua V. Dillon, and Kevin Murphy. Deep variational information 
+bottleneck. ICLR, 2017. 
+
+Miltiadis Allamanis, Pankajan Chanthirasegaran, Pushmeet Kohli, and Charles Sutton. Learning 
+continuous semantic representation of symbolic expressions. arXiv preprint 1611.01423, 2017. 
+
+Yoshua Bengio, Aaron Courville, and Pascal Vincent. Representation learning: A review and new 
+perspectives. IEEE Trans. Pattern Anal. Mach. Intell., 35(8):1798–1828, August 2013. ISSN 
+0162-8828. 
+
+Diane Bouchacourt, Pawan Kumar Mudigonda, and Sebastian Nowozin. DISCO net : Dissimilarity 
+coefficient networks. NIPS, 2016. 
+
+Konstantinos Bousmalis, Nathan Silberman, David Dohan, Dumitru Erhan, and Dilip Krishnan. 
+Unsupervised pixel-level domain adaptation with generative adversarial networks. arXiv preprint 
+arXiv:1612.05424, 2016. 
+
+Xi Chen, Yan Duan, Rein Houthooft, John Schulman, Ilya Sutskever, and Pieter Abbeel. InfoGAN: 
+Interpretable representation learn by information maximize generative adversarial nets. NIPS, 
+2016. 
+
+Xi Chen, Diederik P. Kingma, Tim Salimans, Yan Duan, Prafulla Dhariwal, John Schulman, Ilya 
+Sutskever, and Pieter Abbeel. Variational lossy autoencoder. ICLR, 2017. 
+
+Chris Donahue, Akshay Balsubramani, Julian McAuley, and Zachary C. Lipton. Semantically 
+decompose the latent space of generative adversarial networks. arXiv preprint 1705.07904, 
+2017. 
+
+Gintare Karolina Dziugaite, Daniel M. Roy, and Zoubin Ghahramani. Training generative neural 
+network via maximum mean discrepancy optimization. UAI, 2015. 
+
+Harrison Edwards and Amos J. Storkey. Censoring representation with an adversary. CoRR, 2015. 
+
+T.-C. Fu, Y.-C. Liu, W.-C. Chiu, S.-D. Wang, and Y.-C. F. Wang. Learning Cross-Domain 
+Disentangled Deep Representation with Supervision from A Single Domain. arXiv preprint 
+arXiv:1705.01314, 2017. 
+
+Ian Goodfellow, Jean Pouget-Abadie, Mehdi Mirza, Bing Xu, David Warde-Farley, Sherjil Ozair, 
+Aaron Courville, and Yoshua Bengio. Generative adversarial nets. NIPS, 2014. 
+
+Yandong Guo, Lei Zhang, Yuxiao Hu, Xiaodong He, and Jianfeng Gao. MS-Celeb-1M: A dataset 
+and benchmark for large scale face recognition. ECCV, 2016. 
+
+Irina Higgins, Loic Matthey, Arka Pal, Christopher Burgess, Xavier Glorot, Matthew Botvinick, 
+Shakir Mohamed, and Alexander Lerchner. beta-VAE: Learning basic visual concept with a 
+constrain variational framework. ICLR, 2017. 
+
+Matthew D. Hoffman, David M. Blei, Chong Wang, and John Paisley. Stochastic variational inference. 
+JMLR, 2013. 
+
+T Kim, M Cha, H Kim, J Lee, and J Kim. Learning to discover cross-domain relation with generative 
+adversarial networks. arXiv preprint arXiv:1703.05192, 2017. 
+
+Diederik P. Kingma and Max Welling. Auto-Encoding Variational Bayes. ICLR, 2014. 
+
+Tejas D Kulkarni, Will Whitney, Pushmeet Kohli, and Joshua B Tenenbaum. Deep convolutional 
+inverse graphic network. NIPS, 2015. 
+
+Yann Lecun, Léon Bottou, Yoshua Bengio, and Patrick Haffner. Gradient-based learn apply to 
+document recognition. Proceedings of the IEEE, page 2278–2324, 1998. 
+
+Yujia Li, Kevin Swersky, and Richard S. Zemel. Generative moment match networks. ICML, 
+2015. 
+
+Ralph Linsker. Self-organization in a perceptual network. Computer, 21(3):105–117, 1988. 
+
+Ming-Yu Liu, Thomas Breuel, and Jan Kautz. Unsupervised image-to-image translation networks. 
+arXiv preprint arXiv:1703.00848, 2017. 
+
+9 
+
+
+
+Christos Louizos, Kevin Swersky, Yujia Li, Max Welling, and Richard S. Zemel. The variational fair 
+autoencoder. ICLR, 2016. 
+
+Michael F Mathieu, Junbo Jake Zhao, Junbo Zhao, Aditya Ramesh, Pablo Sprechmann, and Yann 
+LeCun. Disentangling factor of variation in deep representation use adversarial training. NIPS, 
+2016. 
+
+Vijayaraghavan Murali, Swarat Chaudhuri, and Chris Jermaine. Bayesian sketch learn for program 
+synthesis. arXiv preprint arXiv:1703.05698v2, 2017. 
+
+Kevin P. Murphy. Conjugate Bayesian Analysis of the Gaussian Distribution. Technical report, 2007. 
+Danilo Jimenez Rezende, Shakir Mohamed, and Daan Wierstra. Stochastic backpropagation and 
+
+approximate inference in deep generative models. ICML, 2014. 
+Ashish Shrivastava, Tomas Pfister, Oncel Tuzel, Josh Susskind, Wenda Wang, and Russ Webb. 
+
+Learning from simulated and unsupervised image through adversarial training. arXiv preprint 
+arXiv:1612.07828, 2017. 
+
+N. Siddharth, Brooks Paige, Alban Desmaison, Frank Wood, and Philip Torr. Learning disentangle 
+representation in deep generative models. Submitted to ICLR, 2017. 
+
+Yaniv Taigman, Adam Polyak, and Lior Wolf. Unsupervised cross-domain image generation. ICLR, 
+2017. 
+
+N. Tishby, F. C. Pereira, and W. Bialek. The information bottleneck method. 37th annual Allerton 
+Conference on Communication, Control and Computing, 1999. 
+
+Xiaolong Wang and Abhinav Gupta. Generative image model use style and structure adversarial 
+networks. ECCV, 2016. 
+
+Zili Yi, Hao Zhang, Ping Tan, and Minglun Gong. Dualgan: Unsupervised dual learn for 
+image-to-image translation. arXiv preprint arXiv:1704.02510, 2017. 
+
+Jun-Yan Zhu, Taesung Park, Phillip Isola, and Alexei A Efros. Unpaired image-to-image translation 
+use cycle-consistent adversarial networks. arXiv preprint arXiv:1703.10593, 2017. 
+
+10 
+
+
+
+Multi-Level Variational Autoencoder: 
+Learning Disentangled Representations from 
+
+Grouped Observations 
+Supplementary Material 
+
+Diane Bouchacourt 
+OVAL Group 
+
+University of Oxford∗ 
+diane@robots.ox.ac.uk 
+
+Ryota Tomioka, Sebastian Nowozin 
+Machine Intelligence and Perception Group 
+
+Microsoft Research 
+Cambridge, UK 
+
+{ryoto,Sebastian.Nowozin}@microsoft.com 
+
+1 Mixture of Normals Method 
+We discus here a method to construct the variational approximation q(CG = c|XG = xG, φc) a a 
+mixture of |G| density functions, each of them evaluate the probability of CG = c give Xi = xi. 
+This be an alternative to the Product of Normals method. 
+
+q(CG = c|XG = xG, φc) = 
+1 
+
+|G| 
+
+|G|∑ 
+
+i=1 
+
+q(CG = c|Xi = xi, φc) (1) 
+
+We assume q(CG|Xi = xi, φc) to be a Normal distribution N(µi,Σi). However, the 
+term KL(q(CG|XG;φc)||p(CG)) can not be compute in close form 
+
+KL(q(CG|XG;φc)||p(CG)) = Eq(CG|XG,φc)[log q(CG|XG, φc)− log p(CG)] 
+= Eq(CG|XG,φc)[log q(CG|XG, φc)]− Eq(CG|XG,φc)[log p(CG)] 
+
+(2) 
+
+We estimate this term by sample L sample cl ∼ q(CG|XG;φc) and compute the estimate: 
+
+1 
+
+L 
+
+L∑ 
+
+l=1 
+
+log 
+1 
+
+|G| 
+
+|G|∑ 
+
+i=1 
+
+q(CG = cl|Xi = xi, φc)− 
+1 
+
+L 
+
+L∑ 
+
+l=1 
+
+log p(CG = cl) (3) 
+
+In our experiment we use L = |G| a we use the sample we draw to compute the first term of the 
+objective function, that be 
+
+∑ 
+
+i∈G 
+Eq(CG|XG;φc)[Eq(Si|Xi;φs)[log p(Xi|CG, Si; θ)]]. 
+
+Figures 1 show the qualitative result of the Mixture of Normal method. Qualitative evaluation 
+indicate a good disentanglement with the Product of Normal method therefore we focus on the 
+Product. On MS-Celeb-1M, the Mixture of Normal density seem to store information about the 
+group into the style: when style get transfered, the facial feature along the column (which 
+should remain constant a it be the same identity) tend to change2. Nevertheless, we present it a it 
+might be good suit to other datasets and other tasks. 
+
+2 Experimental Details 
+In all experiment we use the Adam optimiser present in Kingma and Ba [2015] with α = 
+0.001, β1 = 0.9, β2 = 0.999, � = 1e− 8. We use diagonal covariance for the Normal variational 
+
+∗The work be perform a part of an internship at Microsoft Research. 
+2The previous version of the supplementary material have the wrong figure on MS-Celeb-1M (computed with 
+
+another model). This update figure show the actual result and emphasize the conclusion that information 
+about content be store in the style. 
+
+
+
+(a) MNIST, test dataset. (b) MS-Celeb-1M, test dataset. 
+Figure 1: ML-VAE with Mixture of Normal densities. We intentionally show the same image a the ML-VAE with 
+Product of Normal for comparison purposes. Swapping, first row and first column be test data sample (green 
+boxes), second row and column be reconstruct sample (blue boxes) and the rest be swap reconstruct 
+sample (red boxes). Each row be fix style and each column be a fix content. Best view in color on screen. 
+As we mention, compare to ML-VAE with Product of Normal, the Mixture of Normal seem to store information 
+about the group into the style. 
+
+approximation q(SG|XG;φs), q(CG|XG;φc). in both experiment we use a Normal distribution 
+with diagonal covariance for the posterior p(Xi|CG, Si; θ). We train the model for 2000 epoch on 
+MNIST and 250 epoch on MS-Celeb-1M. When we compare the original VAE and the ML-VAE we 
+use early stop on the validation set for MS-Celeb-1M a the architecture be large and prone to 
+over-fitting. In the specific case of Stochastic Variational Inference (SVI) Hoffman et al. [2013], for 
+MNIST we train the model for 2000 epoch and proceed to 40000 epoch of inference at test-time, 
+and for MS-Celeb-1M we use 500 training epoch and proceed to 200 epoch of inference at test-time. 
+
+2.1 Networks Architectures 
+
+MNIST Lecun et al. [1998]. We use an encoder network compose of a first linear layer e0 
+that take a input a 1 × 784-dimensional MNIST image xi, xi be a realisation of Xi. Layer e0 
+have 500 hidden unit and the hyperbolic tangent activation function. After layer e0 we separate the 
+network into 4 linear layers,em,s, ev,s and ,em,c, ev,c each of size 500× d where d be the dimension 
+of both latent representation S and C. The layer em,s, ev,s take a input the output of e0 and 
+output respectively the mean and log-variance of the Normal distribution q(Si|Xi = xi;φs). The 
+layer em,c, ev,c take a input the output of l0 and output respectively the mean and variance of the 
+Normal distribution q(CG|Xi = xi;φc). 
+
+We then construct q(CG|XG;φc) from q(CG|Xi = xi;φc), i ∈ G. Let u denote G the 
+group in which xi belongs. As explain in step 9 of Algorithm 1 in the main paper, for each 
+input xi we draw a sample cG,i ∼ q(CG|XG = xG;φc) for the content of the group G, and a 
+sample si ∼ q(Si|Xi = xi;φs) of the style latent representation. We concatenate (cG,i, si) into 
+a 2× d-dimensional vector that be fed to the decoder. 
+
+The decoder network be compose of a first linear layer d0 that take a input the 2 × d- 
+dimensional vector (cG,i, si). Layer d0 have 500 hidden unit and the hyperbolic tangent activation 
+function. A second linear layer d2 take a input the output of d0 and output a 784-dimensional 
+vector representating the parameter of the Normal distribution p(Xi|CG, Si; θ). We use in our 
+experiment d = 10 for a total latent representation size of respectively 20. 
+
+MS-Celeb-1M Guo et al. [2016]. We use an encoder network compose of a four convo- 
+lutional layer e1, e2, e3, e4 all of stride 2 and kernel size 4. They be compose of respec- 
+tively 64, 128, 256and512 filters. All four layer be follow by Batch Normalisation and Rectified 
+Linear Units (ReLU) activation functions. The fifth and sixth layer e5, e6 be linear layer with 256 
+hidden units, follow by Batch Normalisation and Concatenated Rectified Linear Unit (CReLU) 
+activation functions. Similarly to the MNIST architecture, after layer e6 we separate the network 
+
+2 
+
+
+
+into 4 linear layers,em,s, ev,s and ,em,c, ev,c each of size 256× 2× d where d be the dimension of 
+both latent representation S and C. The layer for the log-variances be follow by the tangent 
+hyperbolic activation function and multiply by 5. 
+
+Similarly a the MNIST experiment we construct the latent representation and sample it a 
+explain in Algorithm 1 in the main paper. 
+
+The decoder network be compose of 3 deconvolutional layer d1, d2, d3 all of stride 2 and 
+kernel size 4. They be compose of respectively 256, 128, 64 filters. All four layer be follow 
+by Batch Normalisation and Rectified Linear Units (ReLU) activation functions. The seventh and 
+eight layer be deconvolutional layer compose of 3 filters, of stride 1 and kernel size 3 and output 
+respectively the mean and log-variance of the Normal distribution p(Xi|CG, Si; θ). The layer for 
+the log-variances be follow by the tangent hyperbolic activation function and multiply by 5. 
+We use in our experiment d = 50 for a total latent representation size 100. We use pad in the 
+convolutional and deconvolutional layer to match the data size. 
+
+Specific case for Stochastic Variational Inference (SVI) Hoffman et al. [2013]. We compare in 
+our experiment with Stochastic Variational Inference (SVI), from Hoffman et al. [2013]. In the case 
+of SVI, the encoder be an embed layer mapping each sample xi in a group G to the non-shared 
+parameter φs,i of it style latent representation q(Si|φs,i) and to the non-shared parameter φc,G of 
+it group content latent representation q(CG|φc,G). The decoder be the same a the ML-VAE. 
+
+3 Quantitative Evaluation detail 
+We explain in Section 4 of the main paper how we quantitatively evaluate the disentanglement 
+performance of our model. We give detail here for the interested reader. Figure 2 show the 
+quantitative evaluation for k up to k = K = 100 on MNIST. 
+
+Figure 2: Quantitative Evaluation. 
+
+3.1 Classifier architecture 
+
+The classifier be a neural network compose of two linear layer of 256 hidden unit each. The 
+first layer be followd by a tangent hyperbolic activation function. The second layer be follow by a 
+softmax activation function. We use the cross-entropy loss. We use the Adam optimiser present 
+in Kingma and Ba [2015] with α = 0.001, β1 = 0.9, β2 = 0.999, � = 1e− 8. Note that the training, 
+validation and test set for the classifier be all compose of test images, and each set be compose 
+of K time the number of classes; hence our choice of K and number of class for MS-Celeb-1M. 
+In the case of MNIST, there be only 10 classes, therefore when k be small we would take only a 
+small number of image to test the classifier. Therefore we perform 5 trial of test procedure of the 
+classifier, each trial use different test images, and report the mean performance. 
+
+3 
+
+
+
+3.2 Conditional entropy computation. 
+
+We show here that training the neural network classifier with the cross-entropy loss be a proxy for 
+minimise the conditional entropy of the class give the latent code feature C or S. 
+
+Let u take the example of the latent code C use a features. We denote a class Y and 
+we train the neural network classifier to model the distribution r(Y |C) by minimise the 
+cross-entropy loss, which corresponds to maximise Ep(Y,C)[log r(Y |C)] where p(Y,C) be 
+estimate use sample 
+
+Sample a class y ∼ p(Y ), 
+Sample grouped observation for this class xGY ∼ p(XGY ), 
+Sample the latent code to use a feature cGY ∼ q(CGY |XGY , φc) 
+
+(4) 
+
+The conditional entropy of the class Y give the latent code C be express a 
+
+H(Y |C) = −Ep(Y,C [log p(Y |C)] (5) 
+
+We can write 
+
+H(Y |C) = −Ep(Y,C [log p(Y |C)] = −Ep(Y,C)[log 
+p(Y |C) 
+r(Y |C)r(Y |C)] 
+
+= −Ep(Y,C)[log r(Y |C)]− Ep(Y,C)[log 
+p(Y |C) 
+r(Y |C) ] 
+
+= −Ep(Y,C)[log r(Y |C)]− Ep(Y,C)[log 
+p(Y,C) 
+
+r(Y,C) 
+] 
+
+= −Ep(Y,C)[log r(Y |C)]− KL(p(Y,C)||r(Y,C)) ≤ −Ep(Y,C)[log r(Y |C)] 
+
+(6) 
+
+since the Kullback-Leibler be always positive. Therefore, training the neural network classifier to 
+minimise the cross-entropy loss be equivalent to minimise an upper bound on the conditional entropy 
+of the class give the latent code feature C. We report the value of Ep(Y,C)[log r(Y |C)] on the 
+classifier test set in the paper a the report Conditional entropy in bits. Similarly we report the 
+performance with the style latent code or the latent code of the original VAE model. 
+
+4 ML-VAE with Product of Normal Without Accumulating Evidence 
+We show in Figure 3 and 4 the result of swap and interpolation of the ML-VAE with Product of 
+Normal without accumulate evidence (strategy 1 in the main paper). We intentionally show the 
+same image for comparison purposes. 
+
+(a) MNIST, test dataset. (b) MS-Celeb-1M, test dataset. 
+Figure 3: ML-VAE with Product of Normal without accumulate evidence. Swapping, first row and first column 
+be test data sample (green boxes), second row and column be reconstruct sample (blue boxes) and the rest 
+be swap reconstruct sample (red boxes). Each row be fix style and each column be a fix content. Best 
+view in color on screen. 
+
+4 
+
+
+
+Figure 4: ML-VAE without accumulate evidence. Interpolation, from top left to bottom right row 
+correspond to a fix style and interpolate on the content, column correspond to a fix content and 
+interpolate on the style. 
+
+5 Accumulating Group Evidence use a Product of Normal densities: 
+Detailed derivation 
+
+We construct the probability density function of the random variable CG by multiply |G| normal 
+density functions, each of them evaluate the probability of CG under the realisation Xi = xi, 
+where i ∈ G. 
+
+q(CG|XG = xG;φc) ∝ 
+∏ 
+
+i∈G 
+q(CG|Xi = xi;φc) (7) 
+
+We assume q(CG|Xi = xi;φc) to be a Normal distribution N(µi,Σi). The normalisation constant be 
+the result product marginalise over all possible value of CG. 
+
+The result of the product of |G| normal density function be proportional to the density 
+function of a Normal distribution of mean µG and variance ΣG. 
+
+Σ−1G = 
+∑ 
+
+i∈G 
+Σ−1i 
+
+µTGΣ 
+−1 
+G = 
+
+∑ 
+
+i∈G 
+µTi Σ 
+
+−1 
+i 
+
+(8) 
+
+5 
+
+
+
+We show below how we derive the expression of mean µG and variance ΣG. 
+
+∏ 
+
+i∈G 
+q(CG = c|Xi = xi;φc) = 
+
+∏ 
+
+i∈G 
+
+1√ 
+(2π)d|Σi| 
+
+exp 
+( 
+− 1 
+
+2 
+(c− µi)TΣ−1i (c− µi) 
+
+) 
+
+= K1 exp 
+( 
+− 1 
+
+2 
+
+∑ 
+
+i∈G 
+(c− µi)TΣ−1i (c− µi) 
+
+) 
+
+= K1 exp 
+( 
+− 1 
+
+2 
+( 
+∑ 
+
+i∈G 
+cTΣ−1i c+ µ 
+
+T 
+i Σiµi − 2µTi Σ−1i c) 
+
+) 
+
+= K1K2 exp 
+(∑ 
+
+i∈G 
+µTi Σ 
+
+−1 
+i c− 
+
+1 
+
+2 
+cTΣ−1i c 
+
+) 
+
+= K1K2 exp 
+(∑ 
+
+i∈G 
+µTi Σ 
+
+−1 
+i c− 
+
+1 
+
+2 
+cT 
+∑ 
+
+i∈G 
+Σ−1i c 
+
+) 
+
+= K1K2 exp 
+( 
+µTGΣ 
+
+−1 
+G c− 
+
+1 
+
+2 
+cTΣ−1G c 
+
+) 
+
+= K1K2 exp 
+( 
+− 1 
+
+2 
+(cTΣ−1G c− 2µTGΣ−1G c) 
+
+) 
+
+= K1K2 exp 
+( 
+− 1 
+
+2 
+(cTΣ−1G c− 2µTGΣ−1G c+ µTGΣ−1G µG − µTGΣ−1G µG) 
+
+) 
+
+= K1K2 exp(−µTGΣ−1G µG) exp 
+( 
+− 1 
+
+2 
+(cTΣ−1G c− 2µTGΣ−1G c+ µTGΣ−1G µG 
+
+) 
+
+= K1K2K3 exp 
+( 
+− 1 
+
+2 
+(cTΣ−1G c− 2µTGΣ−1G c+ µTGΣ−1G µG 
+
+) 
+
+= K1K2K3K4 
+1√ 
+
+(2π)d|ΣG| 
+exp 
+
+( 
+− 1 
+
+2 
+(c− µG)TΣ−1G (c− µG) 
+
+) 
+
+(9) 
+
+where d be the dimensionality of c and 
+
+K1 = 
+∏ 
+
+i∈G 
+
+1√ 
+(2π)d|Σi| 
+
+K2 = exp(− 
+1 
+
+2 
+
+∑ 
+
+i∈G 
+µTi Σ 
+
+−1 
+i µi) 
+
+K3 = exp( 
+1 
+
+2 
+µTGΣ 
+
+−1 
+G µG) 
+
+K4 = 
+√ 
+
+(2π)d|ΣG| 
+
+(10) 
+
+This be a normal distribution, scale by K1K2K3K4, of mean µG and variance ΣG 
+
+Σ−1G = 
+∑ 
+
+i∈G 
+Σ−1i , 
+
+µTGΣ 
+−1 
+G = 
+
+∑ 
+
+i∈G 
+µTi Σ 
+
+−1 
+i 
+
+(11) 
+
+However, the constant of normalisation disappears when we rescale the result product in order for 
+the result product to integrate to 1. 
+
+6 
+
+
+
+q(CG = c|XG = xG;φc) = 
+K1K2K3K4 
+
+1√ 
+(2π)d|ΣG| 
+
+exp 
+( 
+− 1 
+
+2 
+(c− µG)TΣ−1G (c− µG) 
+
+) 
+
+∫ 
+c 
+K1K2K3K4 
+
+1√ 
+(2π)d|ΣG| 
+
+exp 
+( 
+− 1 
+
+2 
+(c− µG)TΣ−1G (c− µG) 
+
+) 
+dc 
+
+= 
+exp 
+
+( 
+− 1 
+
+2 
+(c− µG)TΣ−1G (c− µG) 
+
+) 
+
+∫ 
+c 
+
+exp 
+( 
+− 1 
+
+2 
+(c− µG)TΣ−1G (c− µG) 
+
+) 
+dc 
+
+= 
+1√ 
+
+(2π)d|ΣG| 
+exp 
+
+( 
+− 1 
+
+2 
+(c− µG)TΣ−1G (c− µG) 
+
+) 
+
+(12) 
+
+6 Bias of the Objective 
+We detail the bias induced by take a subset of the sample in a group a mention in Section 3 of 
+the main paper. We build an estimate of L(G, θ, φc, φs) use mini-batches of grouped observations. 
+
+L(Gb, θ, φc, φs) = 
+1 
+
+|Gb| 
+∑ 
+
+G∈Gb 
+ELBO(G; θ, φs, φc) (13) 
+
+If we take all observation in each group G ∈ Gb, it be an unbiased estimate. However when the 
+group size be too large and we subsample G, this estimate be biased. The ELBO(G; θ, φs, φc) for 
+a group be 
+
+ELBO(G; θ, φs, φc) = 
+∑ 
+
+i∈G 
+Eq(CG|XG;φc)[Eq(Si|Xi;φs)[log p(Xi|CG, Si; θ)]] 
+
+− 
+∑ 
+
+i∈G 
+KL(q(Si|Xi;φs)||p(Si))− KL(q(CG|XG;φc)||p(CG)). 
+
+(14) 
+
+Let u take a subsample H of G and consider the estimate ELBO(G; θ, φs, φc)H . The superscript H 
+denotes the fact that we use a subsample of G to estimate ELBO(G; θ, φs, φc)H 
+
+ELBO(G; θ, φs, φc)H = 
+∑ 
+
+i∈H⊆G 
+Eq(CG|XH ;φc)[Eq(Si|Xi;φs)[log p(Xi|CG, Si; θ)]] 
+
+− 
+∑ 
+
+i∈H⊆G 
+KL(q(Si|Xi;φs)||p(Si))− KL(q(CG|XH ;φc)||p(CG)). 
+
+(15) 
+
+where q(CG|XH ;φc) be compute use XH . 
+
+The gradient with respect to the parameter θ, φs, φc be 
+
+∇θELBO(G; θ, φs, φc)H = 
+∑ 
+
+i∈H⊆G 
+Eq(CG|XH ;φc)[Eq(Si|Xi;φs)[∇θ log p(Xi|CG, Si; θ)]], 
+
+∇φsELBO(G; θ, φs, φc)H = 
+∑ 
+
+i∈H⊆G 
+Eq(CG|XH ;φc)[∇φsEq(Si|Xi;φs)[log p(Xi|CG, Si; θ)]], 
+
+− 
+∑ 
+
+i∈H⊆G 
+∇φsKL(q(Si|Xi;φs)||p(Si)) 
+
+∇φsELBO(G; θ, φs, φc)H = 
+∑ 
+
+i∈H⊆G 
+∇φcEq(CG|XH ;φc)[Eq(Si|Xi;φs)[log p(Xi|CG, Si; θ)]] 
+
+−∇φcKL(q(CG|XH ;φc)||p(CG)). 
+
+(16) 
+
+Since we build the content variational approximation in a non-linear manner with the Prod- 
+uct of Normals or the Mixture of Normals methods, the gradient ∇θELBO(G; θ, φs, φc)H 
+and ∇φcELBO(G; θ, φs, φc)H do not decompose in an unbiased manner, i.e. by sum the 
+gradient of subsampled group we do not retrieve the gradient compute use the entire group. The 
+result bias will depend on the method employed. For future work, we plan on analyse the effect 
+of the bias. In detail we want to derive a manner to correct the bias and verify that the bias estimator 
+do not over-estimate the true objective function, that be the sum of the group Evidence Lower Bound. 
+
+7 
+
+
+
+7 Stochastic Variational Inference (SVI) Results 
+We show in Figure 5 the qualitative result of Stochastic Variational Inference (SVI) Hoffman et al. 
+[2013] on the swap evaluation. We see that while SVI disentangles the style and the content, but 
+the result image quality be poor. In the case of MS-Celeb-1M, we train SVI for twice the number 
+of epoch of the other models, that be in total 500 epochs, the training objective to maximise, that be 
+the average group Evidence Lower Bound, remains low than the ML-VAE model at the end of the 
+training. This be because SVI do not share the parameter φc, φs among observation at training, 
+hence take a longer time to train. It be the first disadvantadge of SVI compare to VAE-based model. 
+At test-time, the SVI model require expensive iterative inference. In the case of MS-Celeb-1M we 
+use 200 epoch of test inference, it be possible that more epoch of test-time inference would have 
+lead to good quality image but this already show the limit of non-amortised variational inference 
+and the advantage of the ML-VAE. We see that while SVI disentangles the style and the content, but 
+the result image quality be poor. 
+
+(a) MNIST, test dataset. (b) MS-Celeb-1M, test dataset. 
+Figure 5: Stochastic Variational Inference (SVI) Hoffman et al. [2013] qualitative results. Swapping, first row 
+and first column be test data sample (green boxes), second row and column be reconstruct sample (blue 
+boxes) and the rest be swap reconstruct sample (red boxes). Each row be fix style and each column be a 
+fix content. Best view in color on screen. 
+
+8 Other Formulations Explored 
+We explore other possible formulation and we detail them here for the interested reader, along with 
+the reason for which we do not pursue them. 
+
+SVI-Encode. We explain the disavantadges of Stochastic Variational Inference (SVI), see Hoff- 
+man et al. [2013]. In order to remove the need for costly inference at test-time, we try training an 
+encoder to model the variational approximation of the latent representation C, S correspond to the 
+generative model of the train SVI model. We do not use training data but generate observations, 
+sample the latent representation from the prior. The encoder do not have any group information, 
+and each sample have a separate content and style latent representation Ci, Si. The model maximises 
+the log-likelihood of the generative model under the latent code representation. 
+
+∑ 
+
+i∈N 
+Eq(Ci,Si|Xi;φ)[log p(Xi|Ci, Si, θ)] (17) 
+
+where p(Xi|Ci, Si, θ) be the distribution correspond to the generative model and q(Ci, Si|Xi;φ) 
+be the variational approximation. We refer to this method a SVI-Encode. The qualitative quality of 
+this model on test sample be highly dependent on the quality of the generative model. Therefore 
+it give satisfactory qualitative result on MNIST, but poor qualitative result on MS-Celeb-1M 
+where the qualitative result of SVI be not satisfactory. However, we think that a model train 
+alternatively between SVI and this SVI-Encode could benefit from the disentanglement power of SVI 
+and amortise inference at test-time. We leave this for possible future work. 
+
+8 
+
+
+
+Regularising the objective. A possible formulation of the problem be to employ a regular VAE with 
+an additional term to enforce observation within a group to have similar variational approximation of 
+the content. This model separate the latent representation of the style, S and the latent representation 
+of the content C but each observation Xi within a group have it own latent variable Si and Ci. The 
+share of the content within a group be enforce by add a penalisation term base on a symmetrise 
+Kullback-Leibler divergence between the content latent representation of the observation belonging 
+to the same group. The result model maximises the objective3 
+
+1 
+
+|N | 
+∑ 
+
+i∈N 
+Eq(Ci,Si|Xi;φ)[log p(Xi|Ci, Si, θ)] 
+
+− 1|N | 
+N∑ 
+
+i=1 
+
+KL(q(Si|Xi;φs)||p(Si))− 
+1 
+
+|N | 
+N∑ 
+
+i=1 
+
+KL(q(Ci|Xi;φc)||p(Ci)) 
+
+− λ|G| 
+∑ 
+
+G∈G 
+
+1 
+
+|G|/2 
+∑ 
+
+i∈[1,|G|/2], 
+s.t.X2i∈G,X2i+1∈G 
+
+1 
+
+2 
+
+[ 
+KL(q(C2i|X2i, φc)||q(C2i+1|X2i+1, φc)) 
+
++ KL(q(C2i+1|X2i+1, φc)||q(C2i|X2i, φc) 
+] 
+, 
+
+(18) 
+
+where λ be an hyper-parameter to cross-validate. In our experiment, the drawback of this model be 
+that if the latent representation size be too large (in detail, with the size 100 use in our experiment 
+for MS-Celeb-1M), the model set the content latent representation to the prior p(C) be order to 
+encounter a null penalty. The observation be encode in the style latent representation only. This 
+be a know problem of VAE, see Chen et al. [2017]. On the opposite, the ML-VAE model be more 
+robust to this problem. 
+
+3The equation be correct compare to the submit version. 
+
+9 
+
+
+
+References 
+Xi Chen, Diederik P. Kingma, Tim Salimans, Yan Duan, Prafulla Dhariwal, John Schulman, Ilya 
+
+Sutskever, and Pieter Abbeel. Variational lossy autoencoder. ICLR, 2017. 
+Yandong Guo, Lei Zhang, Yuxiao Hu, Xiaodong He, and Jianfeng Gao. MS-Celeb-1M: A dataset 
+
+and benchmark for large scale face recognition. ECCV, 2016. 
+Matthew D. Hoffman, David M. Blei, Chong Wang, and John Paisley. Stochastic variational inference. 
+
+JMLR, 2013. 
+Diederik P. Kingma and Jimmy Ba. Adam: A method for stochastic optimization. ICLR, 2015. 
+Yann Lecun, Léon Bottou, Yoshua Bengio, and Patrick Haffner. Gradient-based learn apply to 
+
+document recognition. Proceedings of the IEEE, page 2278–2324, 1998. 
+
+10 
+
+
+1 Introduction 
+2 Related Work 
+3 Model 
+3.1 Amortised Inference with the Variational Autoencoder (VAE) Model 
+3.2 The ML-VAE for Grouped Observations 
+3.3 Accumulating Group Evidence use a Product of Normal density 
+
+4 Experiments 
+5 Discussion 
+

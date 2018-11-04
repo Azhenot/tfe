@@ -1,0 +1,2253 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+meltdown 
+
+moritz lipp1, michael schwarz1, daniel gruss1, thoma prescher2, werner haas2, 
+stefan mangard1, paul kocher3, daniel genkin4, yuval yarom5, mike hamburg6 
+
+1 graz univers of technolog 
+2 cyberu technolog gmbh 
+
+3 independ 
+4 univers of pennsylvania and univers of maryland 
+
+5 univers of adelaid and data61 
+6 rambus, cryptographi research divis 
+
+abstract 
+
+the secur of comput system fundament reli 
+on memori isolation, e.g., kernel address rang be 
+mark a non-access and be protect from user 
+access. In thi paper, we present meltdown. meltdown 
+exploit side effect of out-of-ord execut on mod- 
+ern processor to read arbitrari kernel-memori locat 
+includ person data and passwords. out-of-ord 
+execut be an indispens perform featur and 
+present in a wide rang of modern processors. the attack 
+work on differ intel microarchitectur sinc at least 
+2010 and potenti other processor be affected. the 
+root caus of meltdown be the hardware. the attack be in- 
+depend of the oper system, and it do not reli on 
+ani softwar vulnerabilities. meltdown break all secu- 
+riti assumpt give by address space isol a well 
+a paravirtu environ and, thus, everi secur 
+mechan build upon thi foundation. On affect 
+systems, meltdown enabl an adversari to read mem- 
+ori of other process or virtual machin in the cloud 
+without ani permiss or privileges, affect million 
+of custom and virtual everi user of a person com- 
+puter. We show that the kaiser defens mechan 
+for kaslr [8] have the import (but inadvertent) side 
+effect of imped meltdown. We stress that kaiser 
+must be deploy immedi to prevent large-scal ex- 
+ploitat of thi sever inform leakage. 
+
+1 introduct 
+
+one of the central secur featur of today’ oper 
+system be memori isolation. oper system ensur 
+that user applic cannot access each other’ memo- 
+rie and prevent user applic from read or writ- 
+ing kernel memory. thi isol be a cornerston of our 
+comput environ and allow run multipl ap- 
+plicat on person devic or execut process of 
+multipl user on a singl machin in the cloud. 
+
+On modern processors, the isol between the ker- 
+nel and user process be typic realiz by a supervi- 
+sor bit of the processor that defin whether a memori 
+page of the kernel can be access or not. the basic 
+idea be that thi bit can onli be set when enter kernel 
+code and it be clear when switch to user processes. 
+thi hardwar featur allow oper system to map 
+the kernel into the address space of everi process and 
+to have veri effici transit from the user process 
+to the kernel, e.g., for interrupt handling. consequently, 
+in practice, there be no chang of the memori map 
+when switch from a user process to the kernel. 
+
+In thi work, we present meltdown1. meltdown be a 
+novel attack that allow overcom memori isol 
+complet by provid a simpl way for ani user pro- 
+ce to read the entir kernel memori of the machin it 
+execut on, includ all physic memori map in 
+the kernel region. meltdown do not exploit ani soft- 
+ware vulnerability, i.e., it work on all major oper 
+systems. instead, meltdown exploit side-channel infor- 
+mation avail on most modern processors, e.g., mod- 
+ern intel microarchitectur sinc 2010 and possibl on 
+other cpu of other vendors. 
+
+while side-channel attack typic requir veri spe- 
+cific knowledg about the target applic and onli 
+leak inform about secret of the target application, 
+meltdown allow an adversari who can run code on the 
+vulner processor to easili dump the entir kernel 
+address space, includ ani map physic memory. 
+the root caus of the simplic and strength of melt- 
+down be side effect caus by out-of-ord execution. 
+
+out-of-ord execut be an import perform 
+featur of today’ processor in order to overcom laten- 
+cie of busi execut units, e.g., a memori fetch unit 
+need to wait for data arriv from memory. instead of 
+stall the execution, modern processor run oper 
+out-of-ord i.e., they look ahead and schedul subse- 
+
+1thi attack be independ found by the author of thi paper 
+and jann horn from googl project zero. 
+
+1 
+
+ar 
+X 
+
+iv 
+:1 
+
+80 
+1. 
+
+01 
+20 
+
+7v 
+1 
+
+[ 
+c 
+
+.C 
+R 
+
+] 
+3 
+
+J 
+an 
+
+2 
+01 
+
+8 
+
+
+
+quent oper to idl execut unit of the proces- 
+sor. however, such oper often have unwant side- 
+effects, e.g., time differ [28, 35, 11] can leak in- 
+format from both sequenti and out-of-ord execu- 
+tion. 
+
+from a secur perspective, one observ be partic- 
+ularli significant: out-of-order; vulner cpu allow 
+an unprivileg process to load data from a privileg 
+(kernel or physical) address into a temporari cpu reg- 
+ister. moreover, the cpu even perform further com- 
+putat base on thi regist value, e.g., access to an 
+array base on the regist value. the processor ensur 
+correct program execution, by simpli discard the re- 
+sult of the memori lookup (e.g., the modifi regist 
+states), if it turn out that an instruct should not have 
+be executed. hence, on the architectur level (e.g., the 
+abstract definit of how the processor should perform 
+computations), no secur problem arises. 
+
+however, we observ that out-of-ord memori 
+lookup influenc the cache, which in turn can be de- 
+tect through the cach side channel. As a result, an 
+attack can dump the entir kernel memori by read 
+privileg memori in an out-of-ord execut stream, 
+and transmit the data from thi elus state via a mi- 
+croarchitectur covert channel (e.g., flush+reload) to 
+the outsid world. On the receiv end of the covert 
+channel, the regist valu be reconstructed. hence, on 
+the microarchitectur level (e.g., the actual hardwar im- 
+plementation), there be an exploit secur problem. 
+
+meltdown break all secur assumpt give by the 
+cpu’ memori isol capabilities. We evalu the 
+attack on modern desktop machin and laptops, a well 
+a server in the cloud. meltdown allow an unprivileg 
+process to read data map in the kernel address space, 
+includ the entir physic memori on linux and OS 
+X, and a larg fraction of the physic memori on win- 
+dows. thi may includ physic memori of other pro- 
+cesses, the kernel, and in case of kernel-shar sand- 
+box solut (e.g., docker, lxc) or xen in paravirtu- 
+aliz mode, memori of the kernel (or hypervisor), 
+and other co-loc instances. while the perform 
+heavili depend on the specif machine, e.g., processor 
+speed, tlb and cach sizes, and dram speed, we can 
+dump kernel and physic memori with up to 503 kb/s. 
+hence, an enorm number of system be affected. 
+
+the countermeasur kaiser [8], origin devel- 
+ope to prevent side-channel attack target kaslr, 
+inadvert protect against meltdown a well. our 
+evalu show that kaiser prevent meltdown to a 
+larg extent. consequently, we stress that it be of ut- 
+most import to deploy kaiser on all oper 
+system immediately. fortunately, dure a respons 
+disclosur window, the three major oper system 
+(windows, linux, and OS X) implement variant of 
+
+kaiser and will roll out these patch in the near fu- 
+ture. 
+
+meltdown be distinct from the spectr attack [19] in 
+sever ways, notabl that spectr requir tailor to 
+the victim process’ softwar environment, but appli 
+more broadli to cpu and be not mitig by kaiser. 
+
+contributions. the contribut of thi work are: 
+1. We describ out-of-ord execut a a new, ex- 
+
+treme powerful, software-bas side channel. 
+2. We show how out-of-ord execut can be com- 
+
+bin with a microarchitectur covert channel to 
+transfer the data from an elus state to a receiv 
+on the outside. 
+
+3. We present an end-to-end attack combin out-of- 
+order execut with except handler or tsx, to 
+read arbitrari physic memori without ani permis- 
+sion or privileges, on laptops, desktop machines, 
+and on public cloud machines. 
+
+4. We evalu the perform of meltdown and the 
+effect of kaiser on it. 
+
+outline. the remaind of thi paper be structur a 
+follows: In section 2, we describ the fundament prob- 
+lem which be introduc with out-of-ord execution. In 
+section 3, we provid a toy exampl illustr the side 
+channel meltdown exploits. In section 4, we describ 
+the build block of the full meltdown attack. In sec- 
+tion 5, we present the meltdown attack. In section 6, 
+we evalu the perform of the meltdown attack on 
+sever differ systems. In section 7, we discu the ef- 
+fect of the software-bas kaiser countermeasur and 
+propos solut in hardware. In section 8, we discu 
+relat work and conclud our work in section 9. 
+
+2 background 
+
+In thi section, we provid background on out-of-ord 
+execution, address translation, and cach attacks. 
+
+2.1 out-of-ord execut 
+out-of-ord execut be an optim techniqu that 
+allow to maxim the util of all execut unit 
+of a cpu core a exhaust a possible. instead of pro- 
+cess instruct strictli in the sequenti program or- 
+der, the cpu execut them a soon a all requir re- 
+sourc be available. while the execut unit of the 
+current oper be occupied, other execut unit can 
+run ahead. hence, instruct can be run in parallel a 
+long a their result follow the architectur definition. 
+
+In practice, cpu support out-of-ord execut 
+support run oper specul to the extent 
+
+2 
+
+
+
+that the processor’ out-of-ord logic process instruc- 
+tion befor the cpu be certain whether the instruct 
+will be need and committed. In thi paper, we refer 
+to specul execut in a more restrict meaning, 
+where it refer to an instruct sequenc follow a 
+branch, and use the term out-of-ord execut to refer 
+to ani way of get an oper execut befor the 
+processor have commit the result of all prior instruc- 
+tions. 
+
+In 1967, tomasulo [33] develop an algorithm [33] 
+that enabl dynam schedul of instruct to al- 
+low out-of-ord execution. tomasulo [33] introduc 
+a unifi reserv station that allow a cpu to use 
+a data valu a it have be comput instead of store 
+it to a regist and re-read it. the reserv sta- 
+tion renam regist to allow instruct that oper 
+on the same physic regist to use the last logic one 
+to solv read-after-writ (raw), write-after-read (war) 
+and write-after-writ (waw) hazards. furthermore, the 
+reserv unit connect all execut unit via a com- 
+mon data bu (cdb). If an operand be not available, the 
+reserv unit can listen on the cdb until it be avail 
+and then directli begin the execut of the instruction. 
+
+On the intel architecture, the pipelin consist of the 
+front-end, the execut engin (back-end) and the mem- 
+ori subsystem [14]. x86 instruct be fetch by 
+the front-end from the memori and decod to micro- 
+oper (µops) which be continu sent to the ex- 
+ecut engine. out-of-ord execut be implement 
+within the execut engin a illustr in figur 1. 
+the reorder buffer be respons for regist allocation, 
+regist renam and retiring. additionally, other opti- 
+mizat like move elimin or the recognit of ze- 
+ro idiom be directli handl by the reorder buffer. 
+the µop be forward to the unifi reserv sta- 
+tion that queue the oper on exit port that be con- 
+nect to execut units. each execut unit can per- 
+form differ task like alu operations, ae opera- 
+tions, address gener unit (agu) or memori load 
+and stores. agu a well a load and store execut 
+unit be directli connect to the memori subsystem to 
+process it requests. 
+
+sinc cpu usual do not run linear instruct 
+streams, they have branch predict unit that be use 
+to obtain an educ guess of which instruct will be 
+execut next. branch predictor tri to determin which 
+direct of a branch will be take befor it condit 
+be actual evaluated. instruct that lie on that path 
+and do not have ani depend can be execut in ad- 
+vanc and their result immedi use if the predict 
+be correct. If the predict be incorrect, the reorder 
+buffer allow to rollback by clear the reorder buffer 
+and re-initi the unifi reserv station. 
+
+E 
+xe 
+
+cu 
+tio 
+
+n 
+E 
+
+ng 
+in 
+
+e 
+
+reorder buffer 
+
+µop µop µop µop µop µop µop µop 
+
+schedul 
+
+execut unit 
+
+A 
+L 
+
+U 
+,A 
+
+E 
+S, 
+
+.. 
+. 
+
+A 
+L 
+
+U 
+,F 
+
+M 
+A 
+
+,. 
+.. 
+
+A 
+L 
+
+U 
+,V 
+
+ec 
+t, 
+
+.. 
+. 
+
+A 
+L 
+
+U 
+,B 
+
+ra 
+nc 
+
+h 
+
+L 
+oa 
+
+d 
+da 
+
+ta 
+
+L 
+oa 
+
+d 
+da 
+
+ta 
+
+St 
+or 
+
+e 
+da 
+
+ta 
+
+A 
+G 
+
+U 
+
+µop µop µop µop µop µop µop µop 
+
+cdb 
+
+M 
+em 
+
+or 
+y 
+
+Su 
+b 
+
+y 
+te 
+
+m load buffer store buffer 
+
+L1 data cach 
+dtlb stlb 
+
+L2 cach 
+
+Fr 
+on 
+
+te 
+nd 
+
+alloc queue 
+
+µop µop µop µop 
+
+mux 
+
+4-way decod 
+
+µop µop µop µop 
+
+instruct queue 
+
+instruct fetch & predecod 
+
+µop cach 
+
+µop 
+
+branch 
+predictor 
+
+L1 instruct cach 
+itlb 
+
+figur 1: simplifi illustr of a singl core of the in- 
+tel’ skylak microarchitecture. instruct be decod 
+into µop and execut out-of-ord in the execut en- 
+gine by individu execut units. 
+
+variou approach to predict the branch exist: with 
+static branch predict [12], the outcom of the branch 
+be sole base on the instruct itself. dynam branch 
+predict [2] gather statist at run-tim to predict the 
+outcome. one-level branch predict us a 1-bit or 2- 
+bit counter to record the last outcom of the branch [21]. 
+modern processor often use two-level adapt predic- 
+tor [36] that rememb the histori of the last n outcom 
+allow to predict regularli recur patterns. more re- 
+cently, idea to use neural branch predict [34, 18, 32] 
+have be pick up and integr into cpu architec- 
+ture [3]. 
+
+2.2 address space 
+To isol process from each other, cpu support vir- 
+tual address space where virtual address be translat 
+to physic addresses. A virtual address space be divid 
+into a set of page that can be individu map to 
+physic memori through a multi-level page translat 
+
+3 
+
+
+
+physic memori 
+
+0 max 
+
+user 
+
+0 247 
+
+kernel 
+
+−247 −1 
+
+figur 2: the physic memori be directli map in the 
+kernel at a certain offset. A physic address (blue) which 
+be map access for the user space be also map in 
+the kernel space through the direct mapping. 
+
+table. the translat tabl defin the actual virtual 
+to physic map and also protect properti that 
+be use to enforc privileg checks, such a readable, 
+writable, execut and user-accessible. the current 
+use translat tabl that be held in a special cpu reg- 
+ister. On each context switch, the oper system up- 
+date thi regist with the next process’ translat tabl 
+address in order to implement per process virtual address 
+spaces. becaus of that, each process can onli refer 
+data that belong to it own virtual address space. each 
+virtual address space itself be split into a user and a kernel 
+part. while the user address space can be access by the 
+run application, the kernel address space can onli be 
+access if the cpu be run in privileg mode. thi 
+be enforc by the oper system disabl the user- 
+access properti of the correspond translat ta- 
+bles. the kernel address space do not onli have mem- 
+ori map for the kernel’ own usage, but it also need 
+to perform oper on user pages, e.g., fill them 
+with data. consequently, the entir physic memori be 
+typic map in the kernel. On linux and OS X, thi 
+be do via a direct-phys map, i.e., the entir physi- 
+cal memori be directli map to a pre-defin virtual 
+address (cf. figur 2). 
+
+instead of a direct-phys map, window maintain 
+a multipl so-cal page pools, non-pag pools, and 
+the system cache. these pool be virtual memori re- 
+gion in the kernel address space map physic page 
+to virtual address which be either requir to remain 
+in the memori (non-pag pool) or can be remov from 
+the memori becaus a copi be alreadi store on the disk 
+(page pool). the system cach further contain map- 
+ping of all file-back pages. combined, these memori 
+pool will typic map a larg fraction of the physic 
+memori into the kernel address space of everi process. 
+
+the exploit of memori corrupt bug often re- 
+quir the knowledg of address of specif data. In 
+order to imped such attacks, address space layout ran- 
+domiz (aslr) have be introduc a well a non- 
+execut stack and stack canaries. In order to protect 
+the kernel, kaslr random the offset where driver 
+
+be locat on everi boot, make attack harder a they 
+now requir to guess the locat of kernel data struc- 
+tures. however, side-channel attack allow to detect the 
+exact locat of kernel data structur [9, 13, 17] or de- 
+random aslr in javascript [6]. A combin of a 
+softwar bug and the knowledg of these address can 
+lead to privileg code execution. 
+
+2.3 cach attack 
+In order to speed-up memori access and address trans- 
+lation, the cpu contain small memori buffers, call 
+caches, that store frequent use data. cpu cach hide 
+slow memori access latenc by buffer frequent 
+use data in small and faster intern memory. mod- 
+ern cpu have multipl level of cach that be either 
+privat to it core or share among them. address space 
+translat tabl be also store in memori and be also 
+cach in the regular caches. 
+
+cach side-channel attack exploit time differ 
+that be introduc by the caches. differ cach attack 
+techniqu have be propos and demonstr in the 
+past, includ evict+tim [28], prime+prob [28, 29], 
+and flush+reload [35]. flush+reload attack work on 
+a singl cach line granularity. these attack exploit the 
+shared, inclus last-level cache. An attack frequent 
+flush a target memori locat use the clflush 
+instruction. By measur the time it take to reload the 
+data, the attack determin whether data be load 
+into the cach by anoth process in the meantime. the 
+flush+reload attack have be use for attack on variou 
+computations, e.g., cryptograph algorithm [35, 16, 1], 
+web server function call [37], user input [11, 23, 31], 
+and kernel address inform [9]. 
+
+A special use case be covert channels. here the at- 
+tacker control both, the part that induc the side effect, 
+and the part that measur the side effect. thi can be 
+use to leak inform from one secur domain to an- 
+other, while bypass ani boundari exist on the ar- 
+chitectur level or above. both prime+prob and flush+ 
+reload have be use in high-perform covert chan- 
+nel [24, 26, 10]. 
+
+3 A toy exampl 
+
+In thi section, we start with a toy example, a simpl 
+code snippet, to illustr that out-of-ord execut can 
+chang the microarchitectur state in a way that leak 
+information. however, despit it simplicity, it be use a 
+a basi for section 4 and section 5, where we show how 
+thi chang in state can be exploit for an attack. 
+
+list 1 show a simpl code snippet first rais an 
+(unhandled) except and then access an array. the 
+properti of an except be that the control flow do not 
+
+4 
+
+
+
+1 raise_exception(); 
+
+2 // the line below be never reach 
+
+3 access(probe_array[data * 4096]); 
+
+list 1: A toy exampl to illustr side-effect of out- 
+of-ord execution. 
+
+<instr.> 
+
+<instr.> 
+... 
+
+<instr.> 
+
+[ except ] 
+
+E 
+X 
+
+E 
+C 
+
+U 
+T 
+
+E 
+D 
+
+E 
+X 
+
+E 
+C 
+
+U 
+T 
+
+E 
+D 
+
+O 
+U 
+
+T 
+O 
+
+F 
+O 
+
+R 
+D 
+
+E 
+R 
+
+<instr.> 
+
+<instr.> 
+
+<instr.> 
+
+except 
+handler 
+
+<instr.> 
+
+<instr.> 
+
+[ termin ] 
+
+figur 3: If an execut instruct caus an exception, 
+divert the control flow to an except handler, the 
+subsequ instruct must not be execut anymore. 
+due to out-of-ord execution, the subsequ instruc- 
+tion may alreadi have be partial executed, but not 
+retired. however, the architectur effect of the execu- 
+tion will be discarded. 
+
+continu with the code after the exception, but jump to 
+an except handler in the oper system. regardless 
+of whether thi except be rais due to a memori ac- 
+cess, e.g., by access an invalid address, or due to ani 
+other cpu exception, e.g., a divis by zero, the control 
+flow continu in the kernel and not with the next user 
+space instruction. 
+
+thus, our toy exampl cannot access the array in the- 
+ory, a the except immedi trap to the kernel and 
+termin the application. however, due to the out-of- 
+order execution, the cpu might have alreadi execut 
+the follow instruct a there be no depend on 
+the exception. thi be illustr in figur 3. due to the 
+exception, the instruct execut out of order be not 
+retir and, thus, never have architectur effects. 
+
+although the instruct execut out of order do not 
+have ani visibl architectur effect on regist or mem- 
+ory, they have microarchitectur side effects. dure the 
+out-of-ord execution, the refer memori be fetch 
+into a regist and be also store in the cache. If the out- 
+of-ord execut have to be discarded, the regist and 
+memori content be never committed. nevertheless, the 
+cach memori content be kept in the cache. We can 
+leverag a microarchitectur side-channel attack such 
+a flush+reload [35], which detect whether a specif 
+memori locat be cached, to make thi microarchitec- 
+tural state visible. there be other side channel a well 
+which also detect whether a specif memori locat 
+be cached, includ prime+prob [28, 24, 26], evict+ 
+
+0 50 100 150 200 250 
+200 
+300 
+400 
+500 
+
+page 
+
+A 
+cc 
+
+e 
+s 
+
+tim 
+e 
+
+[c 
+yc 
+
+le 
+s] 
+
+figur 4: even if a memori locat be onli access 
+dure out-of-ord execution, it remain cached. iterat- 
+ing over the 256 page of probe array show one cach 
+hit, exactli on the page that be access dure the out- 
+of-ord execution. 
+
+reload [23], or flush+flush [10]. however, a flush+ 
+reload be the most accur know cach side channel 
+and be simpl to implement, we do not consid ani other 
+side channel for thi example. 
+
+base on the valu of data in thi toy example, a dif- 
+ferent part of the cach be access when execut the 
+memori access out of order. As data be multipli by 
+4096, data access to probe array be scatter over 
+the array with a distanc of 4 kB (assum an 1 B data 
+type for probe array). thus, there be an inject map- 
+ping from the valu of data to a memori page, i.e., there 
+be no two differ valu of data which result in an ac- 
+ce to the same page. consequently, if a cach line of a 
+page be cached, we know the valu of data. the spread- 
+ing over differ page elimin fals posit due to 
+the prefetcher, a the prefetch cannot access data across 
+page boundari [14]. 
+
+figur 4 show the result of a flush+reload measure- 
+ment iter over all pages, after execut the out-of- 
+order snippet with data = 84. although the array ac- 
+ce should not have happen due to the exception, we 
+can clearli see that the index which would have be ac- 
+cess be cached. iter over all page (e.g., in the 
+except handler) show onli a cach hit for page 84 
+thi show that even instruct which be never actu- 
+alli executed, chang the microarchitectur state of the 
+cpu. section 4 modifi thi toy exampl to not read a 
+value, but to leak an inaccess secret. 
+
+4 build block of the attack 
+
+the toy exampl in section 3 illustr that side-effect 
+of out-of-ord execut can modifi the microarchitec- 
+tural state to leak information. while the code snippet 
+reveal the data valu pass to a cache-sid channel, we 
+want to show how thi techniqu can be leverag to leak 
+otherwis inaccess secrets. In thi section, we want 
+to gener and discu the necessari build block 
+to exploit out-of-ord execut for an attack. 
+
+5 
+
+
+
+except handling/ 
+suppress 
+
+transient 
+instruct 
+
+secret 
+
+microarchitectur 
+
+state chang 
+
+section 4.1 
+
+architectur 
+state 
+
+transfer (covert channel) 
+
+recov 
+secret 
+
+recoveri 
+
+L 
+eak 
+
+access 
+
+section 4.2 
+
+figur 5: the meltdown attack us except handl 
+or suppression, e.g., tsx, to run a seri of transient 
+instructions. these transient instruct obtain a (per- 
+sistent) secret valu and chang the microarchitectur 
+state of the processor base on thi secret value. thi 
+form the send part of a microarchitectur covert 
+channel. the receiv side read the microarchitectur 
+state, make it architectur and recov the secret 
+value. 
+
+the adversari target a secret valu that be kept some- 
+where in physic memory. note that regist content 
+be also store in memori upon context switches, i.e., 
+they be also store in physic memory. As describ in 
+section 2.2, the address space of everi process typic 
+includ the entir user space, a well a the entir kernel 
+space, which typic also have all physic memori (in- 
+use) mapped. however, these memori region be onli 
+access in privileg mode (cf. section 2.2). 
+
+In thi work, we demonstr leak secret by by- 
+pass the privileged-mod isolation, give an attack 
+full read access to the entir kernel space includ ani 
+physic memori mapped, includ the physic mem- 
+ori of ani other process and the kernel. note that 
+kocher et al. [19] pursu an orthogon approach, call 
+spectr attacks, which trick specul execut in- 
+struction into leak inform that the victim pro- 
+ce be author to access. As a result, spectr attack 
+lack the privileg escal aspect of meltdown and re- 
+quir tailor to the victim process’ softwar environ- 
+ment, but appli more broadli to cpu that support spec- 
+ul execut and be not stop by kaiser. 
+
+the full meltdown attack consist of two build 
+blocks, a illustr in figur 5. the first build block 
+of meltdown be to make the cpu execut one or more 
+instruct that would never occur in the execut path. 
+In the toy exampl (cf. section 3), thi be an access to 
+an array, which would normal never be executed, a 
+
+the previou instruct alway rais an exception. We 
+call such an instruction, which be execut out of order, 
+leav measur side effects, a transient instruction. 
+furthermore, we call ani sequenc of instruct con- 
+tain at least one transient instruct a transient in- 
+struction sequence. 
+
+In order to leverag transient instruct for an attack, 
+the transient instruct sequenc must util a secret 
+valu that an attack want to leak. section 4.1 describ 
+build block to run a transient instruct sequenc 
+with a depend on a secret value. 
+
+the second build block of meltdown be to transfer 
+the microarchitectur side effect of the transient instruc- 
+tion sequenc to an architectur state to further process 
+the leak secret. thus, the second build describ 
+in section 4.2 describ build block to transfer a mi- 
+croarchitectur side effect to an architectur state use 
+a covert channel. 
+
+4.1 execut transient instruct 
+the first build block of meltdown be the execut 
+of transient instructions. transient instruct basic 
+occur all the time, a the cpu continu run ahead 
+of the current instruct to minim the experienc 
+latenc and thu maxim the perform (cf. sec- 
+tion 2.1). transient instruct introduc an exploit 
+side channel if their oper depend on a secret value. 
+We focu on address that be map within the at- 
+tacker’ process, i.e., the user-access user space ad- 
+dress a well a the user-inaccess kernel space ad- 
+dresses. note that attack target code that be execut 
+within the context (i.e., address space) of anoth process 
+be possibl [19], but out of scope in thi work, sinc all 
+physic memori (includ the memori of other pro- 
+cesses) can be read through the kernel address space any- 
+way. 
+
+access user-inaccess pages, such a kernel 
+pages, trigger an except which gener termin 
+the application. If the attack target a secret at a user- 
+inaccess address, the attack have to cope with thi 
+exception. We propos two approaches: with excep- 
+tion handling, we catch the except effect occur- 
+ring after execut the transient instruct sequence, 
+and with except suppression, we prevent the excep- 
+tion from occur at all and instead redirect the control 
+flow after execut the transient instruct sequence. 
+We discu these approach in detail in the following. 
+
+except handling. A trivial approach be to fork the 
+attack applic befor access the invalid mem- 
+ori locat that termin the process, and onli access 
+the invalid memori locat in the child process. the 
+cpu execut the transient instruct sequenc in the 
+
+6 
+
+
+
+child process befor crashing. the parent process can 
+then recov the secret by observ the microarchitec- 
+tural state, e.g., through a side-channel. 
+
+It be also possibl to instal a signal handler that will 
+be execut if a certain except occurs, in thi specif 
+case a segment fault. thi allow the attack to 
+issu the instruct sequenc and prevent the applic 
+from crashing, reduc the overhead a no new process 
+have to be created. 
+
+except suppression. A differ approach to deal 
+with except be to prevent them from be rais in 
+the first place. transact memori allow to group 
+memori access into one seemingli atom operation, 
+give the option to roll-back to a previou state if an er- 
+ror occurs. If an except occur within the transaction, 
+the architectur state be reset, and the program execut 
+continu without disruption. 
+
+furthermore, specul execut issu instruct 
+that might not occur on the execut code path due to 
+a branch misprediction. such instruct depend on 
+a preced condit branch can be specul ex- 
+ecuted. thus, the invalid memori access be put within 
+a specul instruct sequenc that be onli execut 
+if a prior branch condit evalu to true. By make 
+sure that the condit never evalu to true in the ex- 
+ecut code path, we can suppress the occur excep- 
+tion a the memori access be onli execut speculatively. 
+thi techniqu may requir a sophist train of the 
+branch predictor. kocher et al. [19] pursu thi approach 
+in orthogon work, sinc thi construct can frequent 
+be found in code of other processes. 
+
+4.2 build a covert channel 
+
+the second build block of meltdown be the transfer 
+of the microarchitectur state, which be chang by 
+the transient instruct sequence, into an architectur 
+state (cf. figur 5). the transient instruct sequenc 
+can be see a the send end of a microarchitectur 
+covert channel. the receiv end of the covert channel 
+receiv the microarchitectur state chang and deduc 
+the secret from the state. note that the receiv be not 
+part of the transient instruct sequenc and can be a 
+differ thread or even a differ process e.g., the parent 
+process in the fork-and-crash approach. 
+
+We leverag techniqu from cach attacks, a the 
+cach state be a microarchitectur state which can be re- 
+liabli transfer into an architectur state use vari- 
+ou techniqu [28, 35, 10]. specifically, we use flush+ 
+reload [35], a it allow to build a fast and low-nois 
+covert channel. thus, depend on the secret value, the 
+transient instruct sequenc (cf. section 4.1) perform 
+
+a regular memori access, e.g., a it do in the toy exam- 
+ple (cf. section 3). 
+
+after the transient instruct sequenc access an 
+access address, i.e., thi be the sender of the covert 
+channel; the address be cach for subsequ accesses. 
+the receiv can then monitor whether the address have 
+be load into the cach by measur the access time 
+to the address. thus, the sender can transmit a ‘1’-bit by 
+access an address which be load into the monitor 
+cache, and a ‘0’-bit by not access such an address. 
+
+use multipl differ cach lines, a in our toy ex- 
+ampl in section 3, allow to transmit multipl bit at 
+once. for everi of the 256 differ byte values, the 
+sender access a differ cach line. By perform 
+a flush+reload attack on all of the 256 possibl cach 
+lines, the receiv can recov a full byte instead of just 
+one bit. however, sinc the flush+reload attack take 
+much longer (typic sever hundr cycles) than the 
+transient instruct sequence, transmit onli a singl 
+bit at onc be more efficient. the attack can simpli do 
+that by shift and mask the secret valu accordingly. 
+
+note that the covert channel be not limit to microar- 
+chitectur state which reli on the cache. ani microar- 
+chitectur state which can be influenc by an instruc- 
+tion (sequence) and be observ through a side channel 
+can be use to build the send end of a covert channel. 
+the sender could, for example, issu an instruct (se- 
+quence) which occupi a certain execut port such a 
+the alu to send a ‘1’-bit. the receiv measur the la- 
+tenci when execut an instruct (sequence) on the 
+same execut port. A high latenc impli that the 
+sender send a ‘1’-bit, wherea a low latenc impli 
+that sender send a ‘0’-bit. the advantag of the flush+ 
+reload cach covert channel be the nois resist and 
+the high transmiss rate [10]. furthermore, the leakag 
+can be observ from ani cpu core [35], i.e., reschedul- 
+ing event do not significantli affect the covert channel. 
+
+5 meltdown 
+
+In thi section, present meltdown, a power attack 
+allow to read arbitrari physic memori from an 
+unprivileg user program, compris of the build 
+block present in section 4. first, we discu the attack 
+set to emphas the wide applic of thi attack. 
+second, we present an attack overview, show how 
+meltdown can be mount on both window and linux 
+on person comput a well a in the cloud. finally, 
+we discu a concret implement of meltdown al- 
+low to dump kernel memori with up to 503 kb/s. 
+
+attack setting. In our attack, we consid person 
+comput and virtual machin in the cloud. In the 
+
+7 
+
+
+
+attack scenario, the attack have arbitrari unprivileg 
+code execut on the attack system, i.e., the attack 
+can run ani code with the privileg of a normal user. 
+however, the attack have no physic access to the ma- 
+chine. further, we assum that the system be fulli pro- 
+tect with state-of-the-art software-bas defens such 
+a aslr and kaslr a well a cpu featur like 
+smap, smep, nx, and pxn. most importantly, we as- 
+sume a complet bug-fre oper system, thus, no 
+softwar vulner exist that can be exploit to gain 
+kernel privileg or leak information. the attack tar- 
+get secret user data, e.g., password and privat keys, or 
+ani other valuabl information. 
+
+5.1 attack descript 
+
+meltdown combin the two build block discuss 
+in section 4. first, an attack make the cpu execut 
+a transient instruct sequenc which us an inacces- 
+sibl secret valu store somewher in physic memori 
+(cf. section 4.1). the transient instruct sequenc act 
+a the transmitt of a covert channel (cf. section 4.2), 
+ultim leak the secret valu to the attacker. 
+
+meltdown consist of 3 steps: 
+step 1 the content of an attacker-chosen memori loca- 
+
+tion, which be inaccess to the attacker, be load 
+into a register. 
+
+step 2 A transient instruct access a cach line 
+base on the secret content of the register. 
+
+step 3 the attack us flush+reload to determin the 
+access cach line and henc the secret store at the 
+chosen memori location. 
+
+By repeat these step for differ memori locations, 
+the attack can dump the kernel memory, includ the 
+entir physic memory. 
+
+list 2 show the basic implement of the tran- 
+sient instruct sequenc and the send part of the 
+covert channel, use x86 assembl instructions. note 
+that thi part of the attack could also be implement en- 
+tire in high level languag like C. In the following, 
+we will discu each step of meltdown and the corre- 
+spond code line in list 2. 
+
+step 1: read the secret. To load data from the 
+main memori into a register, the data in the main mem- 
+ori be refer use a virtual address. In parallel to 
+translat a virtual address into a physic address, the 
+cpu also check the permiss bit of the virtual ad- 
+dress, i.e., whether thi virtual address be user access 
+or onli access by the kernel. As alreadi discuss in 
+section 2.2, thi hardware-bas isol through a per- 
+mission bit be consid secur and recommend by the 
+hardwar vendors. hence, modern oper system al- 
+
+1 ; rcx = kernel address 
+
+2 ; rbx = probe array 
+
+3 retry: 
+
+4 mov al, byte [rcx] 
+
+5 shl rax, 0xc 
+
+6 jz retri 
+
+7 mov rbx, qword [rbx + rax] 
+
+list 2: the core instruct sequenc of meltdown. 
+An inaccess kernel address be move to a register, 
+rais an exception. the subsequ instruct be 
+alreadi execut out of order befor the except be 
+raised, leak the content of the kernel address through 
+the indirect memori access. 
+
+way map the entir kernel into the virtual address space 
+of everi user process. 
+
+As a consequence, all kernel address lead to a valid 
+physic address when translat them, and the cpu can 
+access the content of such addresses. the onli differ- 
+enc to access a user space address be that the cpu 
+rais an except a the current permiss level do 
+not allow to access such an address. hence, the user 
+space cannot simpli read the content of such an address. 
+however, meltdown exploit the out-of-ord execut 
+of modern cpus, which still execut instruct in the 
+small time window between the illeg memori access 
+and the rais of the exception. 
+
+In line 4 of list 2, we load the byte valu locat 
+at the target kernel address, store in the rcx register, 
+into the least signific byte of the rax regist repre- 
+sent by al. As explain in more detail in section 2.1, 
+the mov instruct be fetch by the core, decod into 
+µops, allocated, and sent to the reorder buffer. there, ar- 
+chitectur regist (e.g., rax and rcx in list 2) be 
+map to underli physic regist enabl out-of- 
+order execution. tri to util the pipelin a much a 
+possible, subsequ instruct (line 5-7) be alreadi 
+decod and alloc a µop a well. the µop be 
+further sent to the reserv station hold the µop 
+while they wait to be execut by the correspond ex- 
+ecut unit. the execut of a µop can be delay if 
+execut unit be alreadi use to their correspond 
+capac or operand valu have not be calcul yet. 
+
+when the kernel address be load in line 4, it be like 
+that the cpu alreadi issu the subsequ instruct 
+a part of the out-or-ord execution, and that their cor- 
+respond µop wait in the reserv station for the 
+content of the kernel address to arrive. As soon a the 
+fetch data be observ on the common data bus, the 
+µop can begin their execution. 
+
+when the µop finish their execution, they retir in- 
+order, and, thus, their result be commit to the archi- 
+
+8 
+
+
+
+tectur state. dure the retirement, ani interrupt and 
+except that occur dure the execut of the in- 
+struction be handled. thus, if the mov instruct that 
+load the kernel address be retired, the except be reg- 
+ister and the pipelin be flush to elimin all result 
+of subsequ instruct which be execut out of 
+order. however, there be a race condit between rais 
+thi except and our attack step 2 which we describ 
+below. 
+
+As report by gruss et al. [9], prefetch kernel ad- 
+dress sometim succeeds. We found that prefetch 
+the kernel address can slightli improv the perform 
+of the attack on some systems. 
+
+step 2: transmit the secret. the instruct se- 
+quenc from step 1 which be execut out of order have to 
+be chosen in a way that it becom a transient instruct 
+sequence. If thi transient instruct sequenc be exe- 
+cut befor the mov instruct be retir (i.e., rais the 
+exception), and the transient instruct sequenc per- 
+form comput base on the secret, it can be uti- 
+lize to transmit the secret to the attacker. 
+
+As alreadi discussed, we util cach attack that al- 
+low to build fast and low-nois covert channel use the 
+cpu’ cache. thus, the transient instruct sequenc 
+have to encod the secret into the microarchitectur cach 
+state, similarli to the toy exampl in section 3. 
+
+We alloc a probe array in memori and ensur that 
+no part of thi array be cached. To transmit the secret, the 
+transient instruct sequenc contain an indirect mem- 
+ori access to an address which be calcul base on the 
+secret (inaccessible) value. In line 5 of list 2 the se- 
+cret valu from step 1 be multipli by the page size, i.e., 
+4 kb. the multipl of the secret ensur that ac- 
+ce to the array have a larg spatial distanc to each 
+other. thi prevent the hardwar prefetch from load- 
+ing adjac memori locat into the cach a well. 
+here, we read a singl byte at once, henc our probe ar- 
+ray be 256×4096 bytes, assum 4 KB pages. 
+
+note that in the out-of-ord execut we have a 
+noise-bia toward regist valu ‘0’. We discu the rea- 
+son for thi in section 5.2. however, for thi reason, we 
+introduc a retry-log into the transient instruct se- 
+quence. In case we read a ‘0’, we tri to read the secret 
+again (step 1). In line 7, the multipli secret be add to 
+the base address of the probe array, form the target ad- 
+dress of the covert channel. thi address be read to cach 
+the correspond cach line. consequently, our tran- 
+sient instruct sequenc affect the cach state base 
+on the secret valu that be read in step 1. 
+
+sinc the transient instruct sequenc in step 2 race 
+against rais the exception, reduc the runtim of 
+step 2 can significantli improv the perform of the 
+attack. for instance, take care that the address trans- 
+
+lation for the probe array be cach in the tlb increas 
+the attack perform on some systems. 
+
+step 3: receiv the secret. In step 3, the attack 
+recov the secret valu (step 1) by leverag a mi- 
+croarchitectur side-channel attack (i.e., the receiv 
+end of a microarchitectur covert channel) that transfer 
+the cach state (step 2) back into an architectur state. 
+As discuss in section 4.2, meltdown reli on flush+ 
+reload to transfer the cach state into an architectur 
+state. 
+
+when the transient instruct sequenc of step 2 be 
+executed, exactli one cach line of the probe array be 
+cached. the posit of the cach cach line within the 
+probe array depend onli on the secret which be read in 
+step 1. thus, the attack iter over all 256 page of 
+the probe array and measur the access time for everi 
+first cach line (i.e., offset) on the page. the number of 
+the page contain the cach cach line correspond 
+directli to the secret value. 
+
+dump the entir physic memory. By repeat 
+all 3 step of meltdown, the attack can dump the entir 
+memori by iter over all differ addresses. how- 
+ever, a the memori access to the kernel address rais an 
+except that termin the program, we use one of the 
+method describ in section 4.1 to handl or suppress 
+the exception. 
+
+As all major oper system also typic map the 
+entir physic memori into the kernel address space 
+(cf. section 2.2) in everi user process, meltdown be not 
+onli limit to read kernel memori but it be capabl 
+of read the entir physic memori of the target ma- 
+chine. 
+
+5.2 optim and limit 
+the case of 0. If the except be trigger while tri 
+to read from an inaccess kernel address, the regist 
+where the data should be stored, appear to be zero out. 
+thi be reason becaus if the except be unhandled, 
+the user space applic be terminated, and the valu 
+from the inaccess kernel address could be observ 
+in the regist content store in the core dump of the 
+crash process. the direct solut to fix thi problem 
+be to zero out the correspond registers. If the zero 
+out of the regist be faster than the execut of the sub- 
+sequent instruct (line 5 in list 2), the attack may 
+read a fals valu in the third step. To prevent the tran- 
+sient instruct sequenc from continu with a wrong 
+value, i.e., ‘0’, meltdown retri read the address until 
+it encount a valu differ from ‘0’ (line 6). As the 
+transient instruct sequenc termin after the excep- 
+tion be raised, there be no cach access if the secret valu 
+
+9 
+
+
+
+be 0. thus, meltdown assum that the secret valu be 
+inde ‘0’ if there be no cach hit at all. 
+
+the loop be termin by either the read valu not be- 
+ing ‘0’ or by the rais except of the invalid mem- 
+ori access. note that thi loop do not slow down 
+the attack measurably, since, in either case, the proces- 
+sor run ahead of the illeg memori access, regardless 
+of whether ahead be a loop or ahead be a linear control 
+flow. In either case, the time until the control flow re- 
+turn from except handl or except suppress 
+remain the same with and without thi loop. thus, cap- 
+ture read ‘0’ beforehand and recov earli from a 
+lose race condit vastli increas the read speed. 
+
+single-bit transmiss In the attack descript in 
+section 5.1, the attack transmit 8 bit through the 
+covert channel at onc and perform 28 = 256 flush+ 
+reload measur to recov the secret. however, 
+there be a clear trade-off between run more tran- 
+sient instruct sequenc and perform more flush+ 
+reload measurements. the attack could transmit an 
+arbitrari number of bit in a singl transmiss through 
+the covert channel, by either read more bit use a 
+mov instruct for a larg data value. furthermore, the 
+attack could mask bit use addit instruct in 
+the transient instruct sequence. We found the number 
+of addit instruct in the transient instruct se- 
+quenc to have a neglig influenc on the perform 
+of the attack. 
+
+the perform bottleneck in the gener attack de- 
+scription abov be indeed, the time spent on flush+ 
+reload measurements. In fact, with thi implementation, 
+almost the entir time will be spent on flush+reload 
+measurements. By transmit onli a singl bit, we 
+can omit all but one flush+reload measurement, i.e., the 
+measur on cach line 1. If the transmit bit be 
+a ‘1’, then we observ a cach hit on cach line 1. oth- 
+erwise, we observ no cach hit on cach line 1. 
+
+transmit onli a singl bit at onc also have draw- 
+backs. As describ above, our side channel have a bia 
+toward a secret valu of ‘0’. If we read and transmit 
+multipl bit at once, the likelihood that all bit be ‘0’ 
+may quit small for actual user data. the likelihood that 
+a singl bit be ‘0’ be typic close to 50 %. hence, the 
+number of bit read and transmit at onc be a trade- 
+off between some implicit error-reduct and the overal 
+transmiss rate of the covert channel. 
+
+however, sinc the error rate be quit small in either 
+case, our evalu (cf. section 6) be base on the single- 
+bit transmiss mechanics. 
+
+except suppress use intel tsx. In sec- 
+tion 4.1, we discuss the option to prevent that an ex- 
+ception be rais due an invalid memori access in the first 
+
+place. use intel tsx, a hardwar transact mem- 
+ori implementation, we can complet suppress the ex- 
+ception [17]. 
+
+with intel tsx, multipl instruct can be group 
+to a transaction, which appear to be an atom opera- 
+tion, i.e., either all or no instruct be executed. If one 
+instruct within the transact fails, alreadi execut 
+instruct be reverted, but no except be raised. 
+
+If we wrap the code from list 2 with such a tsx 
+instruction, ani except be suppressed. however, the 
+microarchitectur effect be still visible, i.e., the cach 
+state be persist manipul from within the hard- 
+ware transact [7]. thi result in a high channel ca- 
+pacity, a suppress the except be significantli faster 
+than trap into the kernel for handl the exception, 
+and continu afterwards. 
+
+deal with kaslr. In 2013, kernel address space 
+layout random (kaslr) have be introduc to 
+the linux kernel (start from version 3.14 [4]) allow- 
+ing to random the locat of the kernel code at boot 
+time. however, onli a recent a may 2017, kaslr 
+have be enabl by default in version 4.12 [27]. with 
+kaslr also the direct-phys map be random and, 
+thus, not fix at a certain address such that the attack 
+be requir to obtain the random offset befor mount- 
+ing the meltdown attack. however, the random be 
+limit to 40 bit. 
+
+thus, if we assum a setup of the target machin with 
+8 GB of ram, it be suffici to test the address space 
+for address in 8 GB steps. thi allow to cover the 
+search space of 40 bit with onli 128 test in the bad 
+case. If the attack can success obtain a valu 
+from a test address, the attack can proceed dump- 
+ing the entir memori from that location. thi allow to 
+mount meltdown on a system despit be protect by 
+kaslr within seconds. 
+
+6 evalu 
+
+In thi section, we evalu meltdown and the perfor- 
+manc of our proof-of-concept implement 2. sec- 
+tion 6.1 discu the inform which meltdown can 
+leak, and section 6.2 evalu the perform of melt- 
+down, includ countermeasures. finally, we discu 
+limit for amd and arm in section 6.4. 
+
+tabl 1 show a list of configur on which we 
+success reproduc meltdown. for the evalu of 
+meltdown, we use both laptop a well a desktop pc 
+with intel core cpus. for the cloud setup, we test 
+meltdown in virtual machin run on intel xeon 
+cpu host in the amazon elast comput cloud a 
+
+2https://github.com/iaik/meltdown 
+
+10 
+
+
+
+tabl 1: experiment setups. 
+
+environ cpu model core 
+
+lab celeron g540 2 
+lab core i5-3230m 2 
+lab core i5-3320m 2 
+lab core i7-4790 4 
+lab core i5-6200u 2 
+lab core i7-6600u 2 
+lab core i7-6700k 4 
+
+cloud xeon e5-2676 v3 12 
+cloud xeon e5-2650 v4 12 
+
+well a on digitalocean. note that for ethic reason we 
+do not use meltdown on address refer to physic 
+memori of other tenants. 
+
+6.1 inform leakag and environ- 
+ment 
+
+We evalu meltdown on both linux (cf. section 6.1.1) 
+and window 10 (cf. section 6.1.3). On both oper 
+systems, meltdown can success leak kernel mem- 
+ory. furthermore, we also evalu the effect of the 
+kaiser patch on meltdown on linux, to show that 
+kaiser prevent the leakag of kernel memori (cf. sec- 
+tion 6.1.2). finally, we discu the inform leakag 
+when run insid contain such a docker (cf. sec- 
+tion 6.1.4). 
+
+6.1.1 linux 
+
+We success evalu meltdown on multipl ver- 
+sion of the linux kernel, from 2.6.32 to 4.13.0. On 
+all these version of the linux kernel, the kernel address 
+space be also map into the user address space. thus, 
+all kernel address be also map into the address 
+space of user space applications, but ani access be pre- 
+vent due to the permiss set for these addresses. 
+As meltdown bypass these permiss settings, an at- 
+tacker can leak the complet kernel memori if the vir- 
+tual address of the kernel base be known. sinc all major 
+oper system also map the entir physic memori 
+into the kernel address space (cf. section 2.2), all physi- 
+cal memori can also be read. 
+
+befor kernel 4.12, kernel address space layout ran- 
+domiz (kaslr) be not activ by default [30]. If 
+kaslr be active, meltdown can still be use to find the 
+kernel by search through the address space (cf. sec- 
+tion 5.2). An attack can also simpli de-random the 
+direct-phys map by iter through the virtual ad- 
+dress space. without kaslr, the direct-phys map 
+start at address 0xffff 8800 0000 0000 and linearli 
+
+map the entir physic memory. On such systems, an 
+attack can use meltdown to dump the entir physic 
+memory, simpli by read from virtual address start- 
+ing at 0xffff 8800 0000 0000. 
+
+On newer systems, where kaslr be activ by default, 
+the random of the direct-phys map be limit 
+to 40 bit. It be even further limit due to the linear of 
+the mapping. assum that the target system have at least 
+8 GB of physic memory, the attack can test address 
+in step of 8 gb, result in a maximum of 128 memori 
+locat to test. start from one discov location, 
+the attack can again dump the entir physic memory. 
+
+hence, for the evaluation, we can assum that the ran- 
+domiz be either disabled, or the offset be alreadi 
+retriev in a pre-comput step. 
+
+6.1.2 linux with kaiser patch 
+
+the kaiser patch by gruss et al. [8] implement 
+a strong isol between kernel and user space. 
+kaiser do not map ani kernel memori in the user 
+space, except for some part requir by the x86 archi- 
+tectur (e.g., interrupt handlers). thus, there be no valid 
+map to either kernel memori or physic memori 
+(via the direct-phys map) in the user space, and such 
+address can therefor not be resolved. consequently, 
+meltdown cannot leak ani kernel or physic memori 
+except for the few memori locat which have to be 
+map in user space. 
+
+We verifi that kaiser inde prevent meltdown, 
+and there be no leakag of ani kernel or physic memory. 
+
+furthermore, if kaslr be active, and the few re- 
+main memori locat be randomized, find these 
+memori locat be not trivial due to their small size of 
+sever kilobytes. section 7.2 discu the implic 
+of these map memori locat from a secur per- 
+spective. 
+
+6.1.3 microsoft window 
+
+We success evalu meltdown on an up-to-d 
+microsoft window 10 oper system. In line with 
+the result on linux (cf. section 6.1.1), meltdown also 
+can leak arbitrari kernel memori on windows. thi be 
+not surprising, sinc meltdown do not exploit ani soft- 
+ware issues, but be caus by a hardwar issue. 
+
+In contrast to linux, window do not have the con- 
+cept of an ident mapping, which linearli map the 
+physic memori into the virtual address space. instead, 
+a larg fraction of the physic memori be map in 
+the page pools, non-pag pools, and the system cache. 
+furthermore, window map the kernel into the address 
+space of everi applic too. thus, meltdown can read 
+kernel memori which be map in the kernel address 
+
+11 
+
+
+
+space, i.e., ani part of the kernel which be not swap 
+out, and ani page map in the page and non-pag 
+pool, and the system cache. 
+
+note that there like be physic page which be 
+map in one process but not in the (kernel) address 
+space of anoth process, i.e., physic page which can- 
+not be attack use meltdown. however, most of the 
+physic memori will still be access through melt- 
+down. 
+
+We be success abl to read the binari of the 
+window kernel use meltdown. To verifi that the 
+leak data be actual kernel memory, we first use the 
+window kernel debugg to obtain kernel address 
+contain actual data. after leak the data, we again 
+use the window kernel debugg to compar the leak 
+data with the actual memori content, confirm that 
+meltdown can success leak kernel memory. 
+
+6.1.4 contain 
+
+We evalu meltdown run in contain share a 
+kernel, includ docker, lxc, and openvz, and found 
+that the attack can be mount without ani restrictions. 
+run meltdown insid a contain allow to leak in- 
+format not onli from the underli kernel, but also 
+from all other contain run on the same physic 
+host. 
+
+the common of most contain solut be that 
+everi contain us the same kernel, i.e., the kernel be 
+share among all containers. thus, everi contain have 
+a valid map of the entir physic memori through 
+the direct-phys map of the share kernel. further- 
+more, meltdown cannot be block in containers, a it 
+us onli memori accesses. especi with intel tsx, 
+onli unprivileg instruct be execut without even 
+trap into the kernel. 
+
+thus, the isol of contain share a kernel can 
+be fulli broken use meltdown. thi be especi crit- 
+ical for cheaper host provid where user be not 
+separ through fulli virtual machines, but onli 
+through containers. We verifi that our attack work in 
+such a setup, by success leak memori content 
+from a contain of a differ user under our control. 
+
+6.2 meltdown perform 
+
+To evalu the perform of meltdown, we leak 
+know valu from kernel memory. thi allow u to 
+not onli determin how fast an attack can leak mem- 
+ory, but also the error rate, i.e., how mani byte error 
+to expect. We achiev averag read rate of up to 
+503 kb/ with an error rate a low a 0.02 % when use 
+except suppression. for the perform evaluation, 
+we focu on the intel core i7-6700k a it support in- 
+
+tel tsx, to get a fair perform comparison between 
+except handl and except suppression. 
+
+for all tests, we use flush+reload a a covert channel 
+to leak the memori a describ in section 5. We evalu- 
+ate the perform of both except handl and ex- 
+ception suppress (cf. section 4.1). for except han- 
+dling, we use signal handlers, and if the cpu support 
+it, we also use except suppress use intel tsx. 
+An extens evalu of except suppress use 
+condit branch be do by kocher et al. [19] and 
+be thu omit in thi paper for the sake of brevity. 
+
+6.2.1 except handl 
+
+except handl be the more univers implementa- 
+tion, a it do not depend on ani cpu extens and can 
+thu be use without ani restrictions. the onli require- 
+ment for except handl be oper system support 
+to catch segment fault and continu oper af- 
+terwards. thi be the case for all modern oper sys- 
+tems, even though the specif implement differ be- 
+tween the oper systems. On linux, we use signals, 
+whereas, on windows, we reli on the structur ex- 
+ception handler. 
+
+with except handling, we achiev averag read 
+speed of 123 kb/ when leak 12 MB of kernel mem- 
+ory. out of the 12 MB kernel data, onli 0.03 % be read 
+incorrectly. thus, with an error rate of 0.03 %, the chan- 
+nel capac be 122 kb/s. 
+
+6.2.2 except suppress 
+
+except suppress can either be achiev use 
+condit branch or use intel tsx. condit 
+branch be cover in detail in kocher et al. [19], henc 
+we onli evalu intel tsx for except suppression. 
+In contrast to except handling, intel tsx do not re- 
+quir oper system support, a it be an instruction-set 
+extension. however, intel tsx be a rather new extens 
+and be thu onli avail on recent intel cpus, i.e., sinc 
+the broadwel microarchitecture. 
+
+again, we leak 12 MB of kernel memori to mea- 
+sure the performance. with except suppression, we 
+achiev averag read speed of 503 kb/s. more- 
+over, the error rate of 0.02 % with except suppress 
+be even low than with except handling. thus, the 
+channel capac we achiev with except suppress 
+be 502 kb/s. 
+
+6.3 meltdown in practic 
+
+list 3 show a memori dump use meltdown on 
+an intel core i7-6700k run ubuntu 16.10 with the 
+linux kernel 4.8.0. In thi example, we can identifi 
+
+12 
+
+
+
+79cbb30: 616f 61 4e 6b 32 38 46 31 34 67 65 68 61 7a 34 |aoank28f14gehaz4| 
+
+79cbb40: 5a74 4d 79 78 68 76 41 57 69 69 63 77 59 62 61 |ztmyxhvawiicwyba| 
+
+79cbb50: 356a 4c 76 4d 70 4b 56 56 32 4b 6a 37 4b 5a 4e |5jlvmpkvv2kj7kzn| 
+
+79cbb60: 6655 6c 6e 72 38 64 74 35 54 62 43 63 7a 6f 44 |fulnr8dt5tbcczod| 
+
+79cbb70: 494e 46 71 58 6d 4a 69 34 58 50 39 62 43 53 47 |infqxmji4xp9bcsg| 
+
+79cbb80: 6c4c 48 32 5a 78 66 56 44 73 4b 57 39 34 68 6d |llh2zxfvdskw94hm| 
+
+79cbb90: 3364 2f 41 4d 41 45 44 41 41 41 41 41 51 45 42 |3d/amaedaaaaaqeb| 
+
+79cbba0: 4141 41 41 41 41 3d 3d XX XX XX XX XX XX XX XX |aaaaaa==........| 
+
+79cbbb0: xxxx XX XX XX XX XX XX XX XX XX XX XX XX XX XX |................| 
+
+79cbbc0: xxxx XX 65 2d 68 65 61 64 XX XX XX XX XX XX XX |...e-head.......| 
+
+79cbbd0: xxxx XX XX XX XX XX XX XX XX XX XX XX XX XX XX |................| 
+
+79cbbe0: xxxx XX XX XX XX XX XX XX XX XX XX XX XX XX XX |................| 
+
+79cbbf0: xxxx XX XX XX XX XX XX XX XX XX XX XX XX XX XX |................| 
+
+79cbc00: xxxx XX XX XX XX XX XX XX XX XX XX XX XX XX XX |................| 
+
+79cbc10: xxxx XX XX XX XX XX XX XX XX XX XX XX XX XX XX |................| 
+
+79cbc20: xxxx XX XX XX XX XX XX XX XX XX XX XX XX XX XX |................| 
+
+79cbc30: xxxx XX XX XX XX XX XX XX XX XX XX XX XX XX XX |................| 
+
+79cbc40: xxxx XX XX XX XX XX XX XX XX XX XX XX XX XX XX |................| 
+
+79cbc50: xxxx XX XX 0d 0a XX 6f 72 69 67 69 6e 61 6c 2d |.......original-| 
+
+79cbc60: 7265 73 70 6f 6e 73 65 2d 68 65 61 64 65 72 73 |response-headers| 
+
+79cbc70: xx44 61 74 65 3a 20 53 61 74 2c 20 30 39 20 44 |.date: sat, 09 D| 
+
+79cbc80: 6563 20 32 30 31 37 20 32 32 3a 32 39 3a 32 35 |ec 2017 22:29:25| 
+
+79cbc90: 2047 4d 54 0d 0a 43 6f 6e 74 65 6e 74 2d 4c 65 | gmt..content-le| 
+
+79cbca0: 6e67 74 68 3a 20 31 0d 0a 43 6f 6e 74 65 6e 74 |ngth: 1..content| 
+
+79cbcb0: 2d54 79 70 65 3a 20 74 65 78 74 2f 68 74 6d 6c |-type: text/html| 
+
+79cbcc0: 3b20 63 68 61 72 73 65 74 3d 75 74 66 2d 38 0d |; charset=utf-8.| 
+
+79cbcd0: 0a53 65 72 76 65 72 3a 20 54 77 69 73 74 65 64 |.server: twisted| 
+
+79cbce0: 5765 62 2f 31 36 2e 33 2e 30 0d 0a XX 75 6e 63 |web/16.3.0...unc| 
+
+79cbcf0: 6f6d 70 72 65 73 73 65 64 2d 6c 65 6e XX XX XX |ompressed-len...| 
+
+list 3: memori dump show http header on 
+ubuntu 16.10 on a intel core i7-6700k 
+
+f94b7690: e5 e5 e5 e5 e5 e5 e5 e5 e5 e5 e5 e5 e5 e5 e5 e5 |................| 
+
+f94b76a0: e5 e5 e5 e5 e5 e5 e5 e5 e5 e5 e5 e5 e5 e5 e5 e5 |................| 
+
+f94b76b0: 70 52 b8 6b 96 7f XX XX XX XX XX XX XX XX XX XX |pr.k............| 
+
+f94b76c0: 09 XX XX XX XX XX XX XX XX XX XX XX XX XX XX XX |................| 
+
+f94b76d0: XX XX XX XX XX XX XX XX XX XX XX XX XX XX XX XX |................| 
+
+f94b76e0: XX XX XX XX XX XX XX XX XX XX XX XX XX XX XX 81 |................| 
+
+f94b76f0: 12 XX e0 81 19 XX e0 81 44 6f 6c 70 68 69 6e 31 |........dolphin1| 
+
+f94b7700: 38 e5 e5 e5 e5 e5 e5 e5 e5 e5 e5 e5 e5 e5 e5 e5 |8...............| 
+
+f94b7710: 70 52 b8 6b 96 7f XX XX XX XX XX XX XX XX XX XX |pr.k............| 
+
+f94b7720: XX XX XX XX XX XX XX XX XX XX XX XX XX XX XX XX |................| 
+
+f94b7730: XX XX XX XX 4a XX XX XX XX XX XX XX XX XX XX XX |....j...........| 
+
+f94b7740: XX XX XX XX XX XX XX XX XX XX XX XX XX XX XX XX |................| 
+
+f94b7750: XX XX XX XX XX XX XX XX XX XX e0 81 69 6e 73 74 |............inst| 
+
+f94b7760: 61 5f 30 32 30 33 e5 e5 e5 e5 e5 e5 e5 e5 e5 e5 |a_0203..........| 
+
+f94b7770: 70 52 18 7d 28 7f XX XX XX XX XX XX XX XX XX XX |pr.}(...........| 
+
+f94b7780: XX XX XX XX XX XX XX XX XX XX XX XX XX XX XX XX |................| 
+
+f94b7790: XX XX XX XX 54 XX XX XX XX XX XX XX XX XX XX XX |....t...........| 
+
+f94b77a0: XX XX XX XX XX XX XX XX XX XX XX XX XX XX XX XX |................| 
+
+f94b77b0: XX XX XX XX XX XX XX XX XX XX XX XX 73 65 63 72 |............secr| 
+
+f94b77c0: 65 74 70 77 64 30 e5 e5 e5 e5 e5 e5 e5 e5 e5 e5 |etpwd0..........| 
+
+f94b77d0: 30 b4 18 7d 28 7f XX XX XX XX XX XX XX XX XX XX |0..}(...........| 
+
+f94b77e0: XX XX XX XX XX XX XX XX XX XX XX XX XX XX XX XX |................| 
+
+f94b77f0: XX XX XX XX XX XX XX XX XX XX XX XX XX XX XX XX |................| 
+
+f94b7800: e5 e5 e5 e5 e5 e5 e5 e5 e5 e5 e5 e5 e5 e5 e5 e5 |................| 
+
+f94b7810: 68 74 74 70 73 3a 2f 2f 61 64 64 6f 6e 73 2e 63 |https://addons.c| 
+
+f94b7820: 64 6e 2e 6d 6f 7a 69 6c 6c 61 2e 6e 65 74 2f 75 |dn.mozilla.net/u| 
+
+f94b7830: 73 65 72 2d 6d 65 64 69 61 2f 61 64 64 6f 6e 5f |ser-media/addon_| 
+
+f94b7840: 69 63 6f 6e 73 2f 33 35 34 2f 33 35 34 33 39 39 |icons/354/354399| 
+
+f94b7850: 2d 36 34 2e 70 6e 67 3f 6d 6f 64 69 66 69 65 64 |-64.png?modified| 
+
+f94b7860: 3d 31 34 35 32 32 34 34 38 31 35 XX XX XX XX XX |=1452244815.....| 
+
+list 4: memori dump of firefox 56 on ubuntu 16.10 
+on a intel core i7-6700k disclos save password (cf. 
+figur 6). 
+
+figur 6: firefox 56 password manag show the 
+store password that be leak use meltdown in list- 
+ing 4. 
+
+http header of a request to a web server run on the 
+machine. the XX case repres byte where the side 
+channel do not yield ani results, i.e., no flush+reload 
+hit. addit repetit of the attack may still be abl 
+to read these bytes. 
+
+list 4 show a memori dump of firefox 56 use 
+meltdown on the same machine. We can clearli iden- 
+tifi some of the password that be store in the intern 
+password manag show in figur 6, i.e., dolphin18, 
+insta 0203, and secretpwd0. the attack also recov- 
+ere a url which appear to be relat to a firefox ad- 
+don. 
+
+6.4 limit on arm and amd 
+We also tri to reproduc the meltdown bug on sever 
+arm and amd cpus. however, we do not manag 
+to success leak kernel memori with the attack de- 
+scribe in section 5, neither on arm nor on amd. the 
+reason for thi can be manifold. first of all, our im- 
+plement might simpli be too slow and a more opti- 
+mize version might succeed. for instance, a more shal- 
+low out-of-ord execut pipelin could tip the race 
+condit toward against the data leakage. similarly, 
+if the processor lack certain features, e.g., no re-ord 
+buffer, our current implement might not be abl to 
+leak data. however, for both arm and amd, the toy 
+exampl a describ in section 3 work reliably, indi- 
+cat that out-of-ord execut gener occur and 
+instruct past illeg memori access be also per- 
+formed. 
+
+7 countermeasur 
+
+In thi section, we discu countermeasur against the 
+meltdown attack. At first, a the issu be root in the 
+
+13 
+
+
+
+hardwar itself, we want to discu possibl microcod 
+updat and gener chang in the hardwar design. 
+second, we want to discu the kaiser countermeasur 
+that have be develop to mitig side-channel attack 
+against kaslr which inadvert also protect against 
+meltdown. 
+
+7.1 hardwar 
+
+meltdown bypass the hardware-enforc isol of 
+secur domains. there be no softwar vulner in- 
+volv in meltdown. henc ani softwar patch (e.g., 
+kaiser [8]) will leav small amount of memori ex- 
+pose (cf. section 7.2). there be no document 
+whether such a fix requir the develop of com- 
+plete new hardware, or can be fix use a microcod 
+update. 
+
+As meltdown exploit out-of-ord execution, a triv- 
+ial countermeasur would be to complet disabl out- 
+of-ord execution. however, the perform impact 
+would be devastating, a the parallel of modern cpu 
+could not be leverag anymore. thus, thi be not a vi- 
+abl solution. 
+
+meltdown be some form of race condit between the 
+fetch of a memori address and the correspond per- 
+mission check for thi address. serial the permis- 
+sion check and the regist fetch can prevent meltdown, 
+a the memori address be never fetch if the permiss 
+check fails. however, thi involv a signific overhead 
+to everi memori fetch, a the memori fetch have to stall 
+until the permiss check be completed. 
+
+A more realist solut would be to introduc a hard 
+split of user space and kernel space. thi could be en- 
+abl option by modern kernel use a new hard- 
+split bit in a cpu control register, e.g., cr4. If the hard- 
+split bit be set, the kernel have to resid in the upper half 
+of the address space, and the user space have to resid in 
+the low half of the address space. with thi hard split, 
+a memori fetch can immedi identifi whether such a 
+fetch of the destin would violat a secur bound- 
+ary, a the privileg level can be directli deriv from 
+the virtual address without ani further lookups. We ex- 
+pect the perform impact of such a solut to be 
+minimal. furthermore, the backward compat be 
+ensured, sinc the hard-split bit be not set by default and 
+the kernel onli set it if it support the hard-split feature. 
+
+note that these countermeasur onli prevent melt- 
+down, and not the class of spectr attack describ by 
+kocher et al. [19]. likewise, sever countermeasur 
+present by kocher et al. [19] have no effect on melt- 
+down. We stress that it be import to deploy counter- 
+measur against both attacks. 
+
+7.2 kaiser 
+
+As hardwar be not a easi to patch, there be a need for 
+softwar workaround until new hardwar can be de- 
+ployed. gruss et al. [8] propos kaiser, a kernel mod- 
+ific to not have the kernel map in the user space. 
+thi modif be intend to prevent side-channel 
+attack break kaslr [13, 9, 17]. however, it also 
+prevent meltdown, a it ensur that there be no valid 
+map to kernel space or physic memori avail 
+in user space. kaiser will be avail in the upcom- 
+ing releas of the linux kernel under the name kernel 
+page-t isol (kpti) [25]. the patch will also 
+be backport to old linux kernel versions. A simi- 
+lar patch be also introduc in microsoft window 10 
+build 17035 [15]. also, mac OS X and io have similar 
+featur [22]. 
+
+although kaiser provid basic protect against 
+meltdown, it still have some limitations. due to the design 
+of the x86 architecture, sever privileg memori loca- 
+tion be requir to be map in user space [8]. thi 
+leaf a residu attack surfac for meltdown, i.e., these 
+memori locat can still be read from user space. even 
+though these memori locat do not contain ani se- 
+crets, such a credentials, they might still contain point- 
+ers. leak one pointer can be enough to again break 
+kaslr, a the random can be calcul from the 
+pointer value. 
+
+still, kaiser be the best short-tim solut current 
+avail and should therefor be deploy on all sys- 
+tem immediately. even with meltdown, kaiser can 
+avoid have ani kernel pointer on memori locat 
+that be map in the user space which would leak in- 
+format about the random offsets. thi would re- 
+quir trampolin locat for everi kernel pointer, i.e., 
+the interrupt handler would not call into kernel code di- 
+rectly, but through a trampolin function. the trampo- 
+line function must onli be map in the kernel. It must 
+be random with a differ offset than the remain 
+kernel. consequently, an attack can onli leak pointer 
+to the trampolin code, but not the random offset of 
+the remain kernel. such trampolin code be requir 
+for everi kernel memori that still have to be map in 
+user space and contain kernel addresses. thi approach 
+be a trade-off between perform and secur which 
+have to be assess in futur work. 
+
+8 discuss 
+
+meltdown fundament chang our perspect on the 
+secur of hardwar optim that manipul the 
+state of microarchitectur elements. the fact that hard- 
+ware optim can chang the state of microar- 
+chitectur elements, and therebi imperil secur soft- 
+
+14 
+
+
+
+ware implementations, be know sinc more than 20 
+year [20]. both industri and the scientif commun 
+so far accept thi a a necessari evil for effici com- 
+puting. today it be consid a bug when a crypto- 
+graphic algorithm be not protect against the microar- 
+chitectur leakag introduc by the hardwar optimiza- 
+tions. meltdown chang the situat entirely. melt- 
+down shift the granular from a compar low spa- 
+tial and tempor granularity, e.g., 64-byte everi few 
+hundr cycl for cach attacks, to an arbitrari granu- 
+larity, allow an attack to read everi singl bit. thi 
+be noth ani (cryptographic) algorithm can protect it- 
+self against. kaiser be a short-term softwar fix, but the 
+problem we uncov be much more significant. 
+
+We expect sever more perform optim in 
+modern cpu which affect the microarchitectur state 
+in some way, not even necessarili through the cache. 
+thus, hardwar which be design to provid certain se- 
+curiti guarantees, e.g., cpu run untrust code, re- 
+quir a redesign to avoid meltdown- and spectre-lik at- 
+tacks. meltdown also show that even error-fre soft- 
+ware, which be explicitli write to thwart side-channel 
+attacks, be not secur if the design of the underli hard- 
+ware be not take into account. 
+
+with the integr of kaiser into all major oper- 
+ate systems, an import step have alreadi be do 
+to prevent meltdown. kaiser be also the first step of 
+a paradigm chang in oper systems. instead of al- 
+way map everyth into the address space, map- 
+ping onli the minim requir memori locat ap- 
+pear to be a first step in reduc the attack surface. 
+however, it might not be enough, and an even strong 
+isol may be required. In thi case, we can trade flex- 
+ibil for perform and security, by e.g., forc a 
+certain virtual memori layout for everi oper sys- 
+tem. As most modern oper system alreadi use basi- 
+calli the same memori layout, thi might be a promis 
+approach. 
+
+meltdown also heavili affect cloud providers, espe- 
+cialli if the guest be not fulli virtualized. for per- 
+formanc reasons, mani host or cloud provid do 
+not have an abstract layer for virtual memory. In 
+such environments, which typic use containers, such 
+a docker or openvz, the kernel be share among all 
+guests. thus, the isol between guest can simpli be 
+circumv with meltdown, fulli expos the data of 
+all other guest on the same host. for these providers, 
+chang their infrastructur to full virtual or us- 
+ing softwar workaround such a kaiser would both 
+increas the cost significantly. 
+
+even if meltdown be fixed, spectr [19] will remain 
+an issue. spectr [19] and meltdown need differ de- 
+fenses. specif mitig onli one of them will 
+leav the secur of the entir system at risk. We expect 
+
+that meltdown and spectr open a new field of research 
+to investig in what extent perform optim 
+chang the microarchitectur state, how thi state can be 
+translat into an architectur state, and how such at- 
+tack can be prevented. 
+
+9 conclus 
+
+In thi paper, we present meltdown, a novel software- 
+base side-channel attack exploit out-of-ord execu- 
+tion on intel cpu to read arbitrari kernel- and physical- 
+memori locat from an unprivileg user space pro- 
+gram. without requir ani softwar vulner and 
+independ of the oper system, meltdown enabl 
+an adversari to read sensit data of other process or 
+virtual machin in the cloud with up to 503 kb/s, af- 
+fect million of devices. We show that the coun- 
+termeasur kaiser [8], origin propos to pro- 
+tect from side-channel attack against kaslr, inad- 
+vertent imped meltdown a well. We stress that 
+kaiser need to be deploy on everi oper sys- 
+tem a a short-term workaround, until meltdown be fix 
+in hardware, to prevent large-scal exploit of melt- 
+down. 
+
+acknowledg 
+
+We would like to thank ander fogh for fruit dis- 
+cussion at blackhat usa 2016 and blackhat europ 
+2016, which ultim lead to the discoveri of meltdown. 
+fogh [5] alreadi suspect that it might be possibl to 
+abus specul execut in order to read kernel mem- 
+ori in user mode but hi experi be not success- 
+ful. We would also like to thank jann horn for comment 
+on an earli draft. jann disclos the issu to intel in 
+june. the subsequ activ around the kaiser patch 
+be the reason we start investig thi issue. fur- 
+thermore, we would like intel, arm, qualcomm, and 
+microsoft for feedback on an earli draft. 
+
+We would also like to thank intel for award u with 
+a bug bounti for the respons disclosur process, and 
+their profession handl of thi issu through commu- 
+nicat a clear timelin and connect all involv re- 
+searchers. furthermore, we would also thank arm for 
+their fast respons upon disclos the issue. 
+
+thi work be support in part by the european 
+research council (erc) under the european union’ 
+horizon 2020 research and innov programm (grant 
+agreement No 681402). 
+
+15 
+
+
+
+refer 
+[1] benger, n., van DE pol, j., smart, N. p., and yarom, Y. 
+
+“ooh aah... just a littl bit”: A small amount of side channel 
+can go a long way. In ches’14 (2014). 
+
+[2] cheng, c.-c. the scheme and perform of dynam 
+branch predictors. berkeley wireless research center, tech. rep 
+(2000). 
+
+[3] devies, A. M. amd take comput to a new horizon with 
+ryzentmprocessors, 2016. 
+
+[4] edge, J. kernel address space layout randomization, 2013. 
+
+[5] fogh, A. neg result: read kernel memori from user 
+mode, 2017. 
+
+[6] gras, b., razavi, k., bosman, e., bos, h., and giuf- 
+frida, C. aslr on the line: practic cach attack on the 
+mmu. In ndss (2017). 
+
+[7] gruss, d., lettner, j., schuster, f., ohrimenko, o., 
+haller, i., and costa, M. strong and effici cach side- 
+channel protect use hardwar transact memory. In 
+usenix secur symposium (2017). 
+
+[8] gruss, d., lipp, m., schwarz, m., fellner, r., mau- 
+rice, c., and mangard, S. kaslr be dead: long live 
+kaslr. In intern symposium on engin secur 
+softwar and system (2017), springer, pp. 161–176. 
+
+[9] gruss, d., maurice, c., fogh, a., lipp, m., and man- 
+gard, S. prefetch side-channel attacks: bypass smap and 
+kernel aslr. In cc (2016). 
+
+[10] gruss, d., maurice, c., wagner, k., and mangard, 
+S. flush+flush: A fast and stealthi cach attack. In dimva 
+(2016). 
+
+[11] gruss, d., spreitzer, r., and mangard, S. cach 
+templat attacks: autom attack on inclus last-level 
+caches. In usenix secur symposium (2015). 
+
+[12] hennessy, J. l., and patterson, D. A. comput architec- 
+ture: a quantit approach. elsevier, 2011. 
+
+[13] hund, r., willems, c., and holz, T. practic time side 
+channel attack against kernel space aslr. In s&p (2013). 
+
+[14] intel. intel R© 64 and ia-32 architectur optim refer- 
+enc manual, 2014. 
+
+[15] ionescu, A. window 17035 kernel aslr/va isol In 
+practic (like linux kaiser)., 2017. 
+
+[16] irazoqui, g., inci, M. s., eisenbarth, t., and sunar, B. 
+wait a minute! A fast, cross-vm attack on aes. In raid’14 
+(2014). 
+
+[17] jang, y., lee, s., and kim, T. break kernel address 
+space layout random with intel tsx. In cc (2016). 
+
+[18] jiménez, D. a., and lin, C. dynam branch predict with 
+perceptrons. In high-perform comput architecture, 2001. 
+hpca. the seventh intern symposium on (2001), ieee, 
+pp. 197–206. 
+
+[19] kocher, p., genkin, d., gruss, d., haas, w., hamburg, 
+m., lipp, m., mangard, s., prescher, t., schwarz, m., 
+and yarom, Y. spectr attacks: exploit specul exe- 
+cution. 
+
+[20] kocher, P. C. time attack on implement of diffe- 
+hellman, rsa, dss, and other systems. In crypto (1996). 
+
+[21] lee, b., malishevsky, a., beck, d., schmid, a., and 
+landry, E. dynam branch prediction. oregon state univer- 
+sity. 
+
+[22] levin, J. mac OS X and io internals: To the apple’ core. 
+john wiley & sons, 2012. 
+
+[23] lipp, m., gruss, d., spreitzer, r., maurice, c., and 
+mangard, S. armageddon: cach attack on mobil de- 
+vices. In usenix secur symposium (2016). 
+
+[24] liu, f., yarom, y., ge, q., heiser, g., and lee, R. B. 
+last-level cach side-channel attack be practical. In ieee 
+symposium on secur and privaci – SP (2015), ieee comput 
+society, pp. 605–622. 
+
+[25] lwn. the current state of kernel page-t isolation, dec. 2017. 
+
+[26] maurice, c., weber, m., schwarz, m., giner, l., 
+gruss, d., alberto boano, c., mangard, s., and 
+römer, K. hello from the other side: ssh over robust cach 
+covert channel in the cloud. In ndss (2017). 
+
+[27] molnar, I. x86: enabl kaslr by default, 2017. 
+
+[28] osvik, D. a., shamir, a., and tromer, E. cach attack 
+and countermeasures: the case of aes. In ct-rsa (2006). 
+
+[29] percival, C. cach miss for fun and profit. In proceed 
+of bsdcan (2005). 
+
+[30] phoronix. linux 4.12 To enabl kaslr By default, 2017. 
+
+[31] schwarz, m., lipp, m., gruss, d., weiser, s., maurice, 
+c., spreitzer, r., and mangard, S. keydrown: eliminat- 
+ing software-bas keystrok time side-channel attacks. In 
+ndss’18 (2018). 
+
+[32] teran, e., wang, z., and jiménez, D. A. perceptron learn- 
+ing for reus prediction. In microarchitectur (micro), 2016 
+49th annual ieee/acm intern symposium on (2016), 
+ieee, pp. 1–12. 
+
+[33] tomasulo, R. M. An effici algorithm for exploit multi- 
+ple arithmet units. ibm journal of research and develop 
+11, 1 (1967), 25–33. 
+
+[34] vintan, L. n., and iridon, M. toward a high perform 
+neural branch predictor. In neural networks, 1999. ijcnn’99. 
+intern joint confer on (1999), vol. 2, ieee, pp. 868– 
+873. 
+
+[35] yarom, y., and falkner, K. flush+reload: a high reso- 
+lution, low noise, L3 cach side-channel attack. In usenix 
+secur symposium (2014). 
+
+[36] yeh, t.-y., and patt, Y. N. two-level adapt train 
+branch prediction. In proceed of the 24th annual interna- 
+tional symposium on microarchitectur (1991), acm, pp. 51–61. 
+
+[37] zhang, y., juels, a., reiter, M. k., and ristenpart, T. 
+cross-ten side-channel attack in paa clouds. In ccs’14 
+(2014). 
+
+16 
+
+

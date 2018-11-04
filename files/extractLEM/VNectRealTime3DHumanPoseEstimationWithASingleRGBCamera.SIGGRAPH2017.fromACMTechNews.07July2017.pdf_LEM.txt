@@ -1,0 +1,1550 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+VNect: Real-time 3D Human Pose Estimation with a Single RGB 
+Camera 
+
+DUSHYANT MEHTA1,2, SRINATH SRIDHAR1, OLEKSANDR SOTNYCHENKO1, HELGE RHODIN1, MO- 
+HAMMAD SHAFIEI1,2, HANS-PETER SEIDEL1, WEIPENG XU1, DAN CASAS3, CHRISTIAN THEOBALT1 
+1Max Planck Institute for Informatics, 2Saarland University, 3Universidad Rey Juan Carlos 
+
+Fig. 1. We recover the full global 3D skeleton pose in real-time from a single RGB camera, even wireless capture be possible by stream from a smartphone 
+(left). It enables application such a control a game character, embody VR, sport motion analysis and reconstruction of community video (right). 
+Community video (CC BY) courtesy of Real Madrid C.F. [2016] and RUSFENCING-TV [2017]. 
+
+We present the first real-time method to capture the full global 3D skeletal 
+pose of a human in a stable, temporally consistent manner use a single 
+RGB camera. Our method combine a new convolutional neural network 
+(CNN) base pose regressor with kinematic skeleton fitting. Our novel fully- 
+convolutional pose formulation regress 2D and 3D joint position jointly 
+in real time and do not require tightly cropped input frames. A real-time 
+kinematic skeleton fitting method us the CNN output to yield temporally 
+stable 3D global pose reconstruction on the basis of a coherent kinematic 
+skeleton. This make our approach the first monocular RGB method usable 
+in real-time application such a 3D character control—thus far, the only 
+monocular method for such application employ specialized RGB-D cam- 
+eras. Our method’s accuracy be quantitatively on par with the best offline 
+3D monocular RGB pose estimation methods. Our result be qualitatively 
+comparable to, and sometimes good than, result from monocular RGB-D 
+approaches, such a the Kinect. However, we show that our approach be 
+more broadly applicable than RGB-D solutions, i.e., it work for outdoor 
+scenes, community videos, and low quality commodity RGB cameras. 
+
+CCS Concepts: • Computing methodology →Motion capture; 
+
+Additional Key Words and Phrases: body pose, monocular, real time 
+
+This work be be fund by the ERC Starting Grant project CapReal (335545). Dan 
+Casas be support by a Marie Curie Individual Fellow, grant agreement 707326. 
+
+© 2017 Copyright held by the owner/author(s). Publication right license to ACM. 
+This be the author’s version of the work. It be post here for your personal use. Not for 
+redistribution. The definitive Version of Record be publish in ACM Transactions on 
+Graphics, https://doi.org/http://dx.doi.org/10.1145/3072959.3073596. 
+
+ACM Reference format: 
+Dushyant Mehta, Srinath Sridhar, Oleksandr Sotnychenko, Helge Rhodin, 
+Mohammad Shafiei, Hans-Peter Seidel,Weipeng Xu, DanCasas and Christian 
+Theobalt. 2017. VNect: Real-time 3D Human Pose Estimation with a Single 
+RGB Camera. ACM Trans. Graph. 36, 4, Article 44 (July 2017), 14 pages. 
+DOI: http://dx.doi.org/10.1145/3072959.3073596 
+
+1 INTRODUCTION 
+Optical skeletal motion capture of human be widely use in applica- 
+tions such a character animation for movie and games, sport and 
+biomechanics, and medicine. To overcome the usability constraint 
+impose by commercial system require marker suit [Menache 
+2000], researcher developed marker-less motion capture meth- 
+od that estimate motion in more general scene use multi-view 
+video [Moeslund et al. 2006], with recent solution be real-time 
+[Stoll et al. 2011]. The swell in popularity of application such a real- 
+time motion-driven 3D game character control, self-immersion in 
+3D virtual and augment reality, and human–computer interaction, 
+have lead to new real-time full-body motion estimation technique us- 
+ing only a single, easy to install, depth camera, such a the Microsoft 
+Kinect [Microsoft Corporation 2010, 2013, 2015]. RGB-D camera 
+provide valuable depth data which greatly simplifies monocular 
+pose reconstruction. However, RGB-D camera often fail in gen- 
+eral outdoor scene (due to sunlight interference), be bulkier, have 
+high power consumption, have low resolution and limited range, 
+and be not a widely and cheaply available a color cameras. 
+Skeletal pose estimation from a single color camera be a much 
+
+more challenge and severely underconstrained problem. Monocu- 
+lar RGB body pose estimation in 2D have be widely researched, but 
+
+ACM Transactions on Graphics, Vol. 36, No. 4, Article 44. Publication date: July 2017. 
+
+
+
+44:2 • D. Mehta et. al. 
+
+estimate only the 2D skeletal pose [Bourdev andMalik 2009; Felzen- 
+szwalb et al. 2010; Felzenszwalb and Huttenlocher 2005; Ferrari et al. 
+2009; Pishchulin et al. 2013; Wei et al. 2016]. Learning-based discrim- 
+inative methods, in particular deep learn method [Insafutdinov 
+et al. 2016; Lifshitz et al. 2016; Newell et al. 2016; Tompson et al. 2014], 
+represent the current state of the art in 2D pose estimation, with 
+some of these method demonstrate real-time performance [Cao 
+et al. 2016; Wei et al. 2016]. Monocular RGB estimation of the 3D 
+skeletal pose be a much harder challenge tackle by relatively few 
+method [Bogo et al. 2016; Tekin et al. 2016b,c; Zhou et al. 2015, 
+2016, 2015b]. Unfortunately, these method be typically offline, and 
+they often reconstruct 3D joint position individually per image, 
+which be temporally unstable, and do not enforce constant bone 
+lengths. Most approach also capture local 3D pose relative to a 
+bound box, and not the full global 3D pose. This make them 
+unsuitable for application such a real-time 3D character control. 
+In this paper, we present the first method that capture tempo- 
+
+rally consistent global 3D human pose—in term of joint angle of a 
+single, stable kinematic skeleton—in real-time (30 Hz) from a single 
+RGB video in a general environment. Our approach build upon 
+the top perform single RGB 3D pose estimation method use 
+convolutional neural network (CNNs) [Mehta et al. 2016; Pavlakos 
+et al. 2016]. High accuracy require training comparably deep net- 
+work which be harder to run in real-time, partly due to additional 
+preprocessing step such a bound box extraction. Mehta et al. 
+[2016] use a 100-layer architecture to predict 2D and 3D joint posi- 
+tions simultaneously, but be unsuitable for real-time execution. To 
+improve runtime, we use a shallower 50-layer network. However, 
+for best quality at real-time frame rates, we do not merely use a 
+shallower variant, but extend it to a novel fully-convolutional for- 
+mulation. This enables high accuracy 2D and 3D pose regression, 
+in particular of end effector (hands, feet), in real-time. In contrast 
+to exist solution our approach allows operation on non-cropped 
+images, and where run-time be a concern, it can be use to bootstrap 
+a simple bound box tracker. We also combine the CNN-based 
+joint position regression with an efficient optimization step to fit 
+a 3D skeleton to these reconstruction in a temporally stable way, 
+yield the global pose and joint angle of the skeleton. In summary, 
+we contribute by propose the first real-time method to capture 
+global 3D kinematic skeleton pose from single RGB video. To strike a 
+good compromise between computational complexity and accuracy, 
+our method combines: 
+
+• A new real-time, fully-convolutional 3D body pose formu- 
+lation use CNNs that yield 2D and 3D joint position 
+simultaneously and forgoes the need to perform expensive 
+bound box computations. 
+
+• Model-based kinematic skeleton fitting against the 2D/3D 
+pose prediction to produce temporally stable joint angle 
+of a metric global 3D skeleton, in real time. 
+
+Our real-time method achieves state-of-the-art accuracy compa- 
+rable to the best offline RGB pose estimation method on standard 
+3D human body pose benchmarks, particularly for end effector posi- 
+tions (Section 5.2). Our result be qualitatively comparable to, and 
+sometimes good than, state-of-the-art single RGB-D method [Gir- 
+shick et al. 2011], even commercial one [Microsoft Corporation 
+
+2015]. We experimentally show that this make ours the first single- 
+RGB method usable for similar real-time 3D applications—so far 
+only feasible with RGB-D input—such a game character control or 
+immersive first person virtual reality (VR). We further show that our 
+method succeed in setting where exist RGB-D method would 
+not, such a outdoor scenes, community videos, and even with low 
+quality video stream from ubiquitous mobile phone cameras. 
+
+2 RELATED WORK 
+Our goal be stable 3D skeletal motion capture from (1) a single 
+camera (2) in real-time. We focus the discussion of related work 
+on approach from the large body of marker-less motion capture 
+research that contribute to attain either of these properties. 
+
+Multi-view: With multi-view setup markerless motion-captue solu- 
+tions attain high accuracy. Tracking of a manually initialize actor 
+model from frame to framewith a generative image formationmodel 
+be common. See [Moeslund et al. 2006] for a complete overview. Most 
+method target high quality with offline computation [Bregler and 
+Malik 1998; Howe et al. 1999; Loper and Black 2014; Sidenbladh 
+et al. 2000; Starck and Hilton 2003]. Real-time performance can be 
+attain by represent the actor with Gaussians [Rhodin et al. 
+2015; Stoll et al. 2011; Wren et al. 1997] and other approximation 
+[Ma and Wu 2014], in addition to formulation allow model-to- 
+image fitting. However, these tracking-based approach often lose 
+track in local minimum of the non-convex fitting function they opti- 
+mize and require separate initialization, e.g. use [Bogo et al. 2016; 
+Rhodin et al. 2016b; Sminchisescu and Triggs 2001]. Robustness 
+could be increase with a combination of generative and discrimina- 
+tive estimation [Elhayek et al. 2016], even from a single input view 
+[Rosales and Sclaroff 2006; Sminchisescu et al. 2006], and egocentric 
+perspective [Rhodin et al. 2016a]. We utilize generative track 
+component to ensure temporal stability, but avoid model projec- 
+tion through a full image formation model to speed up estimation. 
+Instead, we combine discriminative pose estimation with kinematic 
+fitting to succeed in our underconstrained setting. 
+
+Monocular Depth-based: The additional depth channel provide by 
+RGB-D sensor have lead to robust real-time pose estimation solution 
+[Baak et al. 2011; Ganapathi et al. 2012; Ma and Wu 2014; Shotton 
+et al. 2013; Wei et al. 2012; Ye and Yang 2014] and the availabil- 
+ity of low-cost device have enable a range of new applications. 
+Even real-time track of general deform object [Zollhöfer 
+et al. 2014] and template-free reconstruction [Dou et al. 2016; Inn- 
+mann et al. 2016; Newcombe et al. 2015; Orts-Escolano et al. 2016] 
+have be demonstrated. RGB-D information overcomes forward- 
+backwards ambiguity in monocular pose estimation. Our goal be a 
+video solution that overcomes depth ambiguity without rely 
+on a specialized active sensor. 
+
+Monocular RGB: Monocular generative motion capture have only 
+be show for short clip and when pair with strong motion 
+prior [Urtasun et al. 2006] or in combination with discriminative 
+re-initialization [Rosales and Sclaroff 2006; Sminchisescu et al. 2006], 
+since generative reconstruction be fundamentally underconstrained. 
+Using photo-realistic template model for model fitting enables more 
+robust monocular track of simple motions, but require more 
+
+ACM Transactions on Graphics, Vol. 36, No. 4, Article 44. Publication date: July 2017. 
+
+
+
+VNect: Real-time 3D Human Pose Estimation with a Single RGB Camera • 44:3 
+
+Fig. 2. Overview. Given a full-size image It at frame t , the person-centered crop Bt be efficiently extract by bound box tracking, use the previous 
+frame’s keypoints Kt−1. From the crop, the CNN jointly predicts 2D heatmaps Hj,t and our novel 3D location-maps Xj,t , Yj,t and Zj,t for all joint j . The 2D 
+keypoints Kt be retrieve from Hj,t and, after filtering, be use to read off 3D pose PLt from Xj,t , Yj,t and Zj,t . These per-frame estimate be combine to 
+stable global pose PGt by skeleton fitting. Information from frame t − 1 be marked in gray-dashed. 
+
+expensive offline computation [de La Gorce et al. 2008]. Sampling- 
+base method avoid local minimum [Balan et al. 2005; Bo and Smin- 
+chisescu 2010; Deutscher and Reid 2005; Gall et al. 2010]. However, 
+real-time variant can not guarantee global convergence due to a 
+limited number of samples, such a particle swarm optimization 
+technique [Oikonomidis et al. 2011]. Structure-from-motion tech- 
+niques exploit motion cue in a batch of frame [Garg et al. 2013], 
+and have also be apply to human motion estimation [Gotardo 
+and Martinez 2011; Lee et al. 2013; Park and Sheikh 2011; Zhu et al. 
+2011]. However, batch optimization do not apply to our real-time 
+setting, where frame be stream sequentially. For some appli- 
+cation manual annotation and correction of frame be suitable, 
+for instance to enable movie actor reshape [Jain et al. 2010] and 
+garment replacement in video [Rogge et al. 2014]. In combination 
+with physical constraints, highly accurate reconstruction be pos- 
+sible from monocular video [Wei and Chai 2010]. Vondrak et al. 
+[2012] succeed without manual annotation by simulate biped- 
+controllers, but require batch-optimization. While these method 
+can yield high-quality reconstructions, interaction and expensive 
+optimization preclude live applications. 
+Discriminative 2D human pose estimation be often an interme- 
+
+diate step to monocular 3D pose estimation. Pictorial structure 
+approach infer body part location by message passing over a 
+huge set of pose-states [Agarwal and Triggs 2006; Andriluka et al. 
+2009; Bourdev and Malik 2009; Felzenszwalb and Huttenlocher 2005; 
+Ferrari et al. 2009; Johnson and Everingham 2010] and have be 
+extend to 3D pose estimation [Amin et al. 2013; Balan et al. 2007; 
+Belagiannis et al. 2014; Sigal et al. 2012]. Recent approach outper- 
+form these method in computation time and accuracy by leverage 
+large image database with 2D joint location annotation, which en- 
+ables high accuracy prediction with deep CNNs [Belagiannis and 
+Zisserman 2016; Hu et al. 2016; Insafutdinov et al. 2016; Pishchulin 
+et al. 2016; Wei et al. 2016], on multiple GPUs, even at real-time 
+rate [Cao et al. 2016]. Given 2D joint locations, lift them to 3D 
+pose be challenging. Existing approach use bone length and depth 
+order constraint [Mori and Malik 2006; Taylor 2000], sparsity as- 
+sumptions [Wang et al. 2014; Zhou et al. 2015,a], joint limit [Akhter 
+and Black 2015], inter-penetration constraint [Bogo et al. 2016], 
+temporal dependency [Rhodin et al. 2016b], and regression [Yasin 
+et al. 2016]. Treating 3D pose a a hidden variable in 2D estimation 
+
+be an alternative [Brau and Jiang 2016]. However, the sparse set 
+of 2D location loses image evidence, e.g. on forward-backwards 
+orientation of limbs, which lead to erroneous estimate in ambigu- 
+ous cases. To overcome these ambiguities, discriminative method 
+have be propose that learn implicit depth feature for 3D pose 
+directly from more expressive image representations. Rosales and 
+Sclaroff regress 3D pose from silhouette image with the specialized 
+mapping architecture [2000], Agarwal and Triggs with linear re- 
+gression [2006], and Elgammal and Lee through a joint embed 
+of image and 3D pose [2004]. Sminchisescu further utilized tem- 
+poral consistency to propagate pose probability with a Bayesian 
+mixture of expert Markov model [2007]. Relying on the recent ad- 
+vances in machine learn technique and compute capabilities, 
+approach for direct 3D pose regression from the input image have 
+be proposed, use structure learn of latent pose [Li et al. 
+2015a; Tekin et al. 2016a], joint prediction of 2D and 3D pose [Li and 
+Chan 2014; Tekin et al. 2016b; Yasin et al. 2016], transfer of feature 
+from 2D datasets [Mehta et al. 2016], novel pose space formula- 
+tions [Pavlakos et al. 2016] and classification over example pose 
+[Pons-Moll et al. 2014; Rogez and Schmid 2016]. Relative per-bone 
+prediction [Li and Chan 2014], kinematic skeleton model [Zhou 
+et al. 2016], or root center joint position [Ionescu et al. 2014a] be 
+use a the eventual output space. Such direct 3D pose regression 
+method capture depth relation well, but 3D estimate usually do 
+not accurately match the true 2D location when re-projected to the 
+image, because estimation be do in cropped image that lose 
+camera perspective effects, use a canonical height, and minimize 
+3D loss instead of projection to 2D. Furthermore, they only deliver 
+joint positions, be temporally unstable, and none have show real- 
+time performance. We propose a method to combine 2D and 3D 
+estimate in real-time along with temporal tracking. It be inspire 
+by the method of Tekin et al. [2016c], where batch of frame be 
+process offline after motion compensation, and be related to the 
+recently propose per-frame combination of 2D and 3D pose [Tekin 
+et al. 2016b]. 
+
+Notably, only fewmethods target real-timemonocular reconstruc- 
+tion. Exceptions be the regression of 3D pose from Haar feature 
+by Bissacco et al. [2007] and detection of a set of discrete pose 
+from edge direction histogram in the vicinity of the previous frame 
+pose [Taycher et al. 2006]. Both only obtain temporally unstable, 
+
+ACM Transactions on Graphics, Vol. 36, No. 4, Article 44. Publication date: July 2017. 
+
+
+
+44:4 • D. Mehta et. al. 
+
+coarse pose, not directly usable in our applications. Chai and Hod- 
+gin obtain sufficient quality to drive virtual avatar in real-time, but 
+require visual marker [Chai and Hodgins 2005]. The use of CNNs in 
+real time have be explore for variant of the object detection prob- 
+lem, for instance bound box detection and pedestrian detection 
+method have leveraged application specific architecture [Angelova 
+et al. 2015; Liu et al. 2016; Redmon et al. 2015] and preprocessing 
+step [Ren et al. 2015]. 
+
+In a similar vein, we propose a 3D pose estimation approach that 
+leverage a novel fully-convolutional CNN formulation to predict 2D 
+and 3D pose jointly. In combination with inexpensive preprocessing 
+and an optimization base skeletal fitting method, it enables high 
+accuracy pose estimation, while run at more than 30 Hz. 
+
+3 OVERVIEW 
+Our system be capable of obtain a temporally consistent, full 
+3D skeletal pose of a human from a monocular RGB camera. Esti- 
+mating 3D pose from a single RGB camera be a challenging, under- 
+constrain problem with inherent ambiguities. Figure 2 provide 
+an overview of our method to tackle this challenge problem. It 
+consists of two primary components. The first be a convolutional 
+neural network (CNN) to regress 2D and 3D joint position under 
+the ill-posed monocular capture conditions. It be train on anno- 
+tat 3D human pose datasets [Ionescu et al. 2014b; Mehta et al. 
+2016], additionally leverage annotate 2D human pose datasets 
+[Andriluka et al. 2014; Johnson and Everingham 2010] for improve 
+in-the-wild performance. The second component combine the re- 
+gressed joint position with a kinematic skeleton fitting method to 
+produce a temporally stable, camera-relative, full 3D skeletal pose. 
+
+CNN Pose Regression: The core of our method be a CNN that predicts 
+both 2D, and root (pelvis) relative 3D joint position in real-time. The 
+new propose fully-convolutional pose formulation lead to result 
+on par with the state-of-the-art offline method in 3D joint position 
+accuracy (see Section 5.2 for details). Being fully-convolutional, it 
+can operate in the absence of tight crop around the subject. The 
+CNN be capable of predict joint position for a diverse class of 
+activity regardless of the scene settings, provide a strong basis 
+for further pose refinement to produce temporally consistent full-3D 
+pose parameter 
+
+Kinematic Skeleton Fitting: The 2D and the 3D prediction from the 
+CNN, together with the temporal history of the sequence, can be 
+leveraged to obtain temporally consistent full-3D skeletal pose, with 
+the skeletal root (pelvis) localize in camera space. Our approach 
+us an optimization function that: (1) combine the predict 2D 
+and 3D joint position to fit a kinematic skeleton in a least square 
+sense, (2) ensures temporally smooth track over time. We further 
+improve the stability of the tracked pose by apply filter step 
+at different stages. 
+
+Skeleton Initialization (Optional): The system be set up with a default 
+skeleton which work well out of the box for most humans. For more 
+accurate estimates, the relative body proportion of the underlie 
+skeleton can be adapt to that of the subject, by average CNN 
+prediction for a few frame at the beginning. Since monocular 
+reconstruction be ambiguous without a scale reference, the CNN 
+
+predicts height normalize 3D joint positions. Users only need to 
+provide their height (distance from head to toe) once, so that we 
+can track the 3D pose in true metric space. 
+
+4 REAL-TIME MONOCULAR 3D POSE ESTIMATION 
+In this section, we describe in detail the different component of our 
+method to estimate a temporally consistent 3D skeletal motion from 
+monocular RGB input sequences. As input, we assume a continuous 
+stream of monocular RGB image {..., It−1, It }. For frame t in the 
+input stream, the final output of our approach be PGt which be the 
+full global 3D skeletal pose of the person be tracked. Because 
+this output be already temporally consistent and in global 3D space, 
+it can be readily use in application such a character control. 
+
+We use the follow notation for the output in the intermediate 
+component of our method. The CNN pose regressor jointly esti- 
+mate the 2D joint position Kt and root-relative 3D joint position 
+PLt (Section 4.1). The 3D skeleton fitting component combine the 
+2D and 3D joint position prediction to estimate a smooth, tempo- 
+rally consistent pose PGt (θ , d), which be parameterized by the global 
+position d in camera space, and joint angle θ of the kinematic skele- 
+ton S . J indicates the number of joints. We drop the frame-number 
+subscript t in certain section to aid readability. 
+
+4.1 CNN Pose Regression 
+The goal of CNN pose regression be to obtain joint positions, both, 
+in 2D image space and 3D. For 2D pose estimation with neural nets, 
+the change of formulation from direct regression of x ,y body-joint 
+coordinate [Toshev and Szegedy 2014] to a heatmap base body- 
+joint detection formulation [Tompson et al. 2014] have be the key 
+driver behind the recent development in 2D pose estimation. The 
+heatmap base formulation naturally tie image evidence to pose 
+estimation by predict a confidence heatmap Hj,t over the image 
+plane for each joint j ∈ {1..J }. 
+Existing approach to 3D pose estimation lack such an image- 
+
+to-prediction association, often directly regress the root-relative 
+joint location [Ionescu et al. 2014a], lead to predict pose 
+whose extent of articulation doesn’t reflect that of the person in the 
+image. See Figure 9. Treating pose a a vector of joint location also 
+cause a natural gravitation towards network with fully-connected 
+formulation [Mehta et al. 2016; Rogez and Schmid 2016; Tekin et al. 
+2016a; Yu et al. 2016], restrict the input to tight crop at a fix 
+resolution, a limitation that need to be overcome. These method 
+assume the availability of tight bound boxes, which necessitates 
+supplementation with separate bound box estimator for actual 
+usage, which further add to the run-time of these methods. The 
+fully-convolutional formulation of Pavlakos et al. [Pavlakos et al. 
+2016] seek to alleviate some of these issues, but be limited by the 
+expensive per-joint volumetric formulation, which still relies on 
+cropped input and do not scale well to large image sizes. 
+
+We overcome these limitation through our new formulation, by 
+extend the 2D heatmap formulation to 3D use three additional 
+location-maps Xj ,Yj ,Zj per joint j, capture the root-relative lo- 
+cation x j , yj and zj respectively. To have the 3D pose prediction 
+link more strongly to the 2D appearance in the image, the x j , 
+yj and zj value be read off from their respective location-maps 
+
+ACM Transactions on Graphics, Vol. 36, No. 4, Article 44. Publication date: July 2017. 
+
+
+
+VNect: Real-time 3D Human Pose Estimation with a Single RGB Camera • 44:5 
+
+Fig. 3. Schema of the fully-convolutional formulation for predict root rel- 
+ative joint locations. For each joint j , the 3D coordinate be predict from 
+their respective location-maps Xj , Yj , Zj at the position of the maximum 
+in the correspond 2D heatmap Hj . The structure observe here in the 
+location-maps emerges due to the spatial loss formulation. See Section 4.1. 
+
+at the position of the maximum of the correspond joint’s 2D 
+heatmap Hj , and store in PL = {x, y, z}, where x ∈ R1×J be a vec- 
+tor that store the coordinate x location of each joint maximum. 
+The pose formulation be visualize in Figure 3. Networks use this 
+fully-convolutional formulation be not constrain in input image 
+size, and can work without tight crops. Additionally, the network 
+provide 2D and 3D joint location estimate without additional over- 
+head, which we exploit in subsequent step for real-time estimation. 
+Section 5.2 show the improvement afford by this formulation. 
+
+Loss Term: To enforce the fact that we be only interested in x j , 
+yj and zj from their respective map at joint j’s 2D location, the 
+joint location-map loss be weight strong around the joint’s 2D 
+location. We use the L2 loss. For x j be the loss formulation be 
+
+Loss(x j ) = ∥HGTj ⊙ (Xj − X 
+GT 
+j )∥2, (1) 
+
+where GT indicates ground truth and ⊙ be the Hadamard product. 
+The location map be weight with the respective ground truth 2D 
+heatmap HGTj , which in turn have confidence equal to a Gaussian 
+with a small support localize at joint j’s 2D location. Note that 
+no structure be impose on the location-maps. The structure that 
+emerges in the predict location-maps be indicative of the correla- 
+tion of x j and yj with root relative location of joint j in the image 
+plane. See Figure 3. 
+
+Network Details: We use the propose formulation to adapt the 
+ResNet50 network architecture of He et al. [2016]. We replace the 
+layer of ResNet50 from res5a onwards with the architecture de- 
+picted in Figure 5, produce the heatmaps and location-maps for all 
+joint j ∈ {1..J }. After training, the Batch Normalization [Ioffe and 
+Szegedy 2015] layer be merge with the weight of their precede 
+convolution layer to improve the speed of the forward pass. 
+
+Intermediate Supervision: We predict the 2D heatmaps and 3D 
+location-maps from the feature at res4d and res5a, taper down 
+the weight of intermediate loss with increase iteration count. 
+Additionally, similar to the root-relative location-maps Xj , Yj and 
+Zj , we predict kinematic parent-relative location-maps ∆Xj , ∆Yj 
+and ∆Zj from the feature at res5b and compute bone length-maps 
+
+Fig. 4. Representative training frame fromHuman3.6m andMPI-INF-3DHP 
+3D pose datasets. Also show be the background, clothing and occluder 
+augmentation do on MPI-INF-3DHP training data. 
+
+as: 
+BLj = 
+
+√ 
+∆Xj ⊙ ∆Xj + ∆Yj ⊙ ∆Yj + ∆Zj ⊙ ∆Zj . (2) 
+
+These intermediate prediction be subsequently concatenate with 
+the intermediate features, to give the network an explicit notion of 
+bone length to guide the predictions. See Figure 5. 
+
+Experiments show that the deeper variant of ResNet offer only 
+small gain for a substantial increase (1.5×) in computation time, 
+prompt u to choose ResNet50 to enable real-time, yet highly 
+accurate joint location estimation with the propose formulation. 
+
+Training: The network be pretrained for 2D pose estimation on 
+MPII [Andriluka et al. 2014] and LSP [Johnson and Everingham 
+2010, 2011] to allow superior in-the-wild performance, a propose 
+by Mehta et al. [Mehta et al. 2016]. For 3D pose, we use MPI-INF- 
+3DHP [Mehta et al. 2016] and Human3.6m [Ionescu et al. 2014b]. 
+We take training sequence for all subject except S9 and S11 from 
+Human3.6m.We sample frame a per [Ionescu et al. 2014a]. ForMPI- 
+INF-3DHP, we consider all 8 training subjects. We choose sequence 
+from all 5 chest-high cameras, 2 head-high camera (angled down) 
+and 1 knee-high camera (angled up) to learn some degree of invari- 
+ance to the camera viewpoint. The sample frame have at least 
+one joint move by > 200mm between them. We use various combi- 
+nation of background, occluder (chair), upper-body clothing and 
+lower-body clothing augmentation for 70% of the select frames. 
+We train with person center crops, and use image scale augmen- 
+tation at 2 scale (0.7×, 1.0×), result in 75k training sample for 
+Human3.6m and 100k training sample for MPI-INF-3DHP. Figure 
+4 show a few representative frame of training data. In addition 
+to the 17 joint typically considered, we use foot tip positions. The 
+ground truth joint position be with respect to a height normalize 
+skeleton (knee–neck height 92 cm). We make use of the Caffe [2014] 
+framework for training, and use the Adadelta [Zeiler 2012] solver 
+with learn rate taper down with increase iterations. 
+
+Bounding Box Tracker : Existing offline solution process each frame 
+in a separate person-localization and bound box (BB) crop 
+step [Mehta et al. 2016; Tekin et al. 2016c] or assume bound 
+box be available [Li and Chan 2014; Li et al. 2015b; Pavlakos 
+et al. 2016; Tekin et al. 2016a; Zhou et al. 2016]. Although our fully- 
+convolutional formulation allows the CNN to work without requir- 
+ing cropping, the run-time of the CNN be highly dependent on the 
+
+ACM Transactions on Graphics, Vol. 36, No. 4, Article 44. Publication date: July 2017. 
+
+
+
+44:6 • D. Mehta et. al. 
+
+Fig. 5. Network Structure. The structure above be precede by ResNet50/100 till level 4. We use kinematic parent relative 3D joint location prediction ∆X, 
+∆Y, ∆Z a well a bone length map BL construct from these a auxiliary tasks.The network predicts 2D location heatmaps H and root relative 3D joint 
+location X, Y, Z. Refer to Section 4.1. 
+
+input image size. Additionally, the CNN be train for subject size 
+in the range of 250–340 px in the frame, require average of 
+prediction at multiple image scale per frame (scale space search) if 
+processing the full frame at each time step. Guaranteeing real-time 
+rate necessitates restrict the size of the input to the network 
+and track the scale of the person in the image to avoid search 
+the scale space in each frame. We do this in an integrate way. The 
+2D pose prediction from the CNN at each frame be use to deter- 
+mine the BB for the next frame through a slightly large box around 
+the predictions. The small rectangle contain the keypoints 
+K be compute and augment with a buffer area 0.2× the height 
+vertically and 0.4× the width horizontally. To stabilize the estimates, 
+the BB be shift horizontally to the centroid of the 2D predictions, 
+and it corner be filter with a weight average with the pre- 
+vious frame’s BB use a momentum of 0.75. To normalize scale, 
+the BB crop be resize to 368x368 px. The BB tracker start with 
+(slow) multi-scale prediction on the full image for the first few 
+frames, and hone in on the person in the image make use of the 
+BB-agnostic prediction from the fully convolutional network. The 
+BB track be easy to implement and without runtime overhead, 
+since the propose fully-convolutional network output 2D and 3D 
+pose jointly and operates on arbitrary input sizes. 
+
+4.2 Kinematic Skeleton Fitting 
+Applying per-frame pose estimation technique on a video do 
+not exploit and ensure temporal consistency of motion, and small 
+pose inaccuracy lead to temporal jitter, an unacceptable artifact 
+for most graphic applications. We combine the 2D and 3D joint 
+position in a joint optimization framework, along with temporal 
+filter and smoothing, to obtain an accurate, temporally stable 
+and robust result. First, the 2D prediction Kt be temporally filter 
+[Casiez et al. 2012] and use to obtain the 3D coordinate of each 
+joint from the location-map predictions, give u PLt . To ensure 
+skeletal stability, the bone length inherent to PLt be replace by 
+the bone length of the underlie skeleton in a simple retargeting 
+step that preserve the bone direction of PLt . The result 2D and 
+
+3D prediction be combine by minimize the objective energy 
+
+Etotal(θ , d) = EIK(θ , d) + Eproj(θ , d) 
++ Esmooth(θ , d) + Edepth(θ , d), (3) 
+
+for skeletal joint angle θ and the root joint’s location in camera 
+space d. The 3D inverse kinematics term EIK determines the overall 
+pose by similarity to the 3D CNN output PLt . The projection term 
+Eproj determines global position d and corrects the 3D pose by 
+re-projection onto the detect 2D keypoits Kt. Both term be 
+implement with the L2 loss, 
+
+Eproj = ∥Π(PGt ) − Kt ∥2 and EIK = ∥(PGt − d) − PLt ∥2, (4) 
+
+where Π be the projection function from 3D to the image plane, 
+and PGt = P 
+
+G 
+t (θ , d). We assume the pinhole projection model. If the 
+
+camera calibration be unknown a vertical field of view of 54 degree 
+be assumed. Temporal stability be enforce with smoothness prior 
+Esmooth = ∥P̂Gt ∥2, penalize the acceleration P̂Gt . To counteract the 
+strong depth uncertainty in monocular reconstruction, we penalize 
+large variation in depth additionally with Edepth = ∥[P̃Gt ]z ∥2 where 
+[P̃Gt ]z be the z component of 3D velocity P̃Gt . Finally, the 3D pose be 
+also filter with the 1 Euro filter [Casiez et al. 2012]. 
+
+Parameters: The energy term EIK,Eproj,Esmooth and Edepth be 
+weight with ωIK = 1,ωproj = 44,ωsmooth = 0.07 and ωdepth = 
+0.11, respectively. The parameter of the 1 Euro Filter [Casiez et al. 
+2012] be empirically set to fcmin = 1.7, β = 0.3 for filter Kt , to 
+fcmin = 0.8, β = 0.4 for PLt , and to fcmin = 20, β = 0.4 for filter 
+PGt . Our implementation us the Levenberg-Marquardt algorithm 
+from the Ceres library [Agarwal et al. 2017]. 
+
+5 RESULTS 
+We show live application of our system at 30 Hz. The reconstruction 
+quality be high and we demonstrate the usefulness of our method 
+3D character control, embody virtual reality, and pose track 
+from low quality smartphone camera streams. See Section 5.3 and 
+Figure 1. Results be best observe in motion in the supplemental 
+
+ACM Transactions on Graphics, Vol. 36, No. 4, Article 44. Publication date: July 2017. 
+
+
+
+VNect: Real-time 3D Human Pose Estimation with a Single RGB Camera • 44:7 
+
+video. The importance of the step towards enable these applica- 
+tions with a video solution be thoroughly evaluate in more than 
+10 sequences. Results be comparable in quality to depth-camera 
+base solution like the Kinect [Microsoft Corporation 2013] and 
+significantly outperform exist monocular video-based solutions. 
+As the qualitative baseline we choose the state-of-the-art 2D to 3D 
+lift approach of Zhou et al. [2015] and the 3D regression approach 
+of Mehta et al. [2016], which estimate joint-positions offline. The 
+accuracy improvement be further quantitatively validate on the 
+establish H3.6M dataset [Ionescu et al. 2014b] and the MPI-INF- 
+3DHP dataset [Mehta et al. 2016]. The robustness to diverse persons, 
+clothing and scene be demonstrate on several real-time example 
+and community videos. Please see our project webpage for more 
+result and details1. 
+
+Computations be perform on a 6-core Xeon CPU, 3.8 GHz and 
+a single Titan X (Pascal architecture) GPU. The CNN computation 
+take ≈18 ms, the skeleton fitting ≈7–10 ms, and preprocessing and 
+filter 5 ms. 
+
+5.1 Comparison with Active Depth Sensors (Kinect) 
+We synchronously record video from an RGB camera and a co- 
+locate Kinect sensor in a living room scenario. Figure 6 show rep- 
+resentative frames. Although the depth sensor provide additional 
+information, our reconstruction from just RGB be of a similar qual- 
+ity. The Kinect result be of comparable stability to ours, but yield 
+erroneous reconstruction when limb be close to scene objects, 
+such a when sit down. Our RGB solution, however, succeed 
+in this case, although be slightly less reliable in depth estimation. 
+A challenge case for both method be the tight cross of legs. 
+Please see the supplemental video for a visual comparison. 
+The video solution succeed also in situation with direct sun- 
+
+light (Figure 7), where IR-based depth camera be inoperable. More- 
+over, RGB camera can simply be equip with large field-of-view 
+(FOV) lens and, despite strong distortions, successfully track hu- 
+man [Rhodin et al. 2016a]. On the other hand, exist active sen- 
+sors be limited to relatively small FOVs, which severely limit the 
+track volume. 
+
+5.2 Comparison with Video Solutions 
+
+Qualitative Evaluation: We qualitatively compare against the 3D 
+pose regression method of Mehta et al. [2016] and Zhou et al. [2015] 
+on Sequence 6 (outdoor) of MPI-INF-3DHP test set. Our result be 
+comparable to the quality of these offline method (see Figure 10). 
+However, the per frame estimate of these offline method exhibit 
+jitter over time, a drawback of most exist solutions. Our full pose 
+result be temporally stable and be compute at real-time frame 
+rate of 30 Hz. 
+
+The kinematic skeleton fitting estimate global translation d. Fig- 
+ure 8 demonstrates that estimate be drift-free, the foot position 
+match with the same reference point after perform a circular 
+walk. The smoothness constraint in depth direction limit slide 
+of the character away from the character, a picture in the supple- 
+mental video sequences. 
+
+1http://gvv.mpi-inf.mpg.de/projects/VNect/ 
+
+Fig. 6. Side-by-side pose comparison with our method (top) and Kinect 
+(bottom). Overall estimate pose be of similar quality (first two frames). 
+Both the Kinect (third and fourth frames) and our approach (fourth and 
+fifth frames) occasionally predict erroneous poses. 
+
+Fig. 7. Our approach succeed in strong illumination and sunlight (center 
+right and right), while the IR-based depth estimate of the Microsoft Kinect 
+be erroneous (left) and depth-based track fails (center left). 
+
+Fig. 8. The estimate 3D pose be drift-free. The motion of the person start 
+and end at the marked point (orange), both in the real world and in our 
+reconstruction. 
+
+Quantitative Evaluation: We compare our method with the state- 
+of-the-art approach of Mehta et al. [2016] on the MPI-INF-3DHP 
+dataset, use the more robust Percentage of Correct Keypoints 
+metric (3D PCK @150mm) on the 14 joint span by head, neck, 
+shoulders, elbow, wrist, hips, knee and ankles. We train both, our 
+model, a well a that of Mehta et al. on the same data (Human3.6m 
++ MPI-INF-3DHP), a detailed in Section 4.1, to be compatible in 
+term of the camera viewpoint selected, and use ResNet100 a the 
+base architecture for a fair comparison. Table 1 show the result of 
+the raw 3D prediction from our network on ground-truth bound 
+box cropped frames. We see that the result be comparable to that 
+of Mehta et al. The slight increase in accuracy on go to a 50-layer 
+network be possibly due to the good gradient estimate come 
+from large mini-batches that can be fit into memory while training, 
+on account of the small size of the network. Evidence that our 
+
+ACM Transactions on Graphics, Vol. 36, No. 4, Article 44. Publication date: July 2017. 
+
+
+
+44:8 • D. Mehta et. al. 
+
+Table 1. Comparison of our network against state of the art on MPI-INF-3DHP test set, use ground-truth bound boxes. We report the Percentage of 
+Correct Keypoints measure in 3D, and the Area Under the Curve for the same, a propose by MPI-INF-3DHP. We additionally report the Mean Per Joint 
+Position Error in mm. Higher PCK and AUC be better, and low MPJPE be better. 
+
+Stand/ Sit On Crouch/ On the 
+Network Scales Walk Exercise Chair Reach Floor Sports Misc. Total 
+
+PCK PCK PCK PCK PCK PCK PCK PCK AUC MPJPE(mm) 
+Ours 
+
+(ResNet 100) 
+0.7, 1.0 87.6 76.4 71.4 71.6 47.8 82.5 78.9 75.0 39.5 127.8 
+1.0 86.4 72.3 68.0 65.4 40.7 80.5 76.3 71.4 36.9 142.8 
+
+Ours 
+(ResNet 50) 
+
+0.7, 1.0 87.7 77.4 74.7 72.9 51.3 83.3 80.1 76.6 40.4 124.7 
+1.0 86.7 73.9 69.8 66.1 44.7 82.0 79.4 73.3 37.8 138.7 
+
+[Mehta et al. 2016] 
+(ResNet 100) 
+
+0.7, 1.0 86.6 75.3 74.8 73.7 52.2 82.1 77.5 75.7 39.3 117.6 
+1.0 86.3 72.4 71.5 67.6 49.2 81.0 76.2 73.2 37.8 126.6 
+
+Fig. 9. A visual look at the direct 3D prediction result from our fully- 
+convolutional formulation v Mehta et al. Our formulation allows the pre- 
+diction to be more strongly tie to image evidence, lead to overall good 
+pose quality, particular for the end effectors. The red arrow point to mis- 
+predictions. 
+
+Fig. 10. Side-by-side comparison of our full method (left), against the of- 
+fline joint-position estimation method of Mehta et al. [2016] (middle) and 
+Zhou et al. [2015] (right). Our real-time result be of a comparable quality 
+to these offline methods. 2D joint position for Zhou et al. be generate 
+use Convolutional Pose Machines [2016]. 
+
+Fig. 11. Joint-wise breakdown of the accuracy of Mehta et al. and Our 
+ResNet100 base CNN prediction on MPI-INF-3DHP test set. 
+
+method tie the estimate 3D position strongly to image appear- 
+ance than previous method can also be glean from the fact that 
+our approach performs significantly good for activity class such 
+a Standing/Walking, Sports and Miscellaneous without significant 
+self-occlusions. We do lose some performance on activity class 
+with significant self-occlusion such a Sitting/Lying on the floor. We 
+additionally report the Mean Per Joint Position Error (MPJPE) num- 
+bers in mm. Note that MPJPE be not a robust measure, and be heavily 
+influence by large outliers, and hence the bad performance on 
+the MPJPE measure (124.7mm v 117.6mm) despite the good 3D 
+PCK result (76.6% v 75.7%). We further investigate the nature of 
+error of our method. We first look at the joint-wise breakup of 
+accuracy of our fully-convolutional ResNet100 CNN prediction v 
+Mehta et al. ’s formulation with fully-connected layers. Figure 11 
+show that the accuracy of ankle for our formulation be significantly 
+better, while the accuracy of the head be markedly worse. 
+
+In Figure 9, we visually compare the two methods, further demon- 
+strating the strong tie-in to image appearance that our formulation 
+affords, and the downside of the strong tie-in. We also show that 
+our method be prone to occasional large mispredictions when the 
+body joint 2D location detector misfires. It be these large outlier that 
+obfuscate the report MPJPE numbers. Figure 12, which plot the 
+
+ACM Transactions on Graphics, Vol. 36, No. 4, Article 44. Publication date: July 2017. 
+
+
+
+VNect: Real-time 3D Human Pose Estimation with a Single RGB Camera • 44:9 
+
+Fig. 12. Fraction of joint incorrectly predict on MPI-INF-3DHP test 
+set, a determine by the distance between the predict joint location 
+and the ground truth joint location be great than the error threshold. 
+The dot line mark the threshold for which the 3D PCK number be 
+reported. At bottom right we see that our method have large occasional 
+mispredictions, which result in high MPJPE number despite otherwise 
+similar performance. 
+
+Table 2. Results on MPI-INF-3DHP test set with the bound box corner 
+randomly jittered between +/- 40px to emulate noise from a BB estimator. 
+Our fully-convolutional formulation be more robust than a comparative 
+fully-connected formulation. The evaluation be at a single scale (1.0). 
+
+Stand/ Sit On Crouch/ On the 
+Network Walk Exerc. Chair Reach Floor Sport Misc. Total 
+
+PCK PCK PCK PCK PCK PCK PCK PCK AUC 
+Ours (ResNet 100) 86.0 71.0 65.0 61.1 37.4 78.9 75.5 69.5 35.8 
+Ours (ResNet 50) 84.9 69.4 65.1 61.9 40.8 78.6 77.6 70.1 35.7 
+[Mehta et al. 2016] 81.2 64.2 67.1 62.1 43.5 76.0 71.1 67.8 34.0 
+
+fraction of mispredicted joint vs. the error threshold on MPI-INF- 
+3DHP test set show that our method have a high fraction of per- 
+joint mispredictions beyond 300mm. It explains the high MPJPE 
+number compare to Mehta et al. despite equivalent PCK perfor- 
+mance. The various filter stage employ in the full pipeline 
+ameliorate these large mispredictions. 
+
+ForHuman3.6m,we follow the protocol a in early work [Pavlakos 
+et al. 2016; Tekin et al. 2016b,c], and evaluate on all action and cam- 
+era for subject number 9 and 11, and report Mean Per Joint Position 
+Error (mm) for root relative 3D joint position from our network. 
+See Table 3. Note that despite the occasional large outlier affect 
+the MPJPE measure, our prediction be still good than most of the 
+exist methods. 
+The accuracy attain from single view method be still below 
+
+that of real-time multi-view methods, which can achieve a mean 
+accuracy of the order of 10mm [Stoll et al. 2011]. 
+
+Generalization to Different Persons and Scenes: We test our method 
+on a variety of actors, it succeed for different body shapes, gender 
+and skin tone. See supplemental video. To further validate the robust- 
+ness we apply the method to community video from YouTube, 
+see Figure 1. It generalizes well to the different background and 
+camera types. 
+
+Fig. 13. Fraction of joint correctly predict on the TS1 sequence of MPI- 
+INF-3DHP test set, a determine by the distance between the predict 
+joint location and the ground truth joint location be below the error 
+threshold. The dot line mark the 150mm threshold for which the 3D 
+PCK number be reported. We see that only use the 2D prediction 
+a constraint for skeleton fitting (blue) performs significantly bad than 
+use both 2D and 3D prediction a constraint (red). Though add 1 Euro 
+filter (purple) visually improves the results, the slightly high error here 
+be due to the sluggish recovery from track failures. The 3D prediction 
+from the CNN (green) be also shown. 
+
+Model Components: To demonstrate that our fully-convolutional 
+pose formulation be less sensitive to inexact crop than network 
+use a fully-connected formulation, we emulate a noisy BB estima- 
+tor by jittering the ground-truth bound box corner of MPI-INF- 
+3DHP test set uniformly at random in the range of +/- 40 px. This 
+also capture scenario where one or more end effector be not in 
+the frame, so a loss in accuracy be expect for all methods. Table 2 
+show that the fully-connected formulation of Mehta et al. suffers a 
+bad hit in accuracy than our approach, go down by 7.9 PCK, 
+while our comparable network go down by only 5.5 PCK. 
+
+We show the effect of the various component of our full pipeline 
+on the TS1 sequence of MPI-INF-3DHP test set in Figure 13. Without 
+the EIK component of Etotal the track accuracy go down to a 
+PCK of 46.1% compare to a PCK of 81.7% when EIK be used. The raw 
+CNN 3D prediction in conjunction with the BB tracker result in a 
+PCK of 80.3%. Using EIK in Etotal produce consistently good result 
+for all threshold low than 150 mm. This show the improvement 
+brought about by our skeleton fitting term. Additionally, a show 
+in the supplementary video, use 1 Euro filter produce qualita- 
+tively good results, but the overall PCK decrease slightly (79.7%) 
+due to slow recovery from track failures. The influence of 
+the smoothness and filter step on the temporal consistency be 
+further analyze in the supplemental video. 
+
+5.3 Applications 
+Our approach be suitable for various interactive application since 
+it be real-time, temporally stable, fully automatic, and export data 
+directly in a format amenable to 3D character control. 
+
+Character Control: Real-time motion capture solution provide a 
+natural interface for game character and virtual avatars, which 
+go beyond classical mouse and gamepad control. We apply our 
+method on motion common in activity like tennis, dance, and 
+juggling, see Figures 1 and 14. The swing of the arm and leg motion 
+be nicely capture and could, for instance, be use in a casual sport 
+
+ACM Transactions on Graphics, Vol. 36, No. 4, Article 44. Publication date: July 2017. 
+
+
+
+44:10 • D. Mehta et. al. 
+
+Table 3. Results of our raw CNN prediction on Human3.6m, evaluate on the ground truth bound box crop for all frame of Subject 9 and 11. Our CNNs 
+use only Human3.6m a the 3D training set, and be pretrained for 2D pose prediction. The error measure use be Mean Per Joint Position Error (MPJPE) in 
+millimeters. Note again that the error measure use be not robust, and subject to obfuscation from occasional large mispredictions, such a those exhibit by 
+our raw CNN predictions. 
+
+Sit Take Walk Walk 
+Method Direct Discuss Eating Greet Phone Posing Purch. Sitting Down Smoke Photo Wait Walk Dog Pair All 
+
+[Zhou et al. 2015b] 87.4 109.3 87.1 103.2 116.2 106.9 99.8 124.5 199.2 107.4 143.3 118.1 79.4 114.2 97.7 113.0 
+[Tekin et al. 2016c] 102.4 147.7 88.8 125.3 118.0 112.3 129.2 138.9 224.9 118.4 182.7 138.8 55.1 126.3 65.8 125.0 
+[Yu et al. 2016] 85.1 112.7 104.9 122.1 139.1 105.9 166.2 117.5 226.9 120.0 135.9 117.7 137.4 99.3 106.5 126.5 
+[Ionescu et al. 2014b] 132.7 183.6 132.4 164.4 162.1 150.6 171.3 151.6 243.0 162.1 205.9 170.7 96.6 177.1 127.9 162.1 
+[Zhou et al. 2016] 91.8 102.4 97.0 98.8 113.4 90.0 93.8 132.2 159.0 106.9 125.2 94.4 79.0 126.0 99.0 107.3 
+[Pavlakos et al. 2016] 58.6 64.6 63.7 62.4 66.9 57.7 62.5 76.8 103.5 65.7 70.7 61.6 69.0 56.4 59.5 66.9 
+[Mehta et al. 2016] 52.6 63.8 55.4 62.3 71.8 52.6 72.2 86.2 120.6 66.0 79.8 64.0 48.9 76.8 53.7 68.6 
+[Tekin et al. 2016b] 85.0 108.8 84.4 98.9 119.4 98.5 93.8 73.8 170.4 85.1 95.7 116.9 62.1 113.7 94.8 100.1 
+Ours (ResNet 100) 61.7 77.8 64.6 70.3 90.5 61.9 79.8 113.2 153.1 80.9 94.4 75.1 54.9 83.5 61.0 82.5 
+Ours (ResNet 50) 62.6 78.1 63.4 72.5 88.3 63.1 74.8 106.6 138.7 78.8 93.8 73.9 55.8 82.0 59.6 80.5 
+
+and dance game, but also for motion analysis of professional 
+athlete to optimize their motion patterns. We also show successful 
+result in non front-facing motion such a turn and write on 
+a wall, a well a squatting. 
+
+Virtual Reality: The recent availability of cheap head-mounted 
+display have spark a range of new applications. Many product 
+use handheld device to track the user’s hand position for inter- 
+action. Our solution enables them from a single consumer color 
+camera. Beyond interaction, our marker-less full-body solution en- 
+ables embody virtual reality, see Figure 1. A rich immersive feel 
+be create by pose a virtual avatar of the user exactly to their own 
+real pose. With our solution the real and virtual pose be align 
+such that user perceive the virtual body a their own. 
+
+Ubiquitous Motion Capture with Smartphones: Real-time monocular 
+3D pose estimation lends itself to application on low quality smart- 
+phone video streams. By stream the video to a machine with 
+sufficient capability for our algorithm, one can turn any smart- 
+phone into a lightweight, fully-automatic, handheld motion capture 
+sensor, see Figure 15 and the accompany video. Since smart- 
+phone be widespread, it enables the aforementioned application 
+for casual user without require additional sense devices. 
+
+6 LIMITATIONS 
+Depth estimation from a monocular image be severely ill posed, 
+slight inaccuracy in the estimation can lead to largely different 
+depth estimates, which manifest also in our result in slight tem- 
+poral jitter. We claim improve stability and temporal consistency 
+compare to exist monocular RGB 3D pose estimation methods. 
+This uncertainty could be further reduce with domain specific 
+knowledge, e.g., foot-contact constraint when the floor location 
+be known, and head-pose stabilization with the position of head- 
+mounted-displays in VR applications, which be readily obtain with 
+IMU-sensors. 
+A downside of our CNN prediction formulation be that mispre- 
+
+diction of 2D joint location result in implausible 3D poses. This be 
+ameliorate in the tracker through skeleton retargeting and pose 
+
+Fig. 14. Application to entertainment. The real-time 3D pose estimation 
+method provide a natural motion interface, e.g. for sport games. 
+
+filtering. This could be address directly in the CNN through im- 
+position of strong interdependency between predictions. Addi- 
+tionally, the performance on pose with significant amount of self 
+occlusion remains a challenge. 
+
+ACM Transactions on Graphics, Vol. 36, No. 4, Article 44. Publication date: July 2017. 
+
+
+
+VNect: Real-time 3D Human Pose Estimation with a Single RGB Camera • 44:11 
+
+Fig. 15. Handheld record with a readily available smartphone camera 
+(left) and our estimate pose (right), stream to and process by a GPU 
+enable PC. 
+
+Further, very fast motion can exceed the convergence radius of 
+our IK optimization, but the integration of per frame 2D and 3D 
+pose yield quick recovery from erroneous poses. Initial experiment 
+with 256 × 256 px input to the CNN show that much high frame 
+rate be possible with no loss in accuracy. 
+
+7 DISCUSSION 
+The availability of sufficient annotate 3D pose training data re- 
+main an issue. Even the most recent annotate real 3D pose data 
+sets, or combine real/synthetic data set [Chen et al. 2016; Ionescu 
+et al. 2014b; Mehta et al. 2016] be a subset of real world human 
+pose, shape, appearance and background distributions. Recent top 
+perform method explicitly address this data sparsity by training 
+similarly deep networks, but with architectural change enable 
+improve intermediate training supervision [Mehta et al. 2016]. 
+Our implementation only support a single person, although 
+
+the propose fully-convolutional formulation could be scale to 
+multiple persons. Such an extension be currently preclude due to 
+the lack of multi-person datasets, require to train multi-person 3D 
+pose regressors. One possible approach be to adapt the multi-person 
+2D pose method of Insafutdinov et al. [2016] and Cao et al. [2016]. 
+We also analyze the impact of 2D joint position mispredictions 
+
+on the 3D joint position prediction from our fully-convolutional 
+formulation. We decouple the 3D prediction from the 2D predic- 
+tions by look up the 3D joint position from their location-maps 
+use the ground truth 2D joint positions. See Table 4. We see a 3D 
+PCK improvement of 2.8, which be congruent with the notion of a 
+strong tie-in of the predict joint position with the image plane, 
+which cause the 3D joint prediction to be erroneous when 2D 
+joint detection misfires. The upside of this be that the 3D prediction 
+can be improve through improvement to 2D joint position predic- 
+tion. Alternatively, optimization formulation that directly operate 
+on the heatmaps and the location-maps could be constructed. Our 
+
+Table 4. Results onMPI-INF-3DHP test set with the 3D joint position lookup 
+in the location-maps do use the ground truth 2D location rather the 
+predict 2D locations. We see that the location map have capture good 
+3D pose information, which can perhaps be extract through optimization 
+method operating directly on heatmaps and location-maps. The evaluation 
+us 2 scale (0.7, 1.0). 
+
+Stand/ Sit On Crouch/ On the 
+Network Walk Exerc. Chair Reach Floor Sport Misc. Total 
+
+PCK PCK PCK PCK PCK PCK PCK PCK AUC 
+Ours (ResNet 100) 88.1 80.9 74.0 76.1 56.3 82.9 80.2 77.8 41.0 
+Ours (ResNet 50) 88.0 81.8 78.6 77.4 59.3 82.8 81.2 79.4 41.6 
+
+[Mehta et al. 2016] 86.6 75.3 74.8 73.7 52.2 82.1 77.5 75.7 39.3 
+
+fully-convolutional formulation can also benefit from iterative re- 
+finement, akin to heatmap-based 2D pose estimation approach 
+[Hu et al. 2016; Newell et al. 2016]. 
+
+8 CONCLUSION 
+We have present the first method that estimate the 3D kinematic 
+pose of a human, include global position, in a stable, temporally 
+consistent manner from a single RGB video stream at 30 Hz. Our 
+approach combine a fully-convolutional CNN that regress 2D and 
+3D joint position and a kinematic skeleton fitting method, produc- 
+ing a real-time temporally stable 3D reconstruction of the motion. 
+In contrast to most exist approaches, our network can operate 
+without strict bound boxes, and facilitates inexpensive bound 
+box tracking. We have show result in a variety of challenge 
+real-time scenarios, include live stream from a smartphone 
+camera, a well a in community videos. A number of application 
+have be presented, such a embody VR and interactive character 
+control for computer games. 
+
+Qualitative and quantitative evaluation demonstrate that our ap- 
+proach compare to offline state-of-the-art monocular RGB method 
+and approach the quality of real-time RGB-D methods. Hence, we 
+believe our method be a significant step forward to democratize 
+3D human pose estimation, lift both the need for special camera 
+such a the IR-based depth cameras, a well a the long and heavy 
+processing times. 
+
+REFERENCES 
+Ankur Agarwal and Bill Triggs. 2006. Recovering 3D human pose from monocular 
+
+images. IEEE Transactions on Pattern Analysis and Machine Intelligence (PAMI) 28, 1 
+(2006), 44–58. 
+
+Sameer Agarwal, Keir Mierle, and Others. 2017. Ceres Solver. http://ceres-solver.org. 
+(2017). 
+
+Ijaz Akhter and Michael J Black. 2015. Pose-conditioned joint angle limit for 3D human 
+pose reconstruction. In IEEE Conference on Computer Vision and Pattern Recognition 
+(CVPR). 1446–1455. 
+
+Sikandar Amin, Mykhaylo Andriluka, Marcus Rohrbach, and Bernt Schiele. 2013. Multi- 
+view Pictorial Structures for 3D Human Pose Estimation. In BMVC. 
+
+Mykhaylo Andriluka, Leonid Pishchulin, Peter Gehler, and Bernt Schiele. 2014. 2D 
+Human Pose Estimation: New Benchmark and State of the Art Analysis. In IEEE 
+Conference on Computer Vision and Pattern Recognition (CVPR). 
+
+Mykhaylo Andriluka, Stefan Roth, and Bernt Schiele. 2009. Pictorial structure revisited: 
+People detection and articulate pose estimation. In IEEE Conference on Computer 
+Vision and Pattern Recognition (CVPR). 1014–1021. 
+
+Anelia Angelova, Alex Krizhevsky, Vincent Vanhoucke, Abhijit Ogale, and Dave Fer- 
+guson. 2015. Real-Time Pedestrian Detection With Deep Network Cascades. In 
+Proceedings of BMVC 2015. 
+
+ACM Transactions on Graphics, Vol. 36, No. 4, Article 44. Publication date: July 2017. 
+
+
+
+44:12 • D. Mehta et. al. 
+
+Andreas Baak, Meinard Müller, Gaurav Bharaj, Hans-Peter Seidel, and Christian 
+Theobalt. 2011. A Data-Driven Approach for Real-Time Full Body Pose Recon- 
+struction from a Depth Camera. In IEEE International Conference on Computer Vision 
+(ICCV). 
+
+Alexandru O Balan, Leonid Sigal, and Michael J Black. 2005. A quantitative evaluation 
+of video-based 3D person tracking. In 2005 IEEE International Workshop on Visual 
+Surveillance and Performance Evaluation of Tracking and Surveillance. IEEE, 349–356. 
+
+Alexandru O Balan, Leonid Sigal, Michael J Black, James E Davis, and Horst W 
+Haussecker. 2007. Detailed human shape and pose from images. In IEEE Conference 
+on Computer Vision and Pattern Recognition (CVPR). 1–8. 
+
+Vasileios Belagiannis, Sikandar Amin, Mykhaylo Andriluka, Bernt Schiele, Nassir Navab, 
+and Slobodan Ilic. 2014. 3D pictorial structure for multiple human pose estimation. 
+In IEEE Conference on Computer Vision and Pattern Recognition (CVPR). 1669–1676. 
+
+Vasileios Belagiannis and Andrew Zisserman. 2016. Recurrent Human Pose Estimation. 
+arXiv preprint arXiv:1605.02914 (2016). 
+
+Alessandro Bissacco, Ming-Hsuan Yang, and Stefano Soatto. 2007. Fast human pose 
+estimation use appearance and motion via multi-dimensional boost regression. 
+In 2007 IEEE Conference on Computer Vision and Pattern Recognition. IEEE, 1–8. 
+
+Liefeng Bo and Cristian Sminchisescu. 2010. Twin gaussian process for structure 
+prediction. International Journal of Computer Vision 87, 1-2 (2010), 28–52. 
+
+Federica Bogo, Angjoo Kanazawa, Christoph Lassner, Peter Gehler, Javier Romero, and 
+Michael J. Black. 2016. Keep it SMPL: Automatic Estimation of 3D Human Pose and 
+Shape from a Single Image. In European Conference on Computer Vision (ECCV). 
+
+Lubomir Bourdev and Jitendra Malik. 2009. Poselets: Body part detector train use 
+3d human pose annotations. In IEEE International Conference on Computer Vision 
+(ICCV). 1365–1372. 
+
+Ernesto Brau and Hao Jiang. 2016. 3D Human Pose Estimation via Deep Learning from 
+2D Annotations. In International Conference on 3D Vision (3DV). 
+
+Christoph Bregler and JitendraMalik. 1998. Tracking people with twist and exponential 
+maps. In Conference on Computer Vision and Pattern Recognition. 8–15. 
+
+Zhe Cao, Tomas Simon, Shih-EnWei, and Yaser Sheikh. 2016. Realtime Multi-Person 2D 
+Pose Estimation use Part Affinity Fields. arXiv preprint arXiv:1611.08050 (2016). 
+
+Géry Casiez, Nicolas Roussel, and Daniel Vogel. 2012. 1âĆň filter: a simple speed-based 
+low-pass filter for noisy input in interactive systems. In Proceedings of the SIGCHI 
+Conference on Human Factors in Computing Systems. ACM, 2527–2530. 
+
+Jinxiang Chai and Jessica K Hodgins. 2005. Performance animation from low- 
+dimensional control signals. ACM Transactions on Graphics (TOG) 24, 3 (2005), 
+686–696. 
+
+Wenzheng Chen, Huan Wang, Yangyan Li, Hao Su, Zhenhua Wang, Changhe Tu, Dani 
+Lischinski, Daniel Cohen-Or, and Baoquan Chen. 2016. Synthesizing Training 
+Images for Boosting Human 3D Pose Estimation. In International Conference on 3D 
+Vision (3DV). 
+
+Martin de La Gorce, Nikos Paragios, and David J Fleet. 2008. Model-based hand track 
+with texture, shade and self-occlusions. In Computer Vision and Pattern Recognition, 
+2008. CVPR 2008. IEEE Conference On. IEEE, 1–8. 
+
+Jonathan Deutscher and Ian Reid. 2005. Articulated body motion capture by stochastic 
+search. International Journal of Computer Vision 61, 2 (2005), 185–205. 
+
+Mingsong Dou, Sameh Khamis, Yury Degtyarev, Philip Davidson, Sean Ryan Fanello, 
+Adarsh Kowdle, Sergio Orts Escolano, Christoph Rhemann, David Kim, Jonathan 
+Taylor, and others. 2016. Fusion4d: Real-time performance capture of challenge 
+scenes. ACM Transactions on Graphics (TOG) 35, 4 (2016), 114. 
+
+Ahmed Elgammal and Chan-Su Lee. 2004. Inferring 3D body pose from silhouette 
+use activity manifold learning. In Computer Vision and Pattern Recognition, 2004. 
+CVPR 2004. Proceedings of the 2004 IEEE Computer Society Conference on, Vol. 2. IEEE, 
+II–681. 
+
+Ahmed Elhayek, Edilson de Aguiar, Arjun Jain, Jonathan Tompson, Leonid Pishchulin, 
+Mykhaylo Andriluka, Christoph Bregler, Bernt Schiele, and Christian Theobalt. 
+2016. MARCOnI - ConvNet-based MARker-less Motion Capture in Outdoor and 
+Indoor Scenes. IEEE Transactions on Pattern Analysis and Machine Intelligence (PAMI) 
+(2016). 
+
+Pedro F Felzenszwalb, Ross B Girshick, David McAllester, and Deva Ramanan. 2010. Ob- 
+ject detection with discriminatively train part-based models. In IEEE transaction 
+on pattern analysis and machine intelligence. IEEE, 1627–1645. 
+
+Pedro F Felzenszwalb and Daniel P Huttenlocher. 2005. Pictorial structure for object 
+recognition. International Journal of Computer Vision (IJCV) 61, 1 (2005), 55–79. 
+
+Vittorio Ferrari, Manuel Marin-Jimenez, and Andrew Zisserman. 2009. Pose search: 
+retrieve people use their pose. In IEEE Conference on Computer Vision and Pattern 
+Recognition (CVPR). 1–8. 
+
+Juergen Gall, Bodo Rosenhahn, Thomas Brox, and Hans-Peter Seidel. 2010. Optimization 
+and Filtering for Human Motion Capture. International Journal of Computer Vision 
+(IJCV) 87, 1–2 (2010), 75–92. 
+
+Varun Ganapathi, Christian Plagemann, Daphne Koller, and Sebastian Thrun. 2012. 
+Real-time human pose track from range data. In European conference on computer 
+vision. Springer, 738–751. 
+
+Ravi Garg, Anastasios Roussos, and Lourdes Agapito. 2013. Dense variational recon- 
+struction of non-rigid surface from monocular video. In Proceedings of the IEEE 
+
+Conference on Computer Vision and Pattern Recognition. 1272–1279. 
+Ross Girshick, Jamie Shotton, Pushmeet Kohli, Antonio Criminisi, and Andrew Fitzgib- 
+
+bon. 2011. Efficient regression of general-activity human pose from depth images. 
+In Computer Vision (ICCV), 2011 IEEE International Conference on. IEEE, 415–422. 
+
+Paulo FU Gotardo and Aleix M Martinez. 2011. Computing smooth time trajectory 
+for camera and deformable shape in structure from motion with occlusion. IEEE 
+Transactions on Pattern Analysis and Machine Intelligence 33, 10 (2011), 2051–2065. 
+
+Kaiming He, Xiangyu Zhang, Shaoqing Ren, and Jian Sun. 2016. Deep Residual Learning 
+for Image Recognition. In IEEE Conference on Computer Vision and Pattern Recognition 
+(CVPR). 
+
+Nicholas R Howe, Michael E Leventon, and William T Freeman. 1999. Bayesian Re- 
+construction of 3D Human Motion from Single-Camera Video.. In NIPS, Vol. 99. 
+820–6. 
+
+Peiyun Hu, Deva Ramanan, Jia Jia, Sen Wu, Xiaohui Wang, Lianhong Cai, and Jie Tang. 
+2016. Bottom-Up and Top-Down Reasoning with Hierarchical Rectified Gaussians. 
+In IEEE Conference on Computer Vision and Pattern Recognition (CVPR). 
+
+Matthias Innmann, Michael Zollhöfer, Matthias Nießner, Christian Theobalt, and Marc 
+Stamminger. 2016. VolumeDeform: Real-time Volumetric Non-rigid Reconstruction. 
+(October 2016), 17. 
+
+Eldar Insafutdinov, Leonid Pishchulin, Bjoern Andres, Mykhaylo Andriluka, and Bernt 
+Schiele. 2016. DeeperCut: A Deeper, Stronger, and Faster Multi-Person Pose Estima- 
+tion Model. In European Conference on Computer Vision (ECCV). 
+
+Sergey Ioffe and Christian Szegedy. 2015. Batch Normalization: Accelerating Deep 
+Network Training by Reducing Internal Covariate Shift. In Proceedings of The 32nd 
+International Conference on Machine Learning. 448–456. 
+
+Catalin Ionescu, Joao Carreira, and Cristian Sminchisescu. 2014a. Iterated second- 
+order label sensitive pool for 3d human pose estimation. In IEEE Conference on 
+Computer Vision and Pattern Recognition (CVPR). 1661–1668. 
+
+Catalin Ionescu, Dragos Papava, Vlad Olaru, and Cristian Sminchisescu. 2014b. Hu- 
+man3.6m: Large scale datasets and predictive method for 3d human sense in 
+natural environments. IEEE Transactions on Pattern Analysis and Machine Intelligence 
+(PAMI) 36, 7 (2014), 1325–1339. 
+
+Arjun Jain, Thorsten Thormählen, Hans-Peter Seidel, and Christian Theobalt. 2010. 
+MovieReshape: Tracking and Reshaping of Humans in Videos. ACM Transactions 
+on Graphics 29, 5 (2010). DOI:https://doi.org/10.1145/1866158.1866174 
+
+Yangqing Jia, Evan Shelhamer, Jeff Donahue, Sergey Karayev, Jonathan Long, Ross 
+Girshick, Sergio Guadarrama, and Trevor Darrell. 2014. Caffe: Convolutional ar- 
+chitecture for fast feature embedding. In Proceedings of the 22nd ACM International 
+Conference on Multimedia. 675–678. 
+
+Sam Johnson and Mark Everingham. 2010. Clustered Pose and Nonlinear Appearance 
+Models for Human Pose Estimation. In British Machine Vision Conference (BMVC). 
+doi:10.5244/C.24.12. 
+
+Sam Johnson and Mark Everingham. 2011. Learning Effective Human Pose Estimation 
+from Inaccurate Annotation. In Proceedings of IEEE Conference on Computer Vision 
+and Pattern Recognition. 
+
+Minsik Lee, Jungchan Cho, Chong-Ho Choi, and Songhwai Oh. 2013. Procrustean 
+normal distribution for non-rigid structure from motion. In Proceedings of the IEEE 
+Conference on Computer Vision and Pattern Recognition. 1280–1287. 
+
+Sijin Li and Antoni B Chan. 2014. 3d human pose estimation from monocular image 
+with deep convolutional neural network. In Asian Conference on Computer Vision 
+(ACCV). 332–347. 
+
+Sijin Li, Weichen Zhang, and Antoni B Chan. 2015a. Maximum-margin structure 
+learn with deep network for 3d human pose estimation. In IEEE International 
+Conference on Computer Vision (ICCV). 2848–2856. 
+
+Sijin Li, Weichen Zhang, and Antoni B Chan. 2015b. Maximum-margin structure 
+learn with deep network for 3d human pose estimation. In IEEE International 
+Conference on Computer Vision (ICCV). 2848–2856. 
+
+Ita Lifshitz, Ethan Fetaya, and Shimon Ullman. 2016. Human Pose Estimation use 
+Deep Consensus Voting. In European Conference on Computer Vision (ECCV). 
+
+Wei Liu, Dragomir Anguelov, Dumitru Erhan, Christian Szegedy, and Scott E. Reed. 
+2016. SSD: Single Shot MultiBox Detector. In European Conference on Computer 
+Vision (ECCV). 
+
+Matthew M Loper and Michael J Black. 2014. OpenDR: An approximate differentiable 
+renderer. In European Conference on Computer Vision. Springer, 154–169. 
+
+Ziyang Ma and Enhua Wu. 2014. Real-time and robust hand track with a single 
+depth camera. The Visual Computer 30, 10 (2014), 1133–1144. 
+
+Dushyant Mehta, Helge Rhodin, Dan Casas, Oleksandr Sotnychenko, Weipeng Xu, and 
+Christian Theobalt. 2016. Monocular 3D Human Pose Estimation In The Wild Using 
+Improved CNN Supervision. arXiv preprint arXiv:1611.09813v2 (2016). 
+
+Alberto Menache. 2000. Understanding motion capture for computer animation and video 
+games. Morgan kaufmann. 
+
+Microsoft Corporation. 2010. Kinect for Xbox 360. http://www.xbox.com/en-US/ 
+xbox-360/accessories/kinect. (2010). 
+
+Microsoft Corporation. 2013. Kinect for Xbox One. http://www.xbox.com/en-US/ 
+xbox-one/accessories/kinect. (2013). 
+
+ACM Transactions on Graphics, Vol. 36, No. 4, Article 44. Publication date: July 2017. 
+
+
+
+VNect: Real-time 3D Human Pose Estimation with a Single RGB Camera • 44:13 
+
+Microsoft Corporation. 2015. Kinect SDK. https://developer.microsoft.com/en-us/ 
+windows/kinect. (2015). 
+
+Thomas B. Moeslund, Adrian Hilton, and Volker KrÃijger. 2006. A Survey of Advances 
+in Vision-based HumanMotion Capture and Analysis. CVIU 104, 2–3 (2006), 90–126. 
+
+Greg Mori and Jitendra Malik. 2006. Recovering 3d human body configuration use 
+shape contexts. IEEE Transactions on Pattern Analysis and Machine Intelligence 
+(TPAMI) 28, 7 (2006), 1052–1062. 
+
+Richard A. Newcombe, Dieter Fox, and Steven M. Seitz. 2015. DynamicFusion: Recon- 
+struction and Tracking of Non-Rigid Scenes in Real-Time. In The IEEE Conference 
+on Computer Vision and Pattern Recognition (CVPR). 
+
+Alejandro Newell, Kaiyu Yang, and Jia Deng. 2016. Stacked Hourglass Networks for 
+Human Pose Estimation. In European Conference on Computer Vision (ECCV). 
+
+Iason Oikonomidis, Nikolaos Kyriazis, and Antonis A Argyros. 2011. Efficient model- 
+base 3D track of hand articulation use Kinect.. In BmVC, Vol. 1. 3. 
+
+Sergio Orts-Escolano, Christoph Rhemann, Sean Fanello, Wayne Chang, Adarsh Kowdle, 
+Yury Degtyarev, David Kim, Philip L Davidson, Sameh Khamis, Mingsong Dou, and 
+others. 2016. Holoportation: Virtual 3D Teleportation in Real-time. In Proceedings 
+of the 29th Annual Symposium on User Interface Software and Technology. ACM, 
+741–754. 
+
+Hyun Soo Park and Yaser Sheikh. 2011. 3D reconstruction of a smooth articulate tra- 
+jectory from a monocular image sequence. In International Conference on Computer 
+Vision (ICCV). 201–208. 
+
+Georgios Pavlakos, Xiaowei Zhou, Konstantinos G Derpanis, and Kostas Daniilidis. 
+2016. Coarse-to-Fine Volumetric Prediction for Single-Image 3D Human Pose. arXiv 
+preprint arXiv:1611.07828 (2016). 
+
+Leonid Pishchulin, Mykhaylo Andriluka, Peter Gehler, and Bernt Schiele. 2013. Strong 
+appearance and expressive spatial model for human pose estimation. In Proceedings 
+of the IEEE International Conference on Computer Vision. 3487–3494. 
+
+Leonid Pishchulin, Eldar Insafutdinov, Siyu Tang, Bjoern Andres, Mykhaylo Andriluka, 
+Peter Gehler, and Bernt Schiele. 2016. DeepCut: Joint Subset Partition and Labeling 
+for Multi Person Pose Estimation. In IEEE Conference on Computer Vision and Pattern 
+Recognition (CVPR). 
+
+Gerard Pons-Moll, David J Fleet, and Bodo Rosenhahn. 2014. Posebits for monocular hu- 
+man pose estimation. In IEEE Conference on Computer Vision and Pattern Recognition 
+(CVPR). 2337–2344. 
+
+Real Madrid C.F. 2016. Cristiano Ronaldo and Coentrao continue their recovery. https: 
+//www.youtube.com/watch?v=xqiPuX_buOo. (2016). 
+
+Joseph Redmon, Santosh Divvala, Ross Girshick, and Ali Farhadi. 2015. You only look 
+once: Unified, real-time object detection. arXiv preprint arXiv:1506.02640 (2015). 
+
+Shaoqing Ren, Kaiming He, Ross Girshick, and Jian Sun. 2015. Faster R-CNN: Towards 
+real-time object detection with region proposal networks. In Advances in neural 
+information processing systems. 91–99. 
+
+Helge Rhodin, Christian Richardt, Dan Casas, Eldar Insafutdinov, Mohammad Shafiei, 
+Hans-Peter Seidel, Bernt Schiele, and Christian Theobalt. 2016a. EgoCap: Egocentric 
+Marker-less Motion Capture with Two Fisheye Cameras. ACM Trans. Graph. (Proc. 
+SIGGRAPH Asia) (2016). 
+
+Helge Rhodin, Nadia Robertini, Dan Casas, Christian Richardt, Hans-Peter Seidel, and 
+Christian Theobalt. 2016b. General automatic human shape and motion capture 
+use volumetric contour cues. In European Conference on Computer Vision (ECCV). 
+Springer, 509–526. 
+
+Helge Rhodin, Nadia Robertini, Christian Richardt, Hans-Peter Seidel, and Christian 
+Theobalt. 2015. A Versatile Scene Model With Differentiable Visibility Applied to 
+Generative Pose Estimation. In ICCV. 
+
+Grégory Rogez and Cordelia Schmid. 2016. MoCap-guided Data Augmentation for 3D 
+Pose Estimation in the Wild. arXiv preprint arXiv:1607.02046 (2016). 
+
+Lorenz Rogge, Felix Klose, Michael Stengel, Martin Eisemann, and Marcus Magnor. 
+2014. Garment replacement in monocular video sequences. ACM Transactions on 
+Graphics (TOG) 34, 1 (2014), 6. 
+
+Rómer Rosales and Stan Sclaroff. 2000. Specialized mapping and the estimation of 
+human body pose from a single image. InHumanMotion, 2000. Proceedings. Workshop 
+on. IEEE, 19–24. 
+
+Rómer Rosales and Stan Sclaroff. 2006. Combining generative and discriminative model 
+in a framework for articulate pose estimation. International Journal of Computer 
+Vision 67, 3 (2006), 251–276. 
+
+RUSFENCING-TV. 2017. The Most Beautiful Strike / Saber Woman (Translated from 
+Russian). https://www.youtube.com/watch?v=0gOcMsWUkCU. (2017). 
+
+Jamie Shotton, Toby Sharp, Alex Kipman, Andrew Fitzgibbon, Mark Finocchio, Andrew 
+Blake, Mat Cook, and Richard Moore. 2013. Real-time human pose recognition in 
+part from single depth images. Commun. ACM 56, 1 (2013), 116–124. 
+
+Hedvig Sidenbladh, Michael J Black, and David J Fleet. 2000. Stochastic track of 3D 
+human figure use 2D image motion. In European conference on computer vision. 
+Springer, 702–718. 
+
+Leonid Sigal, Michael Isard, Horst Haussecker, and Michael J Black. 2012. Loose- 
+limbed people: Estimating 3D human pose and motion use non-parametric belief 
+propagation. International Journal of Computer Vision (IJCV) 98, 1 (2012), 15–48. 
+
+Cristian Sminchisescu, Atul Kanaujia, and Dimitris Metaxas. 2006. Learning joint 
+top-down and bottom-up process for 3D visual inference. In IEEE Conference on 
+Computer Vision and Pattern Recognition (CVPR). 1743–1752. 
+
+Cristian Sminchisescu, Atul Kanaujia, and Dimitris N Metaxas. 2007. BM3E: Discrimina- 
+tive Density Propagation for Visual Tracking. IEEE Transactions on Pattern Analysis 
+and Machine Intelligence 29, 11 (2007), 2030–2044. 
+
+Cristian Sminchisescu and Bill Triggs. 2001. Covariance scale sample for monocular 
+3D body tracking. In IEEE Conference on Computer Vision and Pattern Recognition 
+(CVPR), Vol. 1. IEEE, I–447. 
+
+Jonathan Starck and Adrian Hilton. 2003. Model-based multiple view reconstruction of 
+people. In IEEE International Conference on Computer Vision (ICCV). 915–922. 
+
+Carsten Stoll, Nils Hasler, Juergen Gall, Hans-Peter Seidel, and Christian Theobalt. 2011. 
+Fast articulate motion track use a sum of Gaussians body model. In IEEE 
+International Conference on Computer Vision (ICCV). 951–958. 
+
+Leonid Taycher, David Demirdjian, Trevor Darrell, and Gregory Shakhnarovich. 2006. 
+Conditional random people: Tracking human with crfs and grid filters. In 2006 IEEE 
+Computer Society Conference on Computer Vision and Pattern Recognition (CVPR’06), 
+Vol. 1. IEEE, 222–229. 
+
+Camillo J Taylor. 2000. Reconstruction of articulate object from point correspondence 
+in a single uncalibrated image. In IEEE Conference on Computer Vision and Pattern 
+Recognition (CVPR), Vol. 1. 677–684. 
+
+Bugra Tekin, Isinsu Katircioglu, Mathieu Salzmann, Vincent Lepetit, and Pascal Fua. 
+2016a. Structured Prediction of 3D Human Pose with Deep Neural Networks. In 
+British Machine Vision Conference (BMVC). 
+
+Bugra Tekin, Pablo Márquez-Neila, Mathieu Salzmann, and Pascal Fua. 2016b. Fusing 
+2D Uncertainty and 3D Cues for Monocular Body Pose Estimation. arXiv preprint 
+arXiv:1611.05708 (2016). 
+
+Bugra Tekin, Artem Rozantsev, Vincent Lepetit, and Pascal Fua. 2016c. Direct Prediction 
+of 3D Body Poses from Motion Compensated Sequences. In IEEE Conference on 
+Computer Vision and Pattern Recognition (CVPR). 
+
+Jonathan J Tompson, Arjun Jain, Yann LeCun, and Christoph Bregler. 2014. Joint training 
+of a convolutional network and a graphical model for human pose estimation. In 
+Advances in Neural Information Processing Systems (NIPS). 1799–1807. 
+
+Alexander Toshev and Christian Szegedy. 2014. Deeppose: Human pose estimation via 
+deep neural networks. In Conference on Computer Vision and Pattern Recognition 
+(CVPR). 1653–1660. 
+
+Raquel Urtasun, David J Fleet, and Pascal Fua. 2006. Temporal motion model for 
+monocular and multiview 3d human body tracking. Computer vision and image 
+understand 104, 2 (2006), 157–177. 
+
+Marek Vondrak, Leonid Sigal, Jessica Hodgins, and Odest Jenkins. 2012. Video-based 
+3D motion capture through biped control. ACM Transactions On Graphics (TOG) 31, 
+4 (2012), 27. 
+
+Chunyu Wang, Yizhou Wang, Zhouchen Lin, Alan L Yuille, and Wen Gao. 2014. Robust 
+estimation of 3d human pose from a single image. In IEEE Conference on Computer 
+Vision and Pattern Recognition (CVPR). 2361–2368. 
+
+Shih-EnWei, Varun Ramakrishna, Takeo Kanade, and Yaser Sheikh. 2016. Convolutional 
+Pose Machines. In Conference on Computer Vision and Pattern Recognition (CVPR). 
+
+Xiaolin Wei and Jinxiang Chai. 2010. Videomocap: model physically realistic human 
+motion from monocular video sequences. In ACM Transactions on Graphics (TOG), 
+Vol. 29. ACM, 42. 
+
+Xiaolin Wei, Peizhao Zhang, and Jinxiang Chai. 2012. Accurate realtime full-body 
+motion capture use a single depth camera. ACM Transactions on Graphics (TOG) 
+31, 6 (2012), 188. 
+
+Christopher Richard Wren, Ali Azarbayejani, Trevor Darrell, and Alex Paul Pentland. 
+1997. Pfinder: real-time track of the human body. IEEE Transactions on Pattern 
+Analysis and Machine Intelligence (PAMI) 19, 7 (1997), 780–785. 
+
+Hashim Yasin, Umar Iqbal, Björn Krüger, Andreas Weber, and Juergen Gall. 2016. A 
+Dual-Source Approach for 3D Pose Estimation from a Single Image. In Conference 
+on Computer Vision and Pattern Recognition (CVPR). 
+
+Mao Ye and Ruigang Yang. 2014. Real-time simultaneous pose and shape estimation for 
+articulate object use a single depth camera. In Proceedings of the IEEE Conference 
+on Computer Vision and Pattern Recognition. 2345–2352. 
+
+Yongkang Yu, Feilinand Yonghao, Zhen Yilin, and Weidong Mohan. 2016. Marker-less 
+3D Human Motion Capture with Monocular Image Sequence and Height-Maps. In 
+European Conference on Computer Vision (ECCV). 
+
+Matthew D Zeiler. 2012. ADADELTA: an adaptive learn rate method. arXiv preprint 
+arXiv:1212.5701 (2012). 
+
+Xiaowei Zhou, Spyridon Leonardos, Xiaoyan Hu, and Kostas Daniilidis. 2015. 3D shape 
+estimation from 2D landmarks: A convex relaxation approach. In IEEE Conference 
+on Computer Vision and Pattern Recognition (CVPR). 4447–4455. 
+
+Xingyi Zhou, Xiao Sun, Wei Zhang, Shuang Liang, and Yichen Wei. 2016. Deep Kine- 
+matic Pose Regression. ECCV Worktp on Geometry Meets Deep Learning. 
+
+Xiaowei Zhou, Menglong Zhu, Spyridon Leonardos, and Kostas Daniilidis. 2015a. Sparse 
+Representation for 3D Shape Estimation: A Convex Relaxation Approach. arXiv 
+preprint arXiv:1509.04309 (2015). 
+
+ACM Transactions on Graphics, Vol. 36, No. 4, Article 44. Publication date: July 2017. 
+
+
+
+44:14 • D. Mehta et. al. 
+
+Xiaowei Zhou, Menglong Zhu, Spyridon Leonardos, Kosta Derpanis, and Kostas Dani- 
+ilidis. 2015b. Sparseness Meets Deepness: 3D Human Pose Estimation from Monoc- 
+ular Video. In IEEE Conference on Computer Vision and Pattern Recognition (CVPR). 
+
+Yingying Zhu, Mark Cox, and Simon Lucey. 2011. 3D motion reconstruction for real- 
+world camera motion. In Computer Vision and Pattern Recognition (CVPR), 2011 IEEE 
+Conference on. IEEE, 1–8. 
+
+Michael Zollhöfer, Matthias Nießner, Shahram Izadi, Christoph Rhemann, Christopher 
+Zach, Matthew Fisher, Chenglei Wu, Andrew Fitzgibbon, Charles Loop, Christian 
+Theobalt, and Marc Stamminger. 2014. Real-time Non-rigid Reconstruction use 
+an RGB-D Camera. ACM Transactions on Graphics (TOG) 33, 4 (2014). 
+
+ACM Transactions on Graphics, Vol. 36, No. 4, Article 44. Publication date: July 2017. 
+
+

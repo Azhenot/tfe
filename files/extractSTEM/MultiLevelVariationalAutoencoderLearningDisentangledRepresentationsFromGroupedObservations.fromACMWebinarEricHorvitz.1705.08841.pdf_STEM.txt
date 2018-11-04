@@ -1,0 +1,1619 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+multi-level variat autoencoder: 
+learn disentangl represent from 
+
+group observ 
+
+dian bouchacourt 
+oval group 
+
+univers of oxford∗ 
+diane@robots.ox.ac.uk 
+
+ryota tomioka, sebastian nowozin 
+machin intellig and percept group 
+
+microsoft research 
+cambridge, UK 
+
+{ryoto,sebastian.nowozin}@microsoft.com 
+
+abstract 
+We would like to learn a represent of the data which decompos an obser- 
+vation into factor of variat which we can independ control. specifically, 
+we want to use minim supervis to learn a latent represent that reflect 
+the semant behind a specif group of the data, where within a group the 
+sampl share a common factor of variation. for example, consid a collect of 
+face imag group by identity. We wish to anchor the semant of the group 
+into a relev and disentangl represent that we can easili exploit. how- 
+ever, exist deep probabilist model often assum that the observ be 
+independ and ident distributed. We present the multi-level variat 
+autoencod (ml-vae), a new deep probabilist model for learn a disen- 
+tangl represent of a set of group observations. the ml-vae separ 
+the latent represent into semant meaning part by work both at 
+the group level and the observ level, while retain effici test-tim infer- 
+ence. quantit and qualit evalu show that the ml-vae model (i) 
+learn a semant meaning disentangl of group data, (ii) enabl 
+manipul of the latent representation, and (iii) generalis to unseen groups. 
+
+1 introduct 
+represent learn refer to the task of learn a represent of the data that can be easili 
+exploited, see bengio et al. [2013]. In thi work, our goal be to build a model that disentangl the data 
+into separ salient factor of variat and easili appli to a varieti of task and differ type of 
+observations. toward thi goal there be multipl difficulties. first, the repres power of the 
+learn represent depend on the inform one wish to extract from the data. second, the 
+multipl factor of variat impact the observ in a complex and correl manner. finally, we 
+have access to veri little, if any, supervis over these differ factors. If there be no specif mean 
+to emb in the desir representation, the infomax principle, describ in linsker [1988], state that 
+an optim represent be one of bound entropi which retain a much inform about the 
+data a possible. however, we be interest in learn a semant meaning disentangl 
+of interest latent factors. how can we anchor semant in high-dimension representations? 
+
+We propos group-level supervision: observ be organis in groups, where within a group the 
+observ share a common but unknown valu for one of the factor of variation. for example, take 
+imag of circl and stars, of possibl color green, yellow and blue. A possibl group organis 
+the imag by shape (circl or starred). group observ allow u to anchor the semant of 
+the data (shape and color) into the learn representation. group observ be a form of weak 
+supervis that be inexpens to collect. In the abov shape example, we do not need to know the 
+factor of variat that defin the grouping. 
+
+deep probabilist gener model learn express represent of a give set of observations. 
+among them, kingma and well [2014], rezend et al. [2014] propos the veri success 
+
+∗the work be perform a part of an internship at microsoft research. 
+
+ar 
+X 
+
+iv 
+:1 
+
+70 
+5. 
+
+08 
+84 
+
+1v 
+1 
+
+[ 
+c 
+
+.L 
+G 
+
+] 
+2 
+
+4 
+M 
+
+ay 
+2 
+
+01 
+7 
+
+
+
+(a) origin vae assum i.i.d. ob- 
+servations. 
+
+(b) ml-vae accumul evi- 
+dence. 
+
+(c) ml-vae generalis to unseen 
+shape and color and allow con- 
+trol on the latent code. 
+
+figur 1: In (a) the vae of kingma and well [2014], rezend et al. [2014], it assum i.i.d. observations. In 
+comparison, (b) and (c) show our ml-vae work at the group level. In (b) and (c) upper part of the latent 
+code be color, low part be shape. black shape show the ml-vae accumul evid on the shape from the 
+two grey shapes. E be the encoder, D be the decoder, G be the group operation. best view in color. 
+
+variat autoencod (vae). In the vae model, a network (the encoder) encod an observ 
+into it latent represent (or latent code) and a gener network (the decoder) decod an 
+observ from a latent code. the vae model perform amortis inference, that is, the observ 
+parametris the posterior distribut of the latent code, and all observ share a singl set of 
+paramet to learn. thi allow effici test-tim inference. however, the vae model assum 
+that the observ be independ and ident distribut (i.i.d.). In the case of group 
+observations, thi assumpt be no longer true. consid the toy exampl of object group by 
+shape, the vae model consid and process each observ independently. thi be show in 
+figur 1a. the vae model take no advantag of the knowledg of the grouping. 
+
+how can we build a probabilist model that easili incorpor thi group inform and 
+learn the correspond relev representation? We could enforc equal represent within 
+group in a graphic model, use stochast variat infer (svi) for approxim posterior 
+inference, hoffman et al. [2013]. however, such model pair with svi cannot take advantag 
+of effici amortis inference. As a result, svi requir more pass over the train data and 
+expens test-tim inference. our propos model retain the advantag of amortis infer 
+while use the group inform in a simpl yet flexibl manner. 
+
+We present the multi-level variat autoencod (ml-vae), a new deep probabilist 
+model that learn a disentangl represent of a set of group observations. the ml-vae 
+separ the latent represent into semant meaning part by work both at the group 
+level and the observ level. without loss of gener we assum that there be two latent 
+factors, style and content. the content be common for a group, while the style can differ within 
+the group. We emphasis that our approach be gener in that there can be more than two factors. 
+moreover, for the same set of observations, multipl group be possibl along differ factor 
+of variation. To use group observ the ml-vae us a group oper that separ the 
+latent represent into two parts, style and content, and sampl in the same group have the same 
+content. thi in turn make the encod learn a semant meaning disentanglement. thi 
+process be show in figur 1b. for illustr purposes, the upper part of the latent code repres 
+the style (color) and the low part the content (shape: circl or star). In figur 1b, after be 
+encod the two circl share the same shape in the low part of the latent code (correspond to 
+content). the variat within the group (style), in thi case color, get natur encod in the 
+upper part. moreover, while the ml-vae handl the case of a singl sampl in a group, if there be 
+multipl sampl in a group the group oper increas the certainti on the content. thi be 
+show in figur 1b where black circl show that the model have accumul evid of the content 
+(circle) from the two disentangl code (grey circles). the group oper do not need to 
+know that the data be group by shape nor what shape and color represent; the onli supervis be 
+the organis of the data in groups. At test-time, the ml-vae generalis to unseen realis 
+of the factor of variation, for exampl the purpl triangl in figur 1c. use the disentangl 
+representation, we can control the latent code and can perform oper such a swap part 
+of the latent represent to gener new observations, a show in figur 1c. To sum-up, our 
+contribut be a follows. 
+
+• We propos the ml-vae model to learn disentangl represent from group level 
+supervision; 
+
+2 
+
+
+
+• we extend amort infer to the case of non-iid observations; 
+• we demonstr experiment that the ml-vae model learn a semant meaning 
+
+disentangl of group data; 
+• we demonstr manipul of the latent represent and generalis to unseen groups. 
+
+2 relat work 
+research have activ focu on the develop of deep probabilist model that learn to repres 
+the distribut of the data. such model parametris the learn represent by a neural network. 
+We distinguish between two type of deep probabilist models. implicit probabilist model 
+stochast map an input random nois to a sampl of the model distribution. exampl of 
+implicit model includ gener adversari network (gans) develop by goodfellow et al. 
+[2014] and kernel base models, see Li et al. [2015], dziugait et al. [2015], bouchacourt et al. 
+[2016]. the second type of model employ an explicit model distribut and build on variat 
+infer to learn it parameters. thi be the case of the variat autoencod (vae) propos 
+by kingma and well [2014], rezend et al. [2014]. both type of model have be extend to the 
+represent learn framework, where the goal be to learn a represent that can be effect 
+employed. In the unsupervis setting, the infogan model of chen et al. [2016] adapt gan to 
+the learn of an interpret represent with the use of mutual inform theory, and wang 
+and gupta [2016] use two sequenti connect gans. the β-vae model of higgin et al. 
+[2017] encourag the vae model to optim use it capac by increas the kullback-leibl 
+term in the vae objective. thi favor the learn of a meaning representation. abbasnejad 
+et al. [2016] us an infinit mixtur a variat approxim to improv perform on 
+semi-supervis tasks. contrari to our setting, these unsupervis model do not anchor a specif 
+mean into the disentanglement. In the semi-supervis setting, i.e. when an output label be 
+partli available, siddharth et al. [2017] learn a disentangl represent by introduc an 
+auxiliari variable. while relat to our work, thi model defin a semi-supervis factor of 
+variation. In the exampl of multi-class classification, it would not generalis to unseen classes. We 
+defin our model in the group supervis setting, therefor we can handl unseen class at testing. 
+
+the vae model have be extend to the learn of represent that be invari to a 
+certain sourc of variation. In thi context alemi et al. [2017] build a meaning represent 
+by use the inform bottleneck (ib) principle, present by tishbi et al. [1999]. the 
+variat fair autoencod present by louizo et al. [2016] encourag independ between 
+the latent represent and a sensit factor with the use of a maximum mean discrep 
+(mmd) base regulariser, while edward and storkey [2015] us adversari training. finally, 
+chen et al. [2017] control which part of the data get encod by the encod and employ an 
+autoregress architectur to model the part that be not encoded. while relat to our work, these 
+model requir supervis on the sourc of variat to be invari to. In the specif case of 
+learn interpret represent of images, kulkarni et al. [2015] train an autoencod with 
+minibatch where onli one latent factor changes. finally, mathieu et al. [2016] learn a represen- 
+tation invari to a certain sourc of data by combin autoencod train in an adversari manner. 
+
+multipl work perform image-to-imag translat between two unpair imag collec- 
+tion use gan-bas architectures, see zhu et al. [2017], kim et al. [2017], Yi et al. [2017], Fu 
+et al. [2017], taigman et al. [2017], shrivastava et al. [2017], bousmali et al. [2016], while liu et al. 
+[2017] employ a combin of vae and gans. interestingly, all these model requir a form of 
+weak supervis that be similar to our setting. We can think of the two unpair imag collect 
+a two group of observ data, share imag type (paint versu photograph for example). our 
+work differ from their a we generalis to ani type of data and number of groups. It be unclear how 
+to extend the cite model to the set of more than two group and other type of data. also, we 
+do not employ multipl gan model but a singl vae-typ model. while not directli relat to our 
+work, murali et al. [2017] perform comput program synthesi use group user-suppli exampl 
+programs, and allamani et al. [2017] learn continu semant represent of mathemat and 
+logic expressions. final we mention the concurr recent work of donahu et al. [2017] which 
+disentangl the latent space of gans. 
+3 model 
+3.1 amortis infer with the variat autoencod (vae) model 
+
+We defin X = (x1, ..., XN ). In the probabilist model framework, we assum that the observa- 
+tion X be gener by Z, the unobserv (latent) variables. the goal be to infer the valu of the 
+
+3 
+
+
+
+Xi 
+
+ziφi 
+
+θ 
+
+i ∈ [1, N ] 
+
+(a) svi graphic model. 
+
+Xi 
+
+ziφ 
+
+θ 
+
+i ∈ [1, N ] 
+
+(b) vae graphic model. 
+
+figur 2: vae kingma and well [2014], rezend et al. [2014] and svi hoffman et al. [2013] graphic 
+models. solid line denot the gener model, dash line denot the variat approximation. 
+
+latent variabl that gener the observations, that is, to calcul the posterior distribut over the 
+latent variabl p(z|x; θ), which be often intractable. the origin vae model propos by kingma 
+and well [2014], rezend et al. [2014] approxim the intract posterior with the use of a 
+variat approxim q(z|x;φ), where φ be the variat parameters. contrari to stochast 
+variat infer (svi), the vae model perform amortis variat inference, that is, the 
+observ parametris the posterior distribut of the latent code, and all observ share a 
+singl set of paramet φ. thi allow effici test-tim inference. figur 2 show the svi and 
+vae graphic models, we highlight in red that the svi model do not take advantag of amortis 
+inference. 
+
+3.2 the ml-vae for group observ 
+
+We now assum that the observ be organis in a set G of distinct groups, with a factor of 
+variat that be share among all observ within a group. the group form a partit 
+of [1, N ], i.e. each group G ∈ G be a subset of [1, N ] of arbitari size, disjoint of all other groups. 
+without loss of generality, we separ the latent represent in two latent variabl Z = (c, S) 
+with style S and content C. the content be the factor of variat along which the group be formed. 
+In thi context, refer a the group observ case, the latent represent have a singl 
+content latent variabl per group cg. svi can easili be adapt by enforc that all observ 
+within a group share a singl content latent variabl while the style remain untied, see figur 3a. 
+however, employ svi requir iter test-tim infer sinc it do not perform amortis 
+inference. experimentally, it also requir more pass on the train data a we show in the 
+supplementari material. the vae model assum that the observ be i.i.d, therefor it do not 
+take advantadg of the grouping. In thi context, the question be how to perform amortis infer 
+in the context of non-i.i.d., group observations? In order to tackl the aforement defici 
+we propos the multi-level vae (ml-vae). 
+
+We denot by XG the observ correspond to the group G. We explicitli model 
+each Xi in XG to have it independ latent represent for the style si, and SG = (si, i ∈ g). 
+CG be a uniqu latent variabl share among the group for the content. the variat approxima- 
+tion q(cg,sg|xg;φ) factoris and φc and φs be the variat paramet for content and style 
+respectively. We assum that the style be independ in a group, so SG also factorises. finally, give 
+style and content, the likelihood p(xg|cg,sg; θ) decompos on the samples. thi result in the 
+graphic model show figur 3b. 
+We do not assum i.i.d. observations, but independ at the group observ level. the 
+
+averag margin log-likelihood decompos over group of observ 
+1 
+
+|g| log p(x|θ) = 
+1 
+
+|g| 
+∑ 
+
+g∈g 
+log p(xg|θ). (1) 
+
+for each group, we can rewrit the margin log-likelihood a the sum of the group evid 
+lower bound elbo(g; θ, φs, φc) and the kullback-leibl diverg between the true poste- 
+rior p(cg,sg|xg; θ) and the variat approxim q(cg,sg|xg;φc). sinc thi kullback- 
+leibler diverg be alway positive, the first term, elbo(g; θ, φs, φc), be a low bound on the 
+margin log-likelihood, 
+
+log p(xg|θ) = elbo(g; θ, φs, φc) + kl(q(cg,sg|xg;φc)||p(cg,sg|xg; θ)) 
+≥ elbo(g; θ, φs, φc). 
+
+(2) 
+
+4 
+
+
+
+Xi 
+
+Si cgφs,i φc,g 
+
+θ 
+
+i ∈ G 
+G ∈ G 
+
+(a) svi for group observations. 
+
+Xi 
+
+Si cgφ φc 
+
+θ 
+
+i ∈ G 
+G ∈ G 
+
+(b) our ml-vae. 
+
+figur 3: svi hoffman et al. [2013] and our ml-vae graphic models. solid line denot the gener model, 
+dash line denot the variat approximation. 
+
+the elbo(g; θ, φs, φc) for a group be 
+
+elbo(g; θ, φs, φc) = 
+∑ 
+
+i∈g 
+eq(cg|xg;φc)[eq(si|xi;φs)[log p(xi|cg, si; θ)]] 
+
+− 
+∑ 
+
+i∈g 
+kl(q(si|xi;φs)||p(si))− kl(q(cg|xg;φc)||p(cg)). 
+
+(3) 
+
+We defin the averag group elbo over the dataset, l(g, θ, φc, φs) := 
+1 
+
+|g| 
+∑ 
+
+g∈g 
+elbo(g; θ, φs, φc) 
+
+and we maximis l(g, φc, φs, θ). It be a low bound on 
+1 
+
+|g| log p(x|θ) becaus each group evid 
+lower bound elbo(g; θ, φs, φc) be a low bound on p(xg|θ), therefore, 
+
+1 
+
+|g| log p(x|θ) = 
+1 
+
+|g| 
+∑ 
+
+g∈g 
+log p(xg|θ) ≥ l(g, φc, φs, θ). (4) 
+
+In comparison, the origin vae model maximis the averag elbo over individu samples. In 
+practise, we build an estim of l(g, θ, φc, φs) use minibatch of group. 
+
+l(gb, θ, φc, φs) = 
+1 
+
+|gb| 
+∑ 
+
+g∈gb 
+elbo(g; θ, φs, φc). (5) 
+
+If we take each group G ∈ gb, in it entireti thi be an unbias estimate. when the group size 
+be too large, for efficiency, we subsampl G and thi estim be biased. We discu the bia in the 
+supplementari material. the result algorithm be show in algorithm 1. 
+
+for each group G, in step 7 of algorithm 1 we build the group content distribut by accumul 
+inform from the result of encod each sampl in G. the question be how can we accumul 
+the inform in a relev manner to comput the group content distribution? 
+
+3.3 accumul group evid use a product of normal densiti 
+
+our idea be to build the variat approxim of the singl group content variable, q(cg|xg;φc), 
+from the encod of the group observ xg. while ani distribut could be employed, we 
+focu on use a product of normal densiti functions. other possibilities, such a a mixtur of 
+densiti functions, be discuss in the supplementari material. 
+
+We construct the probabl densiti function of the latent variabl CG take the valu c 
+by multipli |g| normal densiti functions, each of them evalu the probabl of CG = c 
+give Xi = xi, i ∈ G, 
+
+q(cg = c|xg = xg;φc) ∝ 
+∏ 
+
+i∈g 
+q(cg = c|xi = xi;φc), (6) 
+
+where we assum q(cg|xi = xi;φc) to be a normal distribut n(µi,σi). murphi [2007] show 
+that the product of two gaussian be a gaussian. similarly, in the supplementari materi we show 
+
+5 
+
+
+
+that q(cg = c|xg = xg;φc) be the densiti function of a normal distribut of mean µG and 
+varianc ΣG 
+
+σ−1g = 
+∑ 
+
+i∈g 
+σ−1i , µ 
+
+T 
+GΣ 
+−1 
+G = 
+
+∑ 
+
+i∈g 
+µti Σ 
+
+−1 
+i . (7) 
+
+It be interest to note that the varianc of the result normal distribution, σg, be invers 
+proport to the sum of the group’ observ invers varianc 
+
+∑ 
+i∈g Σ 
+
+−1 
+i . therefore, we 
+
+expect that by increas the number of observ in a group, the varianc of the result 
+distribut decreases. thi be what we refer a “accumul evidence”. We empir in- 
+vestig thi effect in section 4. sinc the result distribut be a normal distribution, the 
+term kl(q(cg|xg;φc)||p(cg)) can be evalu in closed-form. We also assum a normal distri- 
+bution for q(si|xi;φs), i ∈ G. 
+4 experi 
+We evalu the ml-vae on images, other form of data be possibl and we leav these for futur 
+work. In all experi we use the product of normal method present in section 3.3 to construct 
+the content latent representation. our goal with the experi be twofold. first, we want to evalu 
+the perform of ml-vae to learn a semant meaning disentangl representation. second, 
+we want to explor the impact of “accumul evidence” describ in section 3.3. inde when we 
+encod test imag two strategi be possible: strategi 1 be disregard the group inform 
+of the test samples, i.e. each test imag be a group; and strategi 2 be consid the group 
+inform of the test samples, i.e. take multipl test imag per ident to construct the content 
+latent representation. 
+
+mnist dataset. We evalu the ml-vae on mnist lecun et al. [1998]. We consid the data 
+group by digit label, i.e. the content latent code C should encod the digit label. We randomli 
+separ the 60, 000 train exampl into 50, 000 train sampl and 10, 000 valid samples, 
+and use the standard mnist test set. for both the encod and decoder, we use a simpl 
+architectur of 2 linear layer (detail in the supplementari material). 
+
+ms-celeb-1m dataset. next, we evalu the ml-vae on the face align version of the ms- 
+celeb-1m dataset guo et al. [2016]. the dataset be construct by retriev approxim 100 
+imag per celebr from popular search engines, and nois have not be remov from the dataset. 
+for each query, we consid the top ten result (note there be multipl queri per celebrity, therefor 
+some ident have more than 10 images). thi creat a dataset of 98, 880 entiti for a total 
+of 811, 792 images, and we group the data by identity. importantly, we randomli separ the dataset 
+in disjoint set of ident a the training, valid and test datasets. thi way we evalu the 
+abil of ml-vae level to generalis to unseen group (unseen identities) at test-time. the train 
+dataset consist of 48, 880 ident (total 401, 406 images), the valid dataset consist of 25, 000 
+ident (total 205, 015 images) and the test dataset consist of 25, 000 ident (total 205, 371 
+images). the encod and the decod network architectures, compos of either convolut or 
+
+algorithm 1: ml-vae train algorithm. 
+1 for each epoch do 
+2 sampl minibatch of group gb, 
+3 for G ∈ Gb do 
+4 for i ∈ G do 
+5 encod xi into q(cg|xi = xi;φc), q(si|xi = xi;φs), 
+6 end 
+7 construct q(cg|xg = xg;φc) use q(cg|xi = xi;φc),∀i ∈ G, 
+8 for i ∈ G do 
+9 sampl cg,i ∼ q(cg|xg = xg;φc), si ∼ q(si|xi = xi;φs) , 
+
+10 decod cg,i, si to obtain p(xi|cg = cg,i, Si = si; θ), 
+11 end 
+12 end 
+13 updat θ, φc, φs by take a gradient step of equat (5): ∇θ,φc,φsl(gb, θ, φc, φs) 
+14 end 
+
+6 
+
+
+
+(a) mnist, test dataset. (b) ms-celeb-1m, test dataset. 
+figur 4: swapping, first row and first column be test data sampl (green boxes), second row and column be 
+reconstruct sampl (blue boxes) and the rest be swap reconstruct sampl (red boxes). each row be 
+fix style and each column be a fix content. best view in color on screen. 
+
+deconvolut and linear layers, be detail in the supplementari material. We resiz the imag 
+to 64× 64 pixel to fit the network architecture. 
+
+qualit evaluation. As explain in mathieu et al. [2016], there be no standard benchmark 
+dataset or metric to evalu a model on it disentangl performance. therefor similarli 
+to mathieu et al. [2016] we perform qualit and quantit evaluations. We qualit ass 
+the relev of the learn represent by perform oper on the latent space. first we 
+perform swapping: we encod test images, draw a sampl per imag from it style and content 
+latent representations, and swap the style between images. second we perform interpolation: we 
+encod a pair of test images, draw one sampl from each imag style and content latent codes, and 
+linearli interpol between the style and content samples. We present the result of swap and 
+interpol with accumul evid of 10 other imag in the group (strategi 2). result 
+without accumul evid (strategi 1) be also convinc and avail in the supplementari 
+material. We also perform generation: for a give test identity, we build the content latent code by 
+accumul imag of thi identity. then take the mean of the result content distribut and 
+gener imag with style sampl from the prior. final in order to explor the benefit of take 
+into account the group information, for a give test identity, we reconstruct all imag for thi 
+ident use both these strategi and show the result images. figur 4 show the swap 
+procedure, where the first row and the first column show the test data sampl input to ml-vae, 
+
+(a) generation, the green box imag be all the 
+test data imag for thi identity. On the right, sam- 
+pling from the random prior for the style and use 
+the mean of the group imag latent code. 
+
+(b) interpolation, from top left to bottom right row 
+correspond to a fix style and interpol on the 
+content, column correspond to a fix content and 
+interpol on the style. 
+
+figur 5: left: generation. right: interpolation. best view in color on screen. 
+
+7 
+
+
+
+(a) the four digit be of 
+the same label. 
+
+(b) the four imag be of 
+the same person. 
+
+(c) quantit evaluation. for clariti on mnist 
+we show up to k = 10 a valu stay stationari for 
+larg k (in supplementari material). 
+
+figur 6: accumul evid (acc. ev.). left column be test data samples, middl column be reconstruct 
+sampl without acc. ev., right column be reconstruct sampl with acc. ev. from the four images. In (a), 
+ml-vae correct infer (wrong digit label in first row second column) with acc. ev. (correct digit label in 
+first row third column). In (b), where imag of the same ident be take at differ ages, ml-vae benefit 
+from group inform and the facial trait with acc. ev. (third column) be more constant than without acc. ev. 
+(second column). best view in color on screen. 
+
+second row and column be reconstruct samples. each row be a fix style and each column be a 
+fix content. We see that the ml-vae disentangl the factor of variat of the data in a relev 
+manner. In the case of ms-celeb-1m, we see that the model encod the factor of variat that 
+group the data, that be the identity, into the facial trait which remain constant when we chang 
+the style, and encod the style into the remain factor (background color, face orient for 
+example). the ml-vae learn thi meaning disentangl without the knowledg that the 
+imag be group by identity, but onli the organis of the data into groups. figur 5 show 
+interpol and generation. We see that our model cover the manifold of the data, and that style 
+and content be disentangled. In figur 6a and 6b, we reconstruct imag of the same group with and 
+without take into account the group information. We see that the ml-vae handl case where 
+there be no group inform at test-time, and benefit from accumul evid if available. 
+quantit evaluation. In order to quantit evalu the disentangl power of ml- 
+vae, we use the style latent code S and content latent code C a featur for a classif task. the 
+qualiti of the disentangl be high if the content C be inform about the class, while the style S 
+be not. In the case of mnist the class be the digit label and for ms-celeb-1m the class be the identity. 
+We emphasis that in the case of ms-celeb-1m test imag be all unseen class (unseen identities) 
+at training. We learn to classifi the test imag with a neural network classifi compos of two 
+linear layer of 256 hidden unit each, onc use S and onc use C a input features. again we 
+explor the benefit of accumul evidence: while we construct the variat approxim on 
+the content latent code by accumul K imag per class for train the classifier, we accumul 
+onli k ≤ K imag per class at test time, where k = 1 correspond to no group information. when k 
+increas we expect the perform of the classif train on C to improv a the featur becom 
+more inform and the perform use featur S to remain constant. We compar to the 
+origin vae model, where we also accumul evid by use the product of normal method on 
+the vae latent code for sampl of the same class. the result be show in figur 6c. the ml-vae 
+content latent code be a inform about the class a the origin vae latent code, both in term of 
+classif accuraci and condit entropy. ml-vae also provid relev disentangl a 
+the style remain uninform about the class. detail on the choic of K and thi experi be 
+in the supplementari material. 
+5 discuss 
+We propos the multi-level vae model for learn a meaning disentangl from a set of 
+group observations. the ml-vae model handl an arbitrari number of group of observations, 
+which need not be the same at train and testing. We propos differ method for incorpor 
+the semant emb in the grouping. experiment evalu show the relev of our method, 
+a the ml-vae learn a semant meaning disentanglement, generalis to unseen group and 
+enabl control on the latent representation. for futur work, we wish to appli the ml-vae to text 
+data. 
+
+8 
+
+
+
+refer 
+ehsan abbasnejad, anthoni R. dick, and anton van den hengel. infinit variat autoencod for 
+
+semi-supervis learning. arxiv preprint arxiv:1611.07800, 2016. 
+
+alexand A. alemi, ian fischer, joshua V. dillon, and kevin murphy. deep variat inform 
+bottleneck. iclr, 2017. 
+
+miltiadi allamanis, pankajan chanthirasegaran, pushmeet kohli, and charl sutton. learn 
+continu semant represent of symbol expressions. arxiv preprint 1611.01423, 2017. 
+
+yoshua bengio, aaron courville, and pascal vincent. represent learning: A review and new 
+perspectives. ieee trans. pattern anal. mach. intell., 35(8):1798–1828, august 2013. issn 
+0162-8828. 
+
+dian bouchacourt, pawan kumar mudigonda, and sebastian nowozin. disco net : dissimilar 
+coeffici networks. nips, 2016. 
+
+konstantino bousmalis, nathan silberman, david dohan, dumitru erhan, and dilip krishnan. 
+unsupervis pixel-level domain adapt with gener adversari networks. arxiv preprint 
+arxiv:1612.05424, 2016. 
+
+Xi chen, yan duan, rein houthooft, john schulman, ilya sutskever, and pieter abbeel. infogan: 
+interpret represent learn by inform maxim gener adversari nets. nips, 
+2016. 
+
+Xi chen, diederik P. kingma, tim salimans, yan duan, prafulla dhariwal, john schulman, ilya 
+sutskever, and pieter abbeel. variat lossi autoencoder. iclr, 2017. 
+
+chri donahue, akshay balsubramani, julian mcauley, and zachari C. lipton. semant 
+decompos the latent space of gener adversari networks. arxiv preprint 1705.07904, 
+2017. 
+
+gintar karolina dziugaite, daniel M. roy, and zoubin ghahramani. train gener neural 
+network via maximum mean discrep optimization. uai, 2015. 
+
+harrison edward and amo J. storkey. censor represent with an adversary. corr, 2015. 
+
+t.-c. fu, y.-c. liu, w.-c. chiu, s.-d. wang, and y.-c. F. wang. learn cross-domain 
+disentangl deep represent with supervis from A singl domain. arxiv preprint 
+arxiv:1705.01314, 2017. 
+
+ian goodfellow, jean pouget-abadie, mehdi mirza, bing xu, david warde-farley, sherjil ozair, 
+aaron courville, and yoshua bengio. gener adversari nets. nips, 2014. 
+
+yandong guo, lei zhang, yuxiao hu, xiaodong he, and jianfeng gao. ms-celeb-1m: A dataset 
+and benchmark for larg scale face recognition. eccv, 2016. 
+
+irina higgins, loic matthey, arka pal, christoph burgess, xavier glorot, matthew botvinick, 
+shakir mohamed, and alexand lerchner. beta-vae: learn basic visual concept with a 
+constrain variat framework. iclr, 2017. 
+
+matthew D. hoffman, david M. blei, chong wang, and john paisley. stochast variat inference. 
+jmlr, 2013. 
+
+T kim, M cha, H kim, J lee, and J kim. learn to discov cross-domain relat with gener 
+adversari networks. arxiv preprint arxiv:1703.05192, 2017. 
+
+diederik P. kingma and max welling. auto-encod variat bayes. iclr, 2014. 
+
+teja D kulkarni, will whitney, pushmeet kohli, and joshua B tenenbaum. deep convolut 
+invers graphic network. nips, 2015. 
+
+yann lecun, léon bottou, yoshua bengio, and patrick haffner. gradient-bas learn appli to 
+document recognition. proceed of the ieee, page 2278–2324, 1998. 
+
+yujia li, kevin swersky, and richard S. zemel. gener moment match networks. icml, 
+2015. 
+
+ralph linsker. self-organ in a perceptu network. computer, 21(3):105–117, 1988. 
+
+ming-yu liu, thoma breuel, and jan kautz. unsupervis image-to-imag translat networks. 
+arxiv preprint arxiv:1703.00848, 2017. 
+
+9 
+
+
+
+christo louizos, kevin swersky, yujia li, max welling, and richard S. zemel. the variat fair 
+autoencoder. iclr, 2016. 
+
+michael F mathieu, junbo jake zhao, junbo zhao, aditya ramesh, pablo sprechmann, and yann 
+lecun. disentangl factor of variat in deep represent use adversari training. nips, 
+2016. 
+
+vijayaraghavan murali, swarat chaudhuri, and chri jermaine. bayesian sketch learn for program 
+synthesis. arxiv preprint arxiv:1703.05698v2, 2017. 
+
+kevin P. murphy. conjug bayesian analysi of the gaussian distribution. technic report, 2007. 
+danilo jimenez rezende, shakir mohamed, and daan wierstra. stochast backpropag and 
+
+approxim infer in deep gener models. icml, 2014. 
+ashish shrivastava, toma pfister, oncel tuzel, josh susskind, wenda wang, and russ webb. 
+
+learn from simul and unsupervis imag through adversari training. arxiv preprint 
+arxiv:1612.07828, 2017. 
+
+N. siddharth, brook paige, alban desmaison, frank wood, and philip torr. learn disentangl 
+represent in deep gener models. submit to iclr, 2017. 
+
+yaniv taigman, adam polyak, and lior wolf. unsupervis cross-domain imag generation. iclr, 
+2017. 
+
+N. tishby, F. C. pereira, and W. bialek. the inform bottleneck method. 37th annual allerton 
+confer on communication, control and computing, 1999. 
+
+xiaolong wang and abhinav gupta. gener imag model use style and structur adversari 
+networks. eccv, 2016. 
+
+zili yi, hao zhang, ping tan, and minglun gong. dualgan: unsupervis dual learn for 
+image-to-imag translation. arxiv preprint arxiv:1704.02510, 2017. 
+
+jun-yan zhu, taesung park, phillip isola, and alexei A efros. unpair image-to-imag translat 
+use cycle-consist adversari networks. arxiv preprint arxiv:1703.10593, 2017. 
+
+10 
+
+
+
+multi-level variat autoencoder: 
+learn disentangl represent from 
+
+group observ 
+supplementari materi 
+
+dian bouchacourt 
+oval group 
+
+univers of oxford∗ 
+diane@robots.ox.ac.uk 
+
+ryota tomioka, sebastian nowozin 
+machin intellig and percept group 
+
+microsoft research 
+cambridge, UK 
+
+{ryoto,sebastian.nowozin}@microsoft.com 
+
+1 mixtur of normal method 
+We discu here a method to construct the variat approxim q(cg = c|xg = xg, φc) a a 
+mixtur of |g| densiti functions, each of them evalu the probabl of CG = c give Xi = xi. 
+thi be an altern to the product of normal method. 
+
+q(cg = c|xg = xg, φc) = 
+1 
+
+|g| 
+
+|g|∑ 
+
+i=1 
+
+q(cg = c|xi = xi, φc) (1) 
+
+We assum q(cg|xi = xi, φc) to be a normal distribut n(µi,σi). however, the 
+term kl(q(cg|xg;φc)||p(cg)) can not be comput in close form 
+
+kl(q(cg|xg;φc)||p(cg)) = eq(cg|xg,φc)[log q(cg|xg, φc)− log p(cg)] 
+= eq(cg|xg,φc)[log q(cg|xg, φc)]− eq(cg|xg,φc)[log p(cg)] 
+
+(2) 
+
+We estim thi term by sampl L sampl cl ∼ q(cg|xg;φc) and comput the estimate: 
+
+1 
+
+L 
+
+L∑ 
+
+l=1 
+
+log 
+1 
+
+|g| 
+
+|g|∑ 
+
+i=1 
+
+q(cg = cl|xi = xi, φc)− 
+1 
+
+L 
+
+L∑ 
+
+l=1 
+
+log p(cg = cl) (3) 
+
+In our experi we use L = |g| a we use the sampl we draw to comput the first term of the 
+object function, that be 
+
+∑ 
+
+i∈g 
+eq(cg|xg;φc)[eq(si|xi;φs)[log p(xi|cg, si; θ)]]. 
+
+figur 1 show the qualit result of the mixtur of normal method. qualit evalu 
+indic a good disentangl with the product of normal method therefor we focu on the 
+product. On ms-celeb-1m, the mixtur of normal densiti seem to store inform about the 
+group into the style: when style get transfered, the facial featur along the column (which 
+should remain constant a it be the same identity) tend to change2. nevertheless, we present it a it 
+might be good suit to other dataset and other tasks. 
+
+2 experiment detail 
+In all experi we use the adam optimis present in kingma and Ba [2015] with α = 
+0.001, β1 = 0.9, β2 = 0.999, � = 1e− 8. We use diagon covari for the normal variat 
+
+∗the work be perform a part of an internship at microsoft research. 
+2the previou version of the supplementari materi have the wrong figur on ms-celeb-1m (comput with 
+
+anoth model). thi updat figur show the actual result and emphas the conclus that inform 
+about content be store in the style. 
+
+
+
+(a) mnist, test dataset. (b) ms-celeb-1m, test dataset. 
+figur 1: ml-vae with mixtur of normal densities. We intent show the same imag a the ml-vae with 
+product of normal for comparison purposes. swapping, first row and first column be test data sampl (green 
+boxes), second row and column be reconstruct sampl (blue boxes) and the rest be swap reconstruct 
+sampl (red boxes). each row be fix style and each column be a fix content. best view in color on screen. 
+As we mention, compar to ml-vae with product of normal, the mixtur of normal seem to store inform 
+about the group into the style. 
+
+approxim q(sg|xg;φs), q(cg|xg;φc). in both experi we use a normal distribut 
+with diagon covari for the posterior p(xi|cg, si; θ). We train the model for 2000 epoch on 
+mnist and 250 epoch on ms-celeb-1m. when we compar the origin vae and the ml-vae we 
+use earli stop on the valid set for ms-celeb-1m a the architectur be larg and prone to 
+over-fitting. In the specif case of stochast variat infer (svi) hoffman et al. [2013], for 
+mnist we train the model for 2000 epoch and proceed to 40000 epoch of infer at test-time, 
+and for ms-celeb-1m we use 500 train epoch and proceed to 200 epoch of infer at test-time. 
+
+2.1 network architectur 
+
+mnist lecun et al. [1998]. We use an encod network compos of a first linear layer e0 
+that take a input a 1 × 784-dimension mnist imag xi, xi be a realis of xi. layer e0 
+have 500 hidden unit and the hyperbol tangent activ function. after layer e0 we separ the 
+network into 4 linear layers,em,s, ev, and ,em,c, ev,c each of size 500× d where d be the dimens 
+of both latent represent S and C. the layer em,s, ev, take a input the output of e0 and 
+output respect the mean and log-vari of the normal distribut q(si|xi = xi;φs). the 
+layer em,c, ev,c take a input the output of l0 and output respect the mean and varianc of the 
+normal distribut q(cg|xi = xi;φc). 
+
+We then construct q(cg|xg;φc) from q(cg|xi = xi;φc), i ∈ G. let u denot G the 
+group in which xi belongs. As explain in step 9 of algorithm 1 in the main paper, for each 
+input xi we draw a sampl cg,i ∼ q(cg|xg = xg;φc) for the content of the group G, and a 
+sampl si ∼ q(si|xi = xi;φs) of the style latent representation. We concaten (cg,i, si) into 
+a 2× d-dimension vector that be fed to the decoder. 
+
+the decod network be compos of a first linear layer d0 that take a input the 2 × d- 
+dimension vector (cg,i, si). layer d0 have 500 hidden unit and the hyperbol tangent activ 
+function. A second linear layer d2 take a input the output of d0 and output a 784-dimension 
+vector represent the paramet of the normal distribut p(xi|cg, si; θ). We use in our 
+experi d = 10 for a total latent represent size of respect 20. 
+
+ms-celeb-1m guo et al. [2016]. We use an encod network compos of a four convo- 
+lution layer e1, e2, e3, e4 all of stride 2 and kernel size 4. they be compos of respec- 
+tive 64, 128, 256and512 filters. all four layer be follow by batch normalis and rectifi 
+linear unit (relu) activ functions. the fifth and sixth layer e5, e6 be linear layer with 256 
+hidden units, follow by batch normalis and concaten rectifi linear unit (crelu) 
+activ functions. similarli to the mnist architecture, after layer e6 we separ the network 
+
+2 
+
+
+
+into 4 linear layers,em,s, ev, and ,em,c, ev,c each of size 256× 2× d where d be the dimens of 
+both latent represent S and C. the layer for the log-vari be follow by the tangent 
+hyperbol activ function and multipli by 5. 
+
+similarli a the mnist experi we construct the latent represent and sampl it a 
+explain in algorithm 1 in the main paper. 
+
+the decod network be compos of 3 deconvolut layer d1, d2, d3 all of stride 2 and 
+kernel size 4. they be compos of respect 256, 128, 64 filters. all four layer be follow 
+by batch normalis and rectifi linear unit (relu) activ functions. the seventh and 
+eight layer be deconvolut layer compos of 3 filters, of stride 1 and kernel size 3 and output 
+respect the mean and log-vari of the normal distribut p(xi|cg, si; θ). the layer for 
+the log-vari be follow by the tangent hyperbol activ function and multipli by 5. 
+We use in our experi d = 50 for a total latent represent size 100. We use pad in the 
+convolut and deconvolut layer to match the data size. 
+
+specif case for stochast variat infer (svi) hoffman et al. [2013]. We compar in 
+our experi with stochast variat infer (svi), from hoffman et al. [2013]. In the case 
+of svi, the encod be an emb layer map each sampl xi in a group G to the non-shar 
+paramet φs,i of it style latent represent q(si|φs,i) and to the non-shar paramet φc,g of 
+it group content latent represent q(cg|φc,g). the decod be the same a the ml-vae. 
+
+3 quantit evalu detail 
+We explain in section 4 of the main paper how we quantit evalu the disentangl 
+perform of our model. We give detail here for the interest reader. figur 2 show the 
+quantit evalu for k up to k = K = 100 on mnist. 
+
+figur 2: quantit evaluation. 
+
+3.1 classifi architectur 
+
+the classifi be a neural network compos of two linear layer of 256 hidden unit each. the 
+first layer be followd by a tangent hyperbol activ function. the second layer be follow by a 
+softmax activ function. We use the cross-entropi loss. We use the adam optimis present 
+in kingma and Ba [2015] with α = 0.001, β1 = 0.9, β2 = 0.999, � = 1e− 8. note that the training, 
+valid and test set for the classifi be all compos of test images, and each set be compos 
+of K time the number of classes; henc our choic of K and number of class for ms-celeb-1m. 
+In the case of mnist, there be onli 10 classes, therefor when k be small we would take onli a 
+small number of imag to test the classifier. therefor we perform 5 trial of test procedur of the 
+classifier, each trial use differ test images, and report the mean performance. 
+
+3 
+
+
+
+3.2 condit entropi computation. 
+
+We show here that train the neural network classifi with the cross-entropi loss be a proxi for 
+minimis the condit entropi of the class give the latent code featur C or S. 
+
+let u take the exampl of the latent code C use a features. We denot a class Y and 
+we train the neural network classifi to model the distribut r(i |c) by minimis the 
+cross-entropi loss, which correspond to maximis ep(y,c)[log r(i |c)] where p(y,c) be 
+estim use sampl 
+
+sampl a class y ∼ p(i ), 
+sampl group observ for thi class xgi ∼ p(xgi ), 
+sampl the latent code to use a featur cgi ∼ q(cgi |xgi , φc) 
+
+(4) 
+
+the condit entropi of the class Y give the latent code C be express a 
+
+h(i |c) = −ep(y,c [log p(i |c)] (5) 
+
+We can write 
+
+h(i |c) = −ep(y,c [log p(i |c)] = −ep(y,c)[log 
+p(i |c) 
+r(i |c)r(i |c)] 
+
+= −ep(y,c)[log r(i |c)]− ep(y,c)[log 
+p(i |c) 
+r(i |c) ] 
+
+= −ep(y,c)[log r(i |c)]− ep(y,c)[log 
+p(y,c) 
+
+r(y,c) 
+] 
+
+= −ep(y,c)[log r(i |c)]− kl(p(y,c)||r(y,c)) ≤ −ep(y,c)[log r(i |c)] 
+
+(6) 
+
+sinc the kullback-leibl be alway positive. therefore, train the neural network classifi to 
+minimis the cross-entropi loss be equival to minimis an upper bound on the condit entropi 
+of the class give the latent code featur C. We report the valu of ep(y,c)[log r(i |c)] on the 
+classifi test set in the paper a the report condit entropi in bits. similarli we report the 
+perform with the style latent code or the latent code of the origin vae model. 
+
+4 ml-vae with product of normal without accumul evid 
+We show in figur 3 and 4 the result of swap and interpol of the ml-vae with product of 
+normal without accumul evid (strategi 1 in the main paper). We intent show the 
+same imag for comparison purposes. 
+
+(a) mnist, test dataset. (b) ms-celeb-1m, test dataset. 
+figur 3: ml-vae with product of normal without accumul evidence. swapping, first row and first column 
+be test data sampl (green boxes), second row and column be reconstruct sampl (blue boxes) and the rest 
+be swap reconstruct sampl (red boxes). each row be fix style and each column be a fix content. best 
+view in color on screen. 
+
+4 
+
+
+
+figur 4: ml-vae without accumul evidence. interpolation, from top left to bottom right row 
+correspond to a fix style and interpol on the content, column correspond to a fix content and 
+interpol on the style. 
+
+5 accumul group evid use a product of normal densities: 
+detail deriv 
+
+We construct the probabl densiti function of the random variabl CG by multipli |g| normal 
+densiti functions, each of them evalu the probabl of CG under the realis Xi = xi, 
+where i ∈ G. 
+
+q(cg|xg = xg;φc) ∝ 
+∏ 
+
+i∈g 
+q(cg|xi = xi;φc) (7) 
+
+We assum q(cg|xi = xi;φc) to be a normal distribut n(µi,σi). the normalis constant be 
+the result product marginalis over all possibl valu of cg. 
+
+the result of the product of |g| normal densiti function be proport to the densiti 
+function of a normal distribut of mean µG and varianc σg. 
+
+σ−1g = 
+∑ 
+
+i∈g 
+σ−1i 
+
+µtgς 
+−1 
+G = 
+
+∑ 
+
+i∈g 
+µti Σ 
+
+−1 
+i 
+
+(8) 
+
+5 
+
+
+
+We show below how we deriv the express of mean µG and varianc σg. 
+
+∏ 
+
+i∈g 
+q(cg = c|xi = xi;φc) = 
+
+∏ 
+
+i∈g 
+
+1√ 
+(2π)d|σi| 
+
+exp 
+( 
+− 1 
+
+2 
+(c− µi)tς−1i (c− µi) 
+
+) 
+
+= K1 exp 
+( 
+− 1 
+
+2 
+
+∑ 
+
+i∈g 
+(c− µi)tς−1i (c− µi) 
+
+) 
+
+= K1 exp 
+( 
+− 1 
+
+2 
+( 
+∑ 
+
+i∈g 
+ctς−1i c+ µ 
+
+T 
+i σiµi − 2µti σ−1i c) 
+
+) 
+
+= k1k2 exp 
+(∑ 
+
+i∈g 
+µti Σ 
+
+−1 
+i c− 
+
+1 
+
+2 
+ctς−1i c 
+
+) 
+
+= k1k2 exp 
+(∑ 
+
+i∈g 
+µti Σ 
+
+−1 
+i c− 
+
+1 
+
+2 
+cT 
+∑ 
+
+i∈g 
+σ−1i c 
+
+) 
+
+= k1k2 exp 
+( 
+µtgς 
+
+−1 
+G c− 
+
+1 
+
+2 
+ctς−1g c 
+
+) 
+
+= k1k2 exp 
+( 
+− 1 
+
+2 
+(ctς−1g c− 2µtgς−1g c) 
+
+) 
+
+= k1k2 exp 
+( 
+− 1 
+
+2 
+(ctς−1g c− 2µtgς−1g c+ µtgς−1g µG − µtgς−1g µg) 
+
+) 
+
+= k1k2 exp(−µtgς−1g µg) exp 
+( 
+− 1 
+
+2 
+(ctς−1g c− 2µtgς−1g c+ µtgς−1g µG 
+
+) 
+
+= k1k2k3 exp 
+( 
+− 1 
+
+2 
+(ctς−1g c− 2µtgς−1g c+ µtgς−1g µG 
+
+) 
+
+= k1k2k3k4 
+1√ 
+
+(2π)d|σg| 
+exp 
+
+( 
+− 1 
+
+2 
+(c− µg)tς−1g (c− µg) 
+
+) 
+
+(9) 
+
+where d be the dimension of c and 
+
+K1 = 
+∏ 
+
+i∈g 
+
+1√ 
+(2π)d|σi| 
+
+K2 = exp(− 
+1 
+
+2 
+
+∑ 
+
+i∈g 
+µti Σ 
+
+−1 
+i µi) 
+
+K3 = exp( 
+1 
+
+2 
+µtgς 
+
+−1 
+G µg) 
+
+K4 = 
+√ 
+
+(2π)d|σg| 
+
+(10) 
+
+thi be a normal distribution, scale by k1k2k3k4, of mean µG and varianc ΣG 
+
+σ−1g = 
+∑ 
+
+i∈g 
+σ−1i , 
+
+µtgς 
+−1 
+G = 
+
+∑ 
+
+i∈g 
+µti Σ 
+
+−1 
+i 
+
+(11) 
+
+however, the constant of normalis disappear when we rescal the result product in order for 
+the result product to integr to 1. 
+
+6 
+
+
+
+q(cg = c|xg = xg;φc) = 
+k1k2k3k4 
+
+1√ 
+(2π)d|σg| 
+
+exp 
+( 
+− 1 
+
+2 
+(c− µg)tς−1g (c− µg) 
+
+) 
+
+∫ 
+c 
+k1k2k3k4 
+
+1√ 
+(2π)d|σg| 
+
+exp 
+( 
+− 1 
+
+2 
+(c− µg)tς−1g (c− µg) 
+
+) 
+dc 
+
+= 
+exp 
+
+( 
+− 1 
+
+2 
+(c− µg)tς−1g (c− µg) 
+
+) 
+
+∫ 
+c 
+
+exp 
+( 
+− 1 
+
+2 
+(c− µg)tς−1g (c− µg) 
+
+) 
+dc 
+
+= 
+1√ 
+
+(2π)d|σg| 
+exp 
+
+( 
+− 1 
+
+2 
+(c− µg)tς−1g (c− µg) 
+
+) 
+
+(12) 
+
+6 bia of the object 
+We detail the bia induc by take a subset of the sampl in a group a mention in section 3 of 
+the main paper. We build an estim of l(g, θ, φc, φs) use mini-batch of group observations. 
+
+l(gb, θ, φc, φs) = 
+1 
+
+|gb| 
+∑ 
+
+g∈gb 
+elbo(g; θ, φs, φc) (13) 
+
+If we take all observ in each group G ∈ gb, it be an unbias estimate. howev when the 
+group size be too larg and we subsampl G, thi estim be biased. the elbo(g; θ, φs, φc) for 
+a group be 
+
+elbo(g; θ, φs, φc) = 
+∑ 
+
+i∈g 
+eq(cg|xg;φc)[eq(si|xi;φs)[log p(xi|cg, si; θ)]] 
+
+− 
+∑ 
+
+i∈g 
+kl(q(si|xi;φs)||p(si))− kl(q(cg|xg;φc)||p(cg)). 
+
+(14) 
+
+let u take a subsampl H of G and consid the estim elbo(g; θ, φs, φc)h . the superscript H 
+denot the fact that we use a subsampl of G to estim elbo(g; θ, φs, φc)h 
+
+elbo(g; θ, φs, φc)h = 
+∑ 
+
+i∈h⊆g 
+eq(cg|xh ;φc)[eq(si|xi;φs)[log p(xi|cg, si; θ)]] 
+
+− 
+∑ 
+
+i∈h⊆g 
+kl(q(si|xi;φs)||p(si))− kl(q(cg|xh ;φc)||p(cg)). 
+
+(15) 
+
+where q(cg|xh ;φc) be comput use XH . 
+
+the gradient with respect to the paramet θ, φs, φc be 
+
+∇θelbo(g; θ, φs, φc)h = 
+∑ 
+
+i∈h⊆g 
+eq(cg|xh ;φc)[eq(si|xi;φs)[∇θ log p(xi|cg, si; θ)]], 
+
+∇φselbo(g; θ, φs, φc)h = 
+∑ 
+
+i∈h⊆g 
+eq(cg|xh ;φc)[∇φseq(si|xi;φs)[log p(xi|cg, si; θ)]], 
+
+− 
+∑ 
+
+i∈h⊆g 
+∇φskl(q(si|xi;φs)||p(si)) 
+
+∇φselbo(g; θ, φs, φc)h = 
+∑ 
+
+i∈h⊆g 
+∇φceq(cg|xh ;φc)[eq(si|xi;φs)[log p(xi|cg, si; θ)]] 
+
+−∇φckl(q(cg|xh ;φc)||p(cg)). 
+
+(16) 
+
+sinc we build the content variat approxim in a non-linear manner with the prod- 
+uct of normal or the mixtur of normal methods, the gradient ∇θelbo(g; θ, φs, φc)h 
+and ∇φcelbo(g; θ, φs, φc)h do not decompos in an unbias manner, i.e. by sum the 
+gradient of subsampl group we do not retriev the gradient comput use the entir group. the 
+result bia will depend on the method employed. for futur work, we plan on analys the effect 
+of the bias. In detail we want to deriv a manner to correct the bia and verifi that the bia estim 
+do not over-estim the true object function, that be the sum of the group evid lower bound. 
+
+7 
+
+
+
+7 stochast variat infer (svi) result 
+We show in figur 5 the qualit result of stochast variat infer (svi) hoffman et al. 
+[2013] on the swap evaluation. We see that while svi disentangl the style and the content, but 
+the result imag qualiti be poor. In the case of ms-celeb-1m, we train svi for twice the number 
+of epoch of the other models, that be in total 500 epochs, the train object to maximise, that be 
+the averag group evid lower bound, remain low than the ml-vae model at the end of the 
+training. thi be becaus svi do not share the paramet φc, φs among observ at training, 
+henc take a longer time to train. It be the first disadvantadg of svi compar to vae-bas model. 
+At test-time, the svi model requir expens iter inference. In the case of ms-celeb-1m we 
+use 200 epoch of test inference, it be possibl that more epoch of test-tim infer would have 
+lead to good qualiti imag but thi alreadi show the limit of non-amortis variat infer 
+and the advantag of the ml-vae. We see that while svi disentangl the style and the content, but 
+the result imag qualiti be poor. 
+
+(a) mnist, test dataset. (b) ms-celeb-1m, test dataset. 
+figur 5: stochast variat infer (svi) hoffman et al. [2013] qualit results. swapping, first row 
+and first column be test data sampl (green boxes), second row and column be reconstruct sampl (blue 
+boxes) and the rest be swap reconstruct sampl (red boxes). each row be fix style and each column be a 
+fix content. best view in color on screen. 
+
+8 other formul explor 
+We explor other possibl formul and we detail them here for the interest reader, along with 
+the reason for which we do not pursu them. 
+
+svi-encode. We explain the disavantadg of stochast variat infer (svi), see hoff- 
+man et al. [2013]. In order to remov the need for costli infer at test-time, we tri train an 
+encod to model the variat approxim of the latent represent C, S correspond to the 
+gener model of the train svi model. We do not use train data but gener observations, 
+sampl the latent represent from the prior. the encod do not have ani group information, 
+and each sampl have a separ content and style latent represent ci, si. the model maximis 
+the log-likelihood of the gener model under the latent code representation. 
+
+∑ 
+
+i∈n 
+eq(ci,si|xi;φ)[log p(xi|ci, si, θ)] (17) 
+
+where p(xi|ci, si, θ) be the distribut correspond to the gener model and q(ci, si|xi;φ) 
+be the variat approximation. We refer to thi method a svi-encode. the qualit qualiti of 
+thi model on test sampl be highli depend on the qualiti of the gener model. therefor 
+it give satisfactori qualit result on mnist, but poor qualit result on ms-celeb-1m 
+where the qualit result of svi be not satisfactory. however, we think that a model train 
+altern between svi and thi svi-encod could benefit from the disentangl power of svi 
+and amortis infer at test-time. We leav thi for possibl futur work. 
+
+8 
+
+
+
+regularis the objective. A possibl formul of the problem be to employ a regular vae with 
+an addit term to enforc observ within a group to have similar variat approxim of 
+the content. thi model separ the latent represent of the style, S and the latent represent 
+of the content C but each observ Xi within a group have it own latent variabl Si and ci. the 
+share of the content within a group be enforc by add a penalis term base on a symmetris 
+kullback-leibl diverg between the content latent represent of the observ belong 
+to the same group. the result model maximis the objective3 
+
+1 
+
+|N | 
+∑ 
+
+i∈n 
+eq(ci,si|xi;φ)[log p(xi|ci, si, θ)] 
+
+− 1|n | 
+N∑ 
+
+i=1 
+
+kl(q(si|xi;φs)||p(si))− 
+1 
+
+|N | 
+N∑ 
+
+i=1 
+
+kl(q(ci|xi;φc)||p(ci)) 
+
+− λ|g| 
+∑ 
+
+g∈g 
+
+1 
+
+|g|/2 
+∑ 
+
+i∈[1,|g|/2], 
+s.t.x2i∈g,x2i+1∈g 
+
+1 
+
+2 
+
+[ 
+kl(q(c2i|x2i, φc)||q(c2i+1|x2i+1, φc)) 
+
++ kl(q(c2i+1|x2i+1, φc)||q(c2i|x2i, φc) 
+] 
+, 
+
+(18) 
+
+where λ be an hyper-paramet to cross-validate. In our experiment, the drawback of thi model be 
+that if the latent represent size be too larg (in detail, with the size 100 use in our experi 
+for ms-celeb-1m), the model set the content latent represent to the prior p(c) be order to 
+encount a null penalty. the observ be encod in the style latent represent only. thi 
+be a know problem of vae, see chen et al. [2017]. On the opposite, the ml-vae model be more 
+robust to thi problem. 
+
+3the equat be correct compar to the submit version. 
+
+9 
+
+
+
+refer 
+Xi chen, diederik P. kingma, tim salimans, yan duan, prafulla dhariwal, john schulman, ilya 
+
+sutskever, and pieter abbeel. variat lossi autoencoder. iclr, 2017. 
+yandong guo, lei zhang, yuxiao hu, xiaodong he, and jianfeng gao. ms-celeb-1m: A dataset 
+
+and benchmark for larg scale face recognition. eccv, 2016. 
+matthew D. hoffman, david M. blei, chong wang, and john paisley. stochast variat inference. 
+
+jmlr, 2013. 
+diederik P. kingma and jimmi ba. adam: A method for stochast optimization. iclr, 2015. 
+yann lecun, léon bottou, yoshua bengio, and patrick haffner. gradient-bas learn appli to 
+
+document recognition. proceed of the ieee, page 2278–2324, 1998. 
+
+10 
+
+
+1 introduct 
+2 relat work 
+3 model 
+3.1 amortis infer with the variat autoencod (vae) model 
+3.2 the ml-vae for group observ 
+3.3 accumul group evid use a product of normal densiti 
+
+4 experi 
+5 discuss 
+

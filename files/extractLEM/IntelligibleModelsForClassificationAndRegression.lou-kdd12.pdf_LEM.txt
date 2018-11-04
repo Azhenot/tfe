@@ -1,0 +1,1964 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Intelligible Models for Classification and Regression 
+
+Yin Lou 
+Dept. of Computer Science 
+
+Cornell University 
+yinlou@cs.cornell.edu 
+
+Rich Caruana 
+Microsoft Research 
+
+Microsoft Corporation 
+rcaruana@microsoft.com 
+
+Johannes Gehrke 
+Dept. of Computer Science 
+
+Cornell University 
+johannes@cs.cornell.edu 
+
+ABSTRACT 
+Complex model for regression and classification have high accu- 
+racy, but be unfortunately no longer interpretable by users. We 
+study the performance of generalize additive model (GAMs), 
+which combine single-feature model call shape function through 
+a linear function. Since the shape function can be arbitrarily com- 
+plex, GAMs be more accurate than simple linear models. But since 
+they do not contain any interaction between features, they can be 
+easily interpret by users. 
+
+We present the first large-scale empirical comparison of exist 
+method for learn GAMs. Our study include exist spline and 
+tree-based method for shape function and penalize least squares, 
+gradient boosting, and backfitting for learn GAMs. We also 
+present a new method base on tree ensemble with an adaptive 
+number of leaf that consistently outperforms previous work. We 
+complement our experimental result with a bias-variance analy- 
+si that explains how different shape model influence the addi- 
+tive model. Our experiment show that shallow bag tree with 
+gradient boost distinguish itself a the best method on low- to 
+medium-dimensional datasets. 
+
+Categories and Subject Descriptors 
+I.2.6 [Computing Methodologies]: Learning—Induction 
+
+Keywords 
+intelligible models, classification, regression 
+
+1. INTRODUCTION 
+Everything should be make a simple a possible, but not simpler. 
+
+— Albert Einstein. 
+
+Classification and regression be two of the most important data 
+mining tasks. Currently, the most accurate method on many datasets 
+be complex model such a boost trees, SVMs, or deep neural 
+nets. However, in many application what be learn be just a im- 
+portant a the accuracy of the predictions. Unfortunately, the high 
+accuracy of complex model come at the expense of interpretabil- 
+
+Permission to make digital or hard copy of all or part of this work for 
+personal or classroom use be grant without fee provide that copy be 
+not make or distribute for profit or commercial advantage and that copy 
+bear this notice and the full citation on the first page. To copy otherwise, to 
+republish, to post on server or to redistribute to lists, require prior specific 
+permission and/or a fee. 
+KDD’12, August 12–16, 2012, Beijing, China. 
+Copyright 2012 ACM 978-1-4503-1462-6 /12/08 ...$10.00. 
+
+0 1 2 3 4 
+
+− 
+2 
+
+− 
+1 
+
+0 
+1 
+
+2 
+
+0.0 0.5 1.0 1.5 2.0 
+
+− 
+2 
+
+− 
+1 
+
+0 
+1 
+
+2 
+
+0 5 10 15 
+
+− 
+2 
+
+− 
+1 
+
+0 
+1 
+
+2 
+
+f1(x1) f2(x2) f3(x3) 
+
+0 10 20 30 40 50 
+
+− 
+2 
+
+− 
+1 
+
+0 
+1 
+
+2 
+
+0.0 0.2 0.4 0.6 0.8 1.0 1.2 1.4 
+
+− 
+2 
+
+− 
+1 
+
+0 
+1 
+
+2 
+
+0 1 2 3 4 5 6 
+
+− 
+2 
+
+− 
+1 
+
+0 
+1 
+
+2 
+
+f4(x4) f5(x5) f6(x6) 
+
+Figure 1: Shape Functions for Synthetic Dataset in Example 1. 
+
+ity; e.g., even the contribution of individual feature to the predic- 
+tions of a complex model be difficult to understand. 
+
+The goal of this work be to construct accurate model that be in- 
+terpretable. By interpretability we mean that user can understand 
+the contribution of individual feature in the model; e.g., we want 
+model that can quantify the impact of each predictor. This desider- 
+ata permit arbitrary complex relationship between individual fea- 
+tures and the target, but excludes model with complex interaction 
+between features. Thus in this paper we fit model of the form: 
+
+g(y) = f1(x1) + ...+ fn(xn), (1) 
+
+which be know a generalize additive model in the literature [15, 
+22]. The function g(·) be call the link function and we call the 
+fis shape functions. If the link function be the identity, Equation 1 
+describes an additive model (e.g., a regression model); if the link 
+function be the logistic function, Equation 1 describes a generalize 
+additive model (e.g., a classification model). 
+
+EXAMPLE 1. Assume we be give a dataset with 10,000 point 
+generate from the model y = x1 + x22 + 
+
+√ 
+x3 + log(x4) + 
+
+exp(x5) + 2 sin(x6) + �, where � ∼ N (0, 1). After fitting an 
+additive model to the data of the form show in Equation 1, we 
+can visualize the contribution of xi a show in Figure 1: Be- 
+cause prediction be a linear function of the fi(xi), scatterplots 
+of fi(xi) on the y-axis vs. xi on the x-axis allow u to visualize the 
+shape function that relates the fi(xi) to the xi, thus we can easily 
+understand the contribution of xi to the prediction. 
+
+Because the data in Example 1 be drawn from a model with no 
+interaction between features, a model of the form in Equation 1 be 
+able to fit the data perfectly (modulo noise). However, data be not 
+always so simple in practice. As a second example, consider a real 
+dataset where there may be interaction between features. 
+
+
+
+Model Form Intelligibility Accuracy 
+Linear Model y = β0 + β1x1 + ...+ βnxn +++ + 
+
+Generalized Linear Model g(y) = β0 + β1x1 + ...+ βnxn +++ + 
+Additive Model y = f1(x1) + ...+ fn(xn) ++ ++ 
+
+Generalized Additive Model g(y) = f1(x1) + ...+ fn(xn) ++ ++ 
+Full Complexity Model y = f(x1, ..., xn) + +++ 
+
+Table 1: From Linear to Additive Models. 
+
+100 200 300 400 500 
+
+− 
+20 
+
+− 
+10 
+
+0 
+10 
+
+20 
+30 
+
+40 
+
+120 140 160 180 200 220 240 
+
+− 
+20 
+
+− 
+10 
+
+0 
+10 
+
+20 
+30 
+
+40 
+
+0 100 200 300 
+
+− 
+20 
+
+− 
+10 
+
+0 
+10 
+
+20 
+30 
+
+40 
+
+Cement Water Age 
+
+Figure 2: Shape Functions for Concrete Dataset in Example 2. 
+
+EXAMPLE 2. The “Concrete” dataset relates the compressive 
+strength of concrete to it age and ingredients. The dataset contains 
+1030 point with eight numerical features. We again fit an additive 
+model of the form in Equation 1. Figure 2 show scatterplots of 
+the shape function learn for three of the eight features. As we 
+can see from the figure, the compressibility of concrete depends 
+nearly linearly on the Cement feature, but it be a complex non-linear 
+function of the Water and Age features; we say that the model have 
+shape these features. A linear model without the ability to shape 
+feature would have bad fit because it cannot capture these non- 
+linearities. Moreover, an attempt to interpret the contribution of 
+feature by examine the slope of a simple linear model would 
+be misleading; the additive model yield much good fit to the data 
+while still remain intelligible.1 
+
+As we saw in the examples, additive model explicitly decom- 
+pose a complex function into one-dimensional components, it shape 
+functions. Note, however, that the shape function themselves may 
+be non-linear: Each feature xi can have a complex non-linear shape 
+fi(xi), and thus the accuracy of additive model can be signif- 
+icantly high than the accuracy of simple linear models. Table 
+1 summarizes the difference between model of different com- 
+plexity that we consider in this paper. Linear models, and gen- 
+eralized linear model (GLMs) be the most intelligible, but of- 
+ten the least accurate. Additive models, and generalize additive 
+model (GAMs) be more accurate than GLMs on many data set 
+because they capture non-linear relationship between (individual) 
+feature and the response, but retain much of the intelligibility of 
+linear models. Full complexity model such a ensemble of tree 
+be more accurate on many datasets because they model both non- 
+linearity and interaction, but be so complex that it be nearly impos- 
+sible to interpret them. 
+
+In this paper we present the result of (to the best of our knowl- 
+edge) the large experimental study of GAMs. We consider shape 
+function base on spline [14, 22] and boost stump [13], a 
+well a novel shape function base on bag and boost ensem- 
+bles of tree that choose the number of leaf adaptively. We exper- 
+iment with (iteratively re-weighted) least squares, gradient boost- 
+ing, and backfitting to both iteratively refine the shape function 
+and construct the linear model of the shape features. We apply 
+these method to six classification and six regression tasks. For 
+comparison, we fit simple linear model a a baseline. We also fit 
+
+1See Section 4 for the fit of different model to this dataset. 
+
+Model Regression Classification Mean 
+Linear/Logistic 1.68 1.22 1.45 
+P-LS/P-IRLS 1.00 1.00 1.00 
+
+BST-SP 1.03 1.00 1.02 
+BF-SP 1.00 1.00 1.00 
+
+BST-bagTR2 0.96 0.96 0.96 
+BST-bagTR3 0.97 0.94 0.96 
+BST-bagTR4 0.99 0.95 0.97 
+BST-bagTRX 0.95 0.94 0.95 
+
+Random Forest 0.88 0.80 0.84 
+
+Table 2: Preview of Empirical Results. 
+
+unrestricted ensemble of tree a full complexity model to get an 
+idea of what accuracy be achievable. 
+
+Table 2 summarizes the key finding of our study. Entries in the 
+table be the average accuracy on the regression and classification 
+datasets, normalize by the accuracy of Penalized (Iteratively Re- 
+weighted) Least Squares with Splines (P-LS/P-IRLS). As expected, 
+the accuracy of GAMs fall between that of linear/logistic regres- 
+sion without feature shape and full-complexity model such a 
+random forests. However, surprisingly, the best GAM model have 
+accuracy much closer to the full-complexity model than to the lin- 
+ear models. Our result show that bag tree with 2-4 leaf a 
+shape function in combination with gradient boost a learn 
+method (Methods BST-bag-TR2 to BST-bag-TR4) outperform all 
+other method on most datasets. Our novel method of adaptively 
+select the right number of leaf (Method BST-bagTRX) be al- 
+most always even better, and thus we recommend it a the method 
+of choice. On average, this method reduces loss by about 5% over 
+previous GAM models, a significant improvement in practice. 
+
+The rest of the paper be structure a follows. Section 2 present 
+algorithm for fitting generalize additive model with various shape 
+function and learn methods. Section 3 describes our experi- 
+mental setup, Section 4 present the result and their interpretation, 
+follow by a discussion in Section 5 and an overview of related 
+work in Section 6. We conclude in Section 7. 
+
+2. METHODOLOGY 
+Let D = {(xi, yi)}N1 denote a training dataset of size N , where 
+
+xi = (xi1, ..., xin) be a feature vector with n feature and yi be the 
+target. In this paper, we consider both regression problem where 
+yi ∈ R and binary classification problem where yi ∈ {1,−1}. 
+Given a model F , let F (xi) denote the prediction of the model for 
+data point xi. Our goal in both classification and regression be to 
+minimize the expect value of some loss function L(y, F (x)). 
+
+We be work with generalize additive model of the form in 
+Equation 1. To train such model we have to select (i) the shape 
+function for individual feature and (ii) the learn method use 
+to train the overall model. We discus these two choice next. 
+
+
+
+2.1 Shape Functions 
+In our study we consider two class of shape functions: regres- 
+
+sion spline and tree or ensemble of trees. Note that all shape 
+function relate a single attribute to the target. 
+
+Regression Splines. We consider regression spline of degree d 
+
+of the form y = 
+d∑ 
+
+k=1 
+
+βkbk(x). 
+
+Trees and Ensembles of Trees. We also use binary tree and 
+ensemble of binary tree with large variance reduction a split 
+selection method. We control tree complexity by either fix the 
+number of leaf or by disallow leaf that have few than an 
+α-fraction of the number of training examples. 
+
+We consider the follow ensemble variants: 
+
+• Single Tree. We use a single regression tree a a shape func- 
+tion. 
+
+• Bagged Trees. We use the well-known technique of bagging 
+to reduce variance [6]. 
+
+• Boosted Trees. We use gradient boosting, where each suc- 
+cessive tree try to predict the overall residual from all pre- 
+cede tree [12]. 
+
+• Boosted Bagged Trees. We use a bag ensemble in each 
+step of stochastic gradient boost [13], result in a boost 
+ensemble of bag trees. 
+
+2.2 Generalized Additive Models 
+We consider three different method for fitting additive model in 
+
+our study: Least square fitting for learn regression spline shape 
+functions, and gradient boost and backfitting for learn tree 
+and tree ensemble shape functions. We review them here briefly 
+for completeness although we would like to emphasize that these 
+method be not a contribution of this paper. 
+
+2.2.1 Least Squares 
+Fitting a spline reduces to learn the weight βk(x) for the ba- 
+
+si function bk(x). Learning the weight can be reduce to fitting 
+a linear model y = Xβ, where Xi = [b1(xi1), ..., bk(xin)]; the 
+coefficient of the linear model can be compute exactly use the 
+least square method [22]. To control smoothness, there be a “wig- 
+gliness” penalty: we minimize ‖y −Xβ‖ + λ 
+
+∑ 
+i 
+
+∫ 
+[f ′′i (xi)] 
+
+2dx 
+with the smooth parameter λ. Large value of λ lead to a straight 
+line for fi while low value of λ allow the spline to fit closely to 
+the data. We use thin plate regression spline from the R pack- 
+age “mgcv” [22] that automatically selects the best value for the 
+parameter of the spline [21]. We call this method penalize least- 
+square (P-LS) in our experiments. 
+
+The fitting of an additive logistic regression model use spline 
+be similarly reduce to fitting a logistic regression with a different 
+basis, which can be solve use penalized-iteratively reweighted 
+least square (P-IRLS) [22]. 
+
+2.2.2 Gradient Boosting 
+We use standard gradient boost [12, 13] with one difference: 
+
+Since we want to learn shape function for all features, in each 
+iteration of boost we cycle sequentially through all features. For 
+completeness, we include pseudo-code in Algorithms 1 and 2. In 
+Algorithm 1, we first set all shape function to zero (Line 1). Then 
+we loop over M iteration (Line 2) and over all feature (Line 3) 
+and then calculate the residual (Line 4). We then learn then one- 
+dimensional function to predict the residual (Line 5) and add it to 
+the shape function (Line 6). 
+
+2.2.3 Backfitting 
+A popular algorithm for learn additive model be the backfit- 
+
+ting algorithm [15]. The algorithm start with an initial guess of all 
+shape function (such a set them all to zero). The first shape 
+function f1 be then learn use the training set with the goal to 
+predict y. Then we learn the second shape function f2 on the resid- 
+uals y−f1(x1), i.e., use training set {(xi2, y−f1(xi1))}N1 . The 
+third shape function be train on the residual y−f1(x1)−f2(x2), 
+and so on. After we have train n shape functions, the first shape 
+function be discard and retrain on the residual of the other 
+n−1 shape functions. Note that backfitting be a form of the “Gauss- 
+Seidel” algorithm and it convergence be usually guaranteed [15]. 
+Its pseudocode look identical to Algorithm 1 except that Line 6 be 
+replace by fj ← S. 
+
+To fit an additive logistic regression model, we can use a general- 
+ized version of the backfitting algorithm call the “Local Scoring 
+Algorithm” [15], which be a general method for fitting generalize 
+additive models. We form the response 
+
+ỹi = F (xi) + 
+1(yi = 1)− p(xi) 
+p(xi)(1− p(xi)) 
+
+, 
+
+where p(xi) = 11+exp(−F (xi)) . We then apply the weight back- 
+fitting algorithm to the response ỹi with observation weight p(xi) 
+(1− p(xi)) [15]. 
+
+Algorithm 1 Gradient Boosting for Regression 
+1: fj ← 0 
+2: for m = 1 to M do 
+3: for j = 1 to n do 
+4: R← {xij , yi − 
+
+∑ 
+k fk} 
+
+N 
+1 
+
+5: Learn shape function S : xj → y use R a training 
+dataset 
+
+6: fj ← fj + S 
+
+Algorithm 2 Gradient Boosting for Classification 
+1: fj ← 0 
+2: for m = 1 to M do 
+3: for j = 1 to n do 
+4: ỹi ← 2yi1+exp(2yiF (xi)) , i = 1, ..., N 
+5: Learn {Rkm}K1 ← a tree with K leaf node use 
+
+{(xij , ỹi)}N1 a training dataset 
+6: γkm = 
+
+∑ 
+xij∈Rkm 
+
+ỹi∑ 
+xij∈Rkm 
+
+|ỹi|(2−|ỹi|) 
+, k = 1, ...,K 
+
+7: fj ← fj + 
+∑K 
+
+k=1 γkm1(xij ∈ Rkm) 
+
+3. EXPERIMENTAL SETUP 
+In this section we describe the experimental design. 
+
+3.1 Datasets 
+We select datasets of low-to-medium dimensionality with at 
+
+least 1000 points. Table 3 summarizes the characteristic of the 12 
+datasets. One of the regression datasets be a synthetic problem use 
+to illustrate feature shape (but we do not use the result on this 
+dataset when compare the accuracy of the methods). 
+
+The “Concrete,” “Wine,” and “Music” regression datasets be 
+from the UCI repository [1]; “Delta” be the task of control the 
+aileron of a F16 aircraft [2]; “CompAct” be a regression dataset 
+from the Delve repository that describes the state of multiuser com- 
+puters [3]. The synthetic dataset be described in Example 1. 
+
+
+
+Dataset Size Attributes %Pos 
+Concrete 1030 9 - 
+
+Wine 4898 12 - 
+Delta 7192 6 - 
+
+CompAct 8192 22 - 
+Music 50000 90 - 
+
+Synthetic 10000 6 - 
+Spambase 4601 58 39.40 
+Insurance 9823 86 5.97 
+
+Magic 19020 11 64.84 
+Letter 20000 17 49.70 
+Adult 46033 9/43 16.62 
+
+Physics 50000 79 49.72 
+
+Table 3: Datasets. 
+
+Shape Least Gradient BackfittingFunction Squares Boosting 
+Splines P-LS/P-IRLS BST-SP BF-SP 
+
+Single Tree N/A BST-TRx BF-TR 
+Bagged Trees N/A BST-bagTRx BF-bagTR 
+Boosted Trees N/A BST-TRx BF-bstTRx 
+
+Boosted N/A BST-bagTRx BF-bbTRxBagged Trees 
+
+Table 4: Notation for learn method and shape functions. 
+
+The “Spambase,” “Insurance,” “Magic,” “Letter” and “Adult” 
+classification datasets be from the UCI repository. “Adult” con- 
+tains nominal attribute that we transform to boolean attribute 
+(one boolean per value). “Letter” have be convert to a binary 
+problem by use A-M a positive and the rest a negatives. The 
+“Physics” dataset be from the KDD Cup 2004 [4]. 
+
+3.2 Methods 
+Recall from Section 2 that we have two different type of shape 
+
+function and three different method of learn generalize addi- 
+tive models; see Table 4 for an overview of these method and their 
+names. While penalize least square for regression (P-LS) and 
+penalize iteratively re-weighted least square for classification (P- 
+IRLS) only work with splines, gradient boost and backfitting 
+can be apply to both spline and ensemble of trees. 
+
+In gradient boosting, we vary the number of leaf in the bag 
+or boost trees: 2, 3, 4, 8, 12 to 16 (indicated by append this 
+number to the method names). Trained model will contain M 
+such tree for each shape function after M iterations. In backfit- 
+ting, we re-build the shape function for each feature from scratch 
+in each round, so the shape function need to have enough expres- 
+sive power to capture a complex function. Thus we control the 
+complexity of the tree not by the number of leaves, but by adap- 
+tively choose a parameter α that stop splitting node small 
+than an α fraction of the size of the training data; we vary α ∈ 
+{0.00125, 0.025, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5}. 
+A summary of the combination of shape function and learn 
+method can be found in Table 4. 
+
+Beyond the parameter that we already discussed, P-LS and P- 
+IRLS have a parameter λ, which be estimate use generalize 
+cross validation a discuss in Section 2. We do not fix the number 
+of iteration for gradient boost and backfitting but instead run 
+these method until convergence a follows: We divide the training 
+set into five partitions. We then set aside one of the partition a 
+
+a validation set, train the model on the remain four partitions, 
+and use the validation set to check for convergence. We repeat this 
+process five time and then compute M , the average number of 
+iteration until convergence across the five iterations. We then re- 
+train the model use the whole training set for M iterations. We 
+follow a similar procedure for backfitting where we pick the best α 
+for each partition and average them to train the final model use 
+the whole training dataset. 
+
+3.3 Metrics 
+For regression problems, we report the root mean square error 
+
+(RMSE) for linear regression (no feature shaping), additive model 
+with shape with spline or tree (penalized least squares, gradient 
+boost and backfitting), and unrestricted full-complexity model 
+(random forest regression tree and Additive Groves [5, 19]). 
+
+For classification problems, we report the error rate for logis- 
+tic regression, generalize additive model with spline or tree 
+(penalized iteratively re-weighted least squares, gradient boost 
+and backfitting), and full-complexity unrestricted model (random 
+forest [8]).2 
+
+In all experiment we use 100 tree for bagging. We do not no- 
+tice significant improvement by use more iteration of bagging. 
+For Additive Groves, the number of tree be automatically select 
+by the algorithm on the validation set. For P-LS and P-IRLS, we 
+use an R package call “mgcv” [22]. We perform 5-fold cross 
+validation for all experiments.3 
+
+4. RESULTS 
+The regression and classification result be present in Table 5 
+
+and Table 6, respectively. We report mean and standard deviation 
+on the 5-fold cross validation test-sets. To facilitate comparison 
+across multiple datasets, we compute normalize score that aver- 
+age the performance of each method across the datasets, normal- 
+ized by the accuracy of P-LS/P-IRLS on each dataset. 
+
+Table 5 and Table 6 be laid out a follows: The top of each 
+table show result for linear/logistic regression (no feature shap- 
+ing) and the traditional spline-based GAM model P-LS/P-IRLS, 
+BST-SP, and BF-SP. The middle of the table present result for 
+new method that do feature shape with tree instead of spline 
+such a boost size-limited tree (e.g., BST-TR3), boosted-bagged 
+size-limited tree (e.g., BST-bagTR3), backfitting of boost tree 
+(e.g., BF-bstTR3), and backfitting of boosted-bagged tree (e.g., 
+BF-bbTR3). The bottom of each table present result for unre- 
+stricted full-complexity model such a random forest and addi- 
+tive groves. Our goal be to devise more powerful GAM model that 
+be a close in accuracy a possible to the full-complexity models, 
+while preserve the intelligibility of linear models. 
+
+Several clear pattern emerge in both tables. 
+(1) There be a large gap in accuracy between linear method that 
+
+do not do feature shape (linear or logistic regression) and most 
+method that perform feature shaping. For example, on average the 
+spline-based P-LS GAM model have 60% low normalize RMSE 
+than vanilla linear regression. Similarly, on average, P-IRLS be 
+about 20% more accurate than logistic regression. 
+
+(2) The new tree-based shape method be more accurate than 
+the spline-based method a long a model complexity (and vari- 
+ance — see Section 5.1) be controlled. In both tables, the most ac- 
+curate tree-based GAM model use boosted-bagged tree that be 
+size-limited to 2-4 leaves. 
+
+2Random forest be a very competitive full complexity model [10]. 
+3We use 5-fold instead of 10-fold cross validation because some of 
+the experiment be very expensive. 
+
+
+
+2 
+4 
+6 
+8 
+
+10 
+12 
+14 
+16 
+
+0 200 400 600 800 
+
+training 
+validation 
+
+test 
+
+2 
+4 
+6 
+8 
+
+10 
+12 
+14 
+16 
+
+0 200 400 600 800 
+
+training 
+validation 
+
+test 
+
+2 
+4 
+6 
+8 
+
+10 
+12 
+14 
+
+0 200 400 600 800 
+
+training 
+validation 
+
+test 
+
+0 
+0.05 
+0.1 
+
+0.15 
+0.2 
+
+0.25 
+0.3 
+
+0.35 
+
+0 1000 2000 2900 
+
+training 
+validation 
+
+test 
+
+0 
+0.05 
+0.1 
+
+0.15 
+0.2 
+
+0.25 
+0.3 
+
+0.35 
+
+0 1000 2000 2900 
+
+training 
+validation 
+
+test 
+
+0 
+0.05 
+0.1 
+
+0.15 
+0.2 
+
+0.25 
+0.3 
+
+0.35 
+
+0 10000 20000 
+
+training 
+validation 
+
+test 
+
+(a) BST-bagTR2 (b) BST-bagTR16 (c) BF-bagTR (d) BST-bagTR2 (e) BST-bagTR16 (f) BF-bagTR 
+
+Figure 3: Training curve for gradient boost and backfitting. Figure (a), (b) and (c) show the behavior of BST-bagTR2, BST- 
+bagTR16 and BF-bagTR on the “Concrete” regression problem, respectively. Figure (d), (e) and (f) illustrate behavior of BST- 
+bagTR2, BST-bagTR16 and BF-bagTR on the “Spambase” classification, respectively. 
+
+Blast Furnace Slag Fly Ash Superplasticizer Coarse Aggregate Fine Aggregate 
+
+0 50 100 150 200 250 300 350 
+
+− 
+20 
+
+− 
+10 
+
+0 
+10 
+
+20 
+30 
+
+40 
+
+0 50 100 150 200 
+
+− 
+20 
+
+− 
+10 
+
+0 
+10 
+
+20 
+30 
+
+40 
+
+0 5 10 15 20 25 30 
+
+− 
+20 
+
+− 
+10 
+
+0 
+10 
+
+20 
+30 
+
+40 
+
+800 850 900 950 1000 1050 1100 1150 
+
+− 
+20 
+
+− 
+10 
+
+0 
+10 
+
+20 
+30 
+
+40 
+
+600 700 800 900 1000 
+
+− 
+20 
+
+− 
+10 
+
+0 
+10 
+
+20 
+30 
+
+40 
+
+-20 
+
+0 
+
+20 
+
+40 
+
+60 
+
+0 50 100 150 200 250 300 350 400 
+
+-20 
+
+0 
+
+20 
+
+40 
+
+60 
+
+0 50 100 150 200 
+
+-20 
+
+0 
+
+20 
+
+40 
+
+60 
+
+0 5 10 15 20 25 30 35 
+
+-20 
+
+0 
+
+20 
+
+40 
+
+60 
+
+800 850 900 950 1000 1050 1100 1150 
+
+-20 
+
+0 
+
+20 
+
+40 
+
+60 
+
+550 600 650 700 750 800 850 900 950 1000 
+
+0.14 0.06 0.04 0.05 0.06 
+
+Figure 4: Shapes of feature for the “Concrete” dataset produce by P-LS (top) and BST-bagTR3 (bottom). 
+
+(3) Unrestricted full-complexity model such a random forest 
+and additive grove be more accurate than any of the GAM mod- 
+el because they be able to model feature interactions, which linear 
+model of shape feature cannot capture. Our goal be to push the 
+accuracy of linear shape model a close a possible to the accu- 
+racy of these unrestricted full-complexity models. 
+
+Looking more closely at the result for model that shape fea- 
+tures with trees, the most accurate model on average be BST-bagTR2 
+for regression, and BST-bagTR3 for classification. Models that use 
+more leaf be consistently less accurate than comparable model 
+with 2-4 leaves. It be critical to control tree complexity when boost- 
+ing tree for feature shaping. Moreover, the most accurate meth- 
+od use bagging inside of boost to reduce variance. (More on 
+model variance in Section 5.1.) Finally, on the regression problems, 
+method base on gradient boost of residual slightly edge 
+out the method base on backfitting, though the difference be not 
+statistically significant. On the classification problems, however, 
+where backfitting be perform on pseudo-residuals, there be sta- 
+bility problem that cause some run to diverge or fail to terminate. 
+Overall, tree-based shape method base on gradient-boosting 
+appear to be preferable to tree-based method base on backfitting 
+because the gradient boost method may be a little more accu- 
+rate, be often faster, and on some problem be more robust. 
+
+Although tree-based feature shape yield significant improve- 
+ments in accuracy for GAMs, on most problem they be not able 
+to close the gap with unrestricted full-complexity model such a 
+random forests. For example, all linear method have much bad 
+RMSE on the wine regression problem than the unrestricted ran- 
+dom forest model. On problem where feature interaction be impor- 
+tant, linear model without interaction term must be less accurate. 
+
+4.1 Model Selection 
+There be a risk when compare many parameterizations of a new 
+
+method against a small number of baseline methods, that the new 
+method will appear to be good because select the best model 
+on the test set lead to overfitting to the test sets. To avoid this, the 
+table include result for a method call “BST-bagTRX” that us 
+the cross-validation validation set (not the CV test sets) to pick 
+the best parameter from the BST-bagTRxmodels for each dataset. 
+This method be not bias by look at result on test sets, be fully 
+automatic and thus do not depend on human judgement, and be 
+able to select different parameter for each problem. The result 
+in Table 5 and Table 6 suggest that BST-bagTRX be more accu- 
+rate than any single fix parameterization. Looking at the model 
+select by BST-bagTRX, we see that BST-bagTRX usually pick 
+model with 2, 3 or 4 leaves, and that the model it selects often 
+be the one with the best test-set performance. On both the regres- 
+sion and classification datasets, BF-bagTRX be significantly more 
+accurate than any of the model that use spline for feature shaping. 
+
+5. DISCUSSION 
+5.1 Bias-Variance Analysis 
+
+The result in Tables 5 and 6 show that add feature shape 
+to linear model significantly improves accuracy on problem of 
+small-medium dimensionality, and feature shape with tree-based 
+model significantly improves accuracy compare to feature shap- 
+ing with splines. But why be tree-based method more accurate 
+for feature shape than spline-based methods? In this section we 
+show that spline tend to underfit, i.e., have very low variance at 
+the expense of high bias, but tree-based shape model can have 
+both low bias and low variance if tree complexity be controlled. 
+
+To show why spline model do not perform a well a tree mod- 
+
+
+
+Freq_george Freq_hp Freq_! Freq_remove Freq_$ 
+
+0 5 10 15 20 25 30 
+
+− 
+10 
+
+− 
+5 
+
+0 
+5 
+
+10 
+
+0 5 10 15 20 
+
+− 
+10 
+
+− 
+5 
+
+0 
+5 
+
+10 
+
+0 5 10 15 20 25 30 
+
+− 
+10 
+
+− 
+5 
+
+0 
+5 
+
+10 
+
+0 2 4 6 
+
+− 
+10 
+
+− 
+5 
+
+0 
+5 
+
+10 
+
+0 1 2 3 4 5 
+
+− 
+10 
+
+− 
+5 
+
+0 
+5 
+
+10 
+
+-3 
+
+-2 
+
+-1 
+
+0 
+
+1 
+
+2 
+
+3 
+
+4 
+
+0 5 10 15 20 25 30 35 
+-3 
+
+-2 
+
+-1 
+
+0 
+
+1 
+
+2 
+
+3 
+
+4 
+
+0 5 10 15 20 25 
+-3 
+
+-2 
+
+-1 
+
+0 
+
+1 
+
+2 
+
+3 
+
+4 
+
+0 5 10 15 20 25 30 35 
+-3 
+
+-2 
+
+-1 
+
+0 
+
+1 
+
+2 
+
+3 
+
+4 
+
+0 1 2 3 4 5 6 7 8 
+-3 
+
+-2 
+
+-1 
+
+0 
+
+1 
+
+2 
+
+3 
+
+4 
+
+0 1 2 3 4 5 6 
+
+0.053 0.045 0.037 0.035 0.033 
+
+Figure 5: Shapes of feature for the “Spambase” dataset produce by P-IRLS (top) and BST-bagTR3 (bottom). 
+
+els, and why control complexity be so critical with trees, we 
+perform a bias-variance analysis on the regression datasets.4 As in 
+previous experiments, we randomly select 20% of the point a test 
+sets. We then draw L sample of size M = 0.64N point from the 
+remain point to keep the training sample size the same a with 
+5-fold cross validation in previous experiments. We use L = 10 
+trials. The bias-variance decomposition be calculate a follows: 
+
+Expected Loss = (bias)2 + variance+ noise 
+
+Define the average prediction onL sample for each point (xi, yi) 
+in test set a ȳi = 1L 
+
+∑L 
+l=1 ŷ 
+
+l 
+i, where ŷ 
+
+l 
+i be the predict value forxi 
+
+use sample l. The square bias (bias)2 = 1 
+N′ 
+
+∑N′ 
+i=1[ȳi − yi] 
+
+2, 
+where yi be the know target in the test set and N ′ = 0.2N be 
+the size of test set. The variance be calculate a variance = 
+1 
+N′ 
+
+∑N′ 
+i=1 
+
+1 
+L 
+
+∑L 
+l=1[ŷ 
+
+l 
+i − ȳi]2. 
+
+The bias-variance result for the six regression datasets be show 
+in Figure 6. We can see that method base on regression spline 
+have very low variance, but sometimes at the expense of increase 
+bias, while the best tree-based method consistently have low bias 
+combine with low-enough variance to yield good overall RMSE. 
+If tree complexity be not carefully controlled, however, variance 
+explodes and hurt total RMSE. As expected, add bagging in- 
+side boost further reduces variance, make tree-based feature 
+shape method base on gradient-boosting of residual with in- 
+ternal bagging the most accurate method overall. (We do not expect 
+bagging would help regression spline because the variance of re- 
+gression spline be so low to begin with.) But even bagging will 
+not prevent overfitting if the tree be too complex. Figure 3 show 
+training curve on the train, validation and test set for gradient 
+boost with bagging and backfitting with bagging on a regres- 
+sion and classification problem. BST-bagTR2 be more resistant to 
+overfitting than BST-bagTR16 which easily overfits. 
+
+The training curve for backfitting be not monotonic, and have 
+distinct peak on the classification problem. Each peak corresponds 
+to a new backfitting iteration when pseudo residual be updated. 
+In our experience, backfitting on classification problem be consis- 
+tently inferior to other methods, in part because it be harder for the 
+local score algorithm to find a “good” set of pseudo residuals, 
+which ultimately lead to instability and poor fit. Interestingly, in 
+
+4We do not perform bias-variance analysis on the classification 
+problem because the bias-variance decomposition for classifica- 
+tion be not a well defined. 
+
+the bias-variance analysis of backfitting, both bias and variance of- 
+ten increase a the tree become larger, and the bad perform 
+model on the five non-synthetic datasets be backfit model with 
+large trees. We suspect backfitting can get stuck in inferior local 
+minimum when shape with large trees, hurt both bias and vari- 
+ance, which may explain the instability and convergence problem 
+observe with backfitting on some classification problems. 
+
+5.2 Underfitting, Intelligibility, and Fidelity 
+One of the main reason to use GAMs (linear model of non- 
+
+linearly shape features) be intelligibility. Figure 1 in Section 1 
+show shape model for feature in the synthetic dataset. In this 
+section we show shape model learn for feature from real re- 
+gression and classification problems. 
+
+Figure 4 show feature shape plot for the “Concrete” regres- 
+sion problem. Figure 5 show shape plot for the “Spambase” clasi- 
+fication problem. In each figure, the top row of plot be from 
+the P-LS spline method, and the bottom row of plot be from 
+BST-bagTR3. Confidence interval for the least squres method can 
+be compute analytically. Confidence interval for BST-bagTR3 
+be generate by run BST-bagTR3 multiple time on bootstrap 
+samples. As expected, the spline-based approach produce smooth 
+plots. The cost of this smoothness, however, be poorer fit that result 
+in high RMSE or low accuracy. Moreover, not all phenomenon 
+be smooth. Freezing and boil occur at distinct temperatures, the 
+onset of instability occurs abruptly a fluid flow increase relative 
+to Reynolds Number, and many human decision make process 
+such a loans, admission to school, or administer medical pro- 
+cedures use discrete thresholds. 
+
+On the “Concrete” dataset, all feature in Figure 4 be clearly 
+non-linear. On this dataset P-LS be sacrifice accuracy for smooth- 
+ness — the tree-based fitting method have significantly low RMSE 
+than P-LS. The smoother P-LS model may appear more appeal 
+and easy to interpret, but there be structure in the BST-bagTR3 
+model that be less apparent or miss in the P-LS plot that might 
+be informative or important. As just one example, the P-LS and 
+BST-bagTR3 model do not agree on the slope of part of the mod- 
+el for the Coarse and Fine Aggregate features. 
+
+On the “Spambase” dataset, the shape function be nonlinear 
+with sharp turns. Again, the BST-bagTR3 model be significantly 
+more accurate than P-IRLS. Interestingly, the spline model for 
+feature Freq_hp, Freq_!, Freq_remove and Freq_$ show strong 
+positive or negative slope in the right-hand side of the shape plot 
+
+
+
+Model Concrete Wine Delta CompAct Music Synthetic Mean 
+Linear Regression 10.43±0.49 7.55±0.13 5.68±0.14 9.72±0.55 9.61±0.09 1.01±0.00 1.68±0.98 
+
+P-LS 5.67±0.41 7.25±0.21 5.67±0.16 2.81±0.13 9.27±0.07 0.04±0.00 1.00±0.00 
+BST-SP 5.79±0.37 7.27±0.18 5.68±0.18 3.19±0.37 9.29±0.08 0.04±0.00 1.03±0.06 
+BF-SP 5.66±0.42 7.25±0.21 5.67±0.17 2.77±0.06 9.27±0.08 0.04±0.00 1.00±0.01 
+
+BST-TR2 5.19±0.39 7.17±0.10 5.75±0.18 2.68±0.33 9.55±0.08 0.11±0.00 0.98±0.08 
+BST-TR3 5.13±0.37 7.20±0.16 5.82±0.19 3.18±0.45 9.77±0.07 0.05±0.01 1.02±0.11 
+BST-TR4 5.24±0.39 7.24±0.15 5.83±0.21 3.70±0.52 9.88±0.09 0.07±0.01 1.07±0.15 
+BST-TR8 5.57±0.61 7.35±0.17 5.97±0.22 5.07±0.54 10.03±0.10 0.19±0.02 1.19±0.33 
+
+BST-TR12 5.92±0.63 7.39±0.13 6.03±0.19 6.59±0.71 10.15±0.07 0.26±0.02 1.31±0.54 
+BST-TR16 6.08±0.37 7.41±0.23 6.09±0.19 7.07±1.01 10.23±0.08 0.33±0.03 1.36±0.60 
+
+BST-bagTR2 5.06±0.39 7.05±0.11 5.67±0.20 2.59±0.34 9.42±0.08 0.07±0.00 0.96±0.08 
+BST-bagTR3 4.93±0.41 7.01±0.10 5.67±0.20 2.82±0.35 9.45±0.07 0.03±0.00 0.97±0.09 
+BST-bagTR4 4.99±0.43 7.01±0.12 5.70±0.20 2.95±0.35 9.46±0.08 0.03±0.00 0.99±0.09 
+BST-bagTR8 5.04±0.43 7.04±0.13 5.79±0.18 3.40±0.34 9.48±0.08 0.06±0.00 1.02±0.13 
+BST-bagTR12 5.11±0.44 7.07±0.15 5.85±0.18 3.76±0.33 9.50±0.07 0.07±0.00 1.05±0.16 
+BST-bagTR16 5.18±0.49 7.10±0.18 5.91±0.20 4.16±0.39 9.52±0.09 0.09±0.00 1.09±0.21 
+BST-bagTRX 4.89±0.37 7.00±0.10 5.65±0.20 2.59±0.34 9.42±0.08 0.03±0.00 0.95±0.09 
+
+BF-TR 5.80±0.60 7.19±0.09 5.67±0.21 2.81±0.25 9.88±0.08 0.06±0.03 1.02±0.07 
+BF-bagTR 5.10±0.49 7.02±0.13 5.61±0.21 2.69±0.31 9.43±0.07 0.04±0.00 0.97±0.07 
+BF-bstTR2 5.11±0.37 7.14±0.11 5.73±0.20 2.66±0.35 9.62±0.07 0.13±0.01 0.98±0.08 
+BF-bstTR3 5.21±0.38 7.29±0.19 5.84±0.21 4.38±0.24 10.77±0.10 0.04±0.01 1.14±0.24 
+BF-bstTR4 5.49±0.72 7.44±0.20 5.94±0.21 4.97±0.73 11.24±0.07 0.06±0.03 1.21±0.33 
+BF-bstTR8 6.74±0.76 7.93±0.32 6.08±0.24 9.18±0.77 12.08±0.07 0.04±0.01 1.59±0.87 
+
+BF-bstTR12 7.13±0.68 8.10±0.27 6.15±0.24 11.20±0.72 12.31±0.15 0.08±0.03 1.76±1.16 
+BF-bstTR16 7.22±0.73 8.33±0.35 6.18±0.24 11.41±0.29 12.59±0.10 0.11±0.08 1.79±1.17 
+BF-bbTR2 5.13±0.41 7.05±0.12 5.66±0.19 2.59±0.37 9.50±0.07 0.12±0.00 0.97±0.08 
+BF-bbTR3 5.15±0.44 7.07±0.17 5.74±0.20 2.85±0.33 9.80±0.07 0.04±0.00 0.99±0.09 
+BF-bbTR4 6.20±0.86 7.12±0.22 5.80±0.23 3.01±0.23 9.83±0.08 0.04±0.00 1.05±0.09 
+BF-bbTR8 6.33±0.46 7.30±0.21 5.95±0.23 3.72±0.84 9.86±0.11 0.04±0.00 1.11±0.16 
+
+BF-bbTR12 6.52±0.56 7.52±0.30 6.01±0.20 4.32±0.94 9.89±0.06 0.04±0.00 1.17±0.23 
+BF-bbTR16 6.37±0.48 7.63±0.26 6.07±0.24 4.85±0.76 9.91±0.07 0.05±0.01 1.21±0.29 
+
+Random Forests 4.98±0.44 6.05±0.23 5.34±0.13 2.45±0.09 9.70±0.07 0.55±0.00 0.88±0.06 
+Additive Groves 4.25±0.47 6.21±0.20 5.35±0.14 2.23±0.15 9.03±0.05 0.02±0.00 0.86±0.10 
+
+Table 5: RMSE for regression datasets. Each cell contains the mean RMSE ± one standard deviation. Average normalize score on 
+five datasets (excludes synthetic) be show in the last column, where the score be calculate a relative improvement over P-LS. 
+
+where data be sparse (albeit with very wide confidence intervals) 
+while the BST-bagTR3 shape plot appear to be good behaved. 
+
+Below each shape plot in Figures 4 and 5 be the weight of each 
+shape term in the linear model. These weight tell user how im- 
+portant each term be to the model. Terms can be sort by weight, 
+and if necessary term with low weight can be remove from the 
+model and the retain feature reshaped. 
+
+In both figure there be coarse similarity between the feature 
+shape plot learn by the spline and tree-based methods, but in 
+many plot the tree-based method appear to have caught structure 
+that be miss or more difficult to see in the spline plots. The spline 
+model may be more appeal to the eye, but they be clearly less 
+accurate and appear to miss some of detail of the shape functions. 
+
+5.3 Computational Cost 
+In our experiments, P-LS and P-IRLS be very fast on small 
+
+datasets, but on the large datasets they be slow than the BST- 
+TRx. Due to the extra cost of bagging, BST-bagTRx, BF-bagTR 
+and BF-bbTRx be much slow than P-LS/P-IRLS or BST-TRx. 
+The slowest method we test be backfitting, which be expensive be- 
+cause at each iteration the previous shape function be discard 
+and a new fit for each feature must be learned. Gradient boost- 
+ing converges faster because in each iteration the algorithm add a 
+
+patch to the exist pool of predictors, thus building on previous 
+effort rather than discard them. 
+
+Gradient boost be easy to parallelize [17] than backfitting 
+(Gauss-Seidel). The Jacobi method be sometimes use a an alter- 
+native to Gauss-Seidel because it be easy to parallelize, however, 
+in our experience, Jacobi-based backfitting converges to subopti- 
+mal solution that can be much worse. 
+
+5.4 Limitations and Extensions 
+The experiment in this paper be on datasets of low-to-medium 
+
+dimensionality (less than 100 dimensions). Our next step be to scale 
+the algorithm to datasets with more dimension (and more training 
+points). Even linear model lose intelligibility when there be hun- 
+dreds of term in the model. To help retain intelligibility in high di- 
+mensional spaces, we have begin develop an extension to BST- 
+bagTRX that incorporates feature selection in the feature shape 
+process to retain only those feature that, after shaping, make the 
+large contribution to the model. We do not present result for 
+feature selection in this paper because of space limitations, and be- 
+cause it be important to focus first on the foundational issue of what 
+algorithm(s) train the best models. 
+
+In this paper we focus exclusively on shape function of indi- 
+vidual features; feature interaction be not allowed. Because of this, 
+the model will not be able to achieve the same accuracy a unre- 
+
+
+
+Model Spambase Insurance Magic Letter Adult Physics Mean 
+Logistic Regression 7.67±1.03 6.11±0.29 20.99±0.46 27.54±0.27 16.04±0.46 29.24±0.36 1.22±0.23 
+
+P-IRLS 6.43±0.77 6.11±0.30 14.53±0.41 17.47±0.24 15.00±0.28 29.04±0.49 1.00±0.00 
+BST-SP 6.24±0.65 6.07±0.31 14.54±0.31 17.61±0.23 15.02±0.25 28.98±0.43 1.00±0.03 
+BF-SP 6.37±0.29 6.11±0.29 14.58±0.32 17.52±0.17 15.01±0.28 28.98±0.46 1.00±0.03 
+
+BST-TR2 5.22±0.77 5.97±0.38 14.63±0.36 17.40±0.22 14.90±0.26 29.58±0.53 0.97±0.08 
+BST-TR3 5.09±0.79 5.97±0.38 14.54±0.14 17.29±0.25 14.58±0.33 28.81±0.52 0.95±0.08 
+BST-TR4 5.11±0.70 5.97±0.38 14.60±0.25 17.44±0.26 14.65±0.35 28.72±0.48 0.96±0.08 
+BST-TR8 5.39±1.06 5.97±0.38 14.64±0.23 17.44±0.27 14.61±0.34 28.77±0.55 0.96±0.08 
+
+BST-TR12 5.61±0.76 5.97±0.38 14.57±0.41 17.45±0.24 14.57±0.36 28.63±0.60 0.97±0.08 
+BST-TR16 5.93±0.96 5.97±0.38 14.83±0.38 17.47±0.23 14.62±0.32 28.63±0.51 0.98±0.05 
+
+BST-bagTR2 5.00±0.65 5.97±0.38 14.47±0.20 17.25±0.22 14.95±0.35 29.32±0.67 0.96±0.09 
+BST-bagTR3 4.89±1.01 5.97±0.38 14.39±0.13 17.22±0.24 14.57±0.29 28.65±0.47 0.94±0.09 
+BST-bagTR4 4.98±1.07 5.98±0.35 14.40±0.28 17.31±0.23 14.63±0.30 29.05±0.50 0.95±0.09 
+BST-bagTR8 5.22±1.05 5.99±0.36 14.43±0.33 17.42±0.15 14.68±0.35 28.73±0.64 0.96±0.08 
+BST-bagTR12 5.48±1.09 6.00±0.36 14.44±0.35 17.45±0.19 14.67±0.39 29.06±0.77 0.97±0.07 
+BST-bagTR16 5.52±1.01 5.99±0.36 14.45±0.29 17.47±0.23 14.69±0.34 28.77±0.65 0.97±0.07 
+BST-bagTRX 4.78±0.82 5.95±0.37 14.31±0.21 17.21±0.23 14.58±0.28 28.62±0.49 0.94±0.09 
+
+BF-TR 6.41±0.37 6.34±0.27 16.81±0.35 17.36±0.26 14.96±0.28 31.64±0.57 1.05±0.07 
+BF-bagTR 5.63±0.47 6.34±0.22 15.09±0.48 17.41±0.23 14.95±0.34 29.51±0.46 0.99±0.06 
+BF-bstTR2 5.39±0.68 6.28±0.18 14.43±0.37 17.44±0.35 14.87±0.21 29.70±0.66 0.98±0.35 
+BF-bstTR3 6.85±1.48 6.31±0.54 15.11±0.24 17.53±0.18 14.64±0.32 29.90±0.34 1.02±0.06 
+BF-bstTR4 7.63±0.85 6.40±0.48 15.47±0.26 17.46±0.29 14.66±0.27 29.67±0.80 1.05±0.09 
+BF-bstTR8 10.20±1.30 6.52±0.54 16.26±0.36 17.47±0.25 14.60±0.36 30.32±0.41 1.13±0.24 
+
+BF-bstTR12 12.39±1.04 6.53±0.54 16.95±0.40 17.50±0.25 14.76±0.32 31.08±0.43 1.21±0.35 
+BF-bstTR16 13.11±1.32 6.55±0.58 17.68±0.56 17.52±0.24 14.79±0.33 31.97±0.37 1.24±0.40 
+BF-bbTR2 5.48±0.59 6.20±0.26 15.26±0.43 17.86±0.30 14.90±0.31 29.36±0.56 0.99±0.08 
+BF-bbTR3 5.83±0.76 6.42±0.24 14.64±0.18 17.43±0.34 14.77±0.34 28.64±0.56 0.99±0.06 
+BF-bbTR4 6.13±0.90 6.48±0.20 14.68±0.24 17.43±0.26 14.74±0.35 28.64±0.50 1.00±0.07 
+BF-bbTR8 6.48±0.97 6.59±0.26 14.79±0.20 17.51±0.27 14.64±0.33 28.65±0.50 1.01±0.07 
+BF-bbTR12 7.35±1.24 6.56±0.21 14.90±0.22 17.53±0.18 14.58±0.33 28.88±0.29 1.04±0.10 
+BF-bbTR16 7.72±1.36 6.56±0.20 15.02±0.40 17.52±0.24 14.58±0.28 29.16±0.38 1.05±0.11 
+
+Random Forests 4.48±0.64 5.97±0.41 11.99±0.50 6.23±0.27 14.85±0.25 28.55±0.56 0.80±0.23 
+
+Table 6: Error rate for classification datasets. Each cell contains the classification error ± one standard deviation. Averaged 
+normalize score on all datasets be show in the last column, where the score be calculate a relative improvement over P-IRLS. 
+
+stricted full-complexity model on many datasets. The addition of 
+a few carefully select interaction term would further close this 
+gap [16]. Because 3-D plot can be visualized, we may be able to 
+allow pairwise interaction in our model while preserve some of 
+the intelligibility. 
+
+Our empirical result suggest that bagging small tree of only 2- 
+4 leaf yield the best accuracy. These be very small tree train 
+for one feature at a time and thus they divide the number line into 2- 
+4 subintervals. We could imagine replace bag decision tree 
+with some type of dynamic program algorithm that directly 
+work on (possibly smoothed) subintervals of the number line. 
+
+6. RELATED WORK 
+Generalized additive model be introduce by the statistic 
+
+community [14, 15, 22] and have be extend to include LASSO 
+feature selection [18] and to incorporate interaction term [16]. 
+Binder and Tutz perform a comprehensive comparison of meth- 
+od for fitting GAMs with regression spline [7]. They compare 
+backfitting, boosting, and penalize iteratively re-weighted least 
+square on simulated datasets. Our work differs from theirs in that 
+we examine both regression spline and regression trees, most of 
+our experiment be with real datasets, we look at both regression 
+and classification, and we introduce a new method that be more ac- 
+curate than splines. 
+
+Methods have be propose for fitting GAMs with arbitrary 
+
+link function where the link function also be unknown and must 
+be fitted. ACE [9] be probably the most well-known method for 
+fitting these kind of GAMs. We do not evaluate ACE in this work 
+because learn link function can be complex, make it difficult 
+to interpret the feature shape models. We focus on the identity and 
+logit link function because these be the link function appropriate 
+for regression and classification. 
+
+Forman et al. propose feature shape for linear SVM classi- 
+fiers [11]. Their focus be on estimate the posterior probability 
+P (y = 1|xi = v). 
+
+Recently there have be effort to scale GAMs. [17] us MapRe- 
+duce to parallelize gradient boost and large tree construction. 
+[20] parallelizes grow regression tree via gradient boost us- 
+ing a master-worker paradigm where data be partition among 
+workers. The algorithm carefully orchestrates overlap between com- 
+munication and computation to achieve good performance. 
+
+7. CONCLUSIONS 
+We present a comprehensive empirical study of algorithm for 
+
+fitting generalize additive model (GAMs) with spline and tree- 
+base shape functions. Our bias-variance analysis show that spline- 
+base method tend to underfit and thus may miss important non- 
+smooth structure in the shape models. As expected, the bias-variance 
+analysis also show that tree-based method be prone to overfitting 
+and require careful regularization. We also introduce a new GAM 
+
+
+
+0 
+
+10 
+
+20 
+
+30 
+
+40 
+
+50 
+
+60 
+
+70 
+
+P-LS 
+BST-SP 
+BF-SP 
+BST-TR2 
+BST-TR3 
+BST-TR4 
+BST-TR8 
+BST-TR12 
+BST-TR16 
+BST-bagTR2 
+BST-bagTR3 
+BST-bagTR4 
+BST-bagTR8 
+BST-bagTR12 
+
+BST-bagTR16 
+
+BF-TR 
+BF-bagTR 
+BF-bstTR2 
+BF-bstTR3 
+BF-bstTR4 
+BF-bstTR8 
+BF-bstTR12 
+BF-bstTR16 
+BF-bbTR2 
+BF-bbTR3 
+BF-bbTR4 
+BF-bbTR8 
+BF-bbTR12 
+BF-bbTR16 
+
+Bias 
+Variance 
+
+(a) Concrete 
+
+0 
+
+0.1 
+
+0.2 
+
+0.3 
+
+0.4 
+
+0.5 
+
+0.6 
+
+0.7 
+
+0.8 
+
+0.9 
+
+P-LS 
+BST-SP 
+BF-SP 
+BST-TR2 
+BST-TR3 
+BST-TR4 
+BST-TR8 
+BST-TR12 
+BST-TR16 
+BST-bagTR2 
+BST-bagTR3 
+BST-bagTR4 
+BST-bagTR8 
+BST-bagTR12 
+
+BST-bagTR16 
+
+BF-TR 
+BF-bagTR 
+BF-bstTR2 
+BF-bstTR3 
+BF-bstTR4 
+BF-bstTR8 
+BF-bstTR12 
+BF-bstTR16 
+BF-bbTR2 
+BF-bbTR3 
+BF-bbTR4 
+BF-bbTR8 
+BF-bbTR12 
+BF-bbTR16 
+
+Bias 
+Variance 
+
+(b) Wine 
+
+0 
+0.05 
+0.1 
+
+0.15 
+0.2 
+
+0.25 
+0.3 
+
+0.35 
+0.4 
+
+0.45 
+0.5 
+
+P-LS 
+BST-SP 
+BF-SP 
+BST-TR2 
+BST-TR3 
+BST-TR4 
+BST-TR8 
+BST-TR12 
+BST-TR16 
+BST-bagTR2 
+BST-bagTR3 
+BST-bagTR4 
+BST-bagTR8 
+BST-bagTR12 
+
+BST-bagTR16 
+
+BF-TR 
+BF-bagTR 
+BF-bstTR2 
+BF-bstTR3 
+BF-bstTR4 
+BF-bstTR8 
+BF-bstTR12 
+BF-bstTR16 
+BF-bbTR2 
+BF-bbTR3 
+BF-bbTR4 
+BF-bbTR8 
+BF-bbTR12 
+BF-bbTR16 
+
+Bias 
+Variance 
+
+(c) Delta 
+
+0 
+
+20 
+
+40 
+
+60 
+
+80 
+
+100 
+
+120 
+
+140 
+
+160 
+
+180 
+
+P-LS 
+BST-SP 
+BF-SP 
+BST-TR2 
+BST-TR3 
+BST-TR4 
+BST-TR8 
+BST-TR12 
+BST-TR16 
+BST-bagTR2 
+BST-bagTR3 
+BST-bagTR4 
+BST-bagTR8 
+BST-bagTR12 
+
+BST-bagTR16 
+
+BF-TR 
+BF-bagTR 
+BF-bstTR2 
+BF-bstTR3 
+BF-bstTR4 
+BF-bstTR8 
+BF-bstTR12 
+BF-bstTR16 
+BF-bbTR2 
+BF-bbTR3 
+BF-bbTR4 
+BF-bbTR8 
+BF-bbTR12 
+BF-bbTR16 
+
+Bias 
+Variance 
+
+(d) CompAct 
+
+0 
+
+20 
+
+40 
+
+60 
+
+80 
+
+100 
+
+120 
+
+140 
+
+160 
+
+180 
+
+P-LS 
+BST-SP 
+BF-SP 
+BST-TR2 
+BST-TR3 
+BST-TR4 
+BST-TR8 
+BST-TR12 
+BST-TR16 
+BST-bagTR2 
+BST-bagTR3 
+BST-bagTR4 
+BST-bagTR8 
+BST-bagTR12 
+
+BST-bagTR16 
+
+BF-TR 
+BF-bagTR 
+BF-bstTR2 
+BF-bstTR3 
+BF-bstTR4 
+BF-bstTR8 
+BF-bstTR12 
+BF-bstTR16 
+BF-bbTR2 
+BF-bbTR3 
+BF-bbTR4 
+BF-bbTR8 
+BF-bbTR12 
+BF-bbTR16 
+
+Bias 
+Variance 
+
+(e) Music 
+
+0 
+
+0.02 
+
+0.04 
+
+0.06 
+
+0.08 
+
+0.1 
+
+0.12 
+
+0.14 
+
+P-LS 
+BST-SP 
+BF-SP 
+BST-TR2 
+BST-TR3 
+BST-TR4 
+BST-TR8 
+BST-TR12 
+BST-TR16 
+BST-bagTR2 
+BST-bagTR3 
+BST-bagTR4 
+BST-bagTR8 
+BST-bagTR12 
+
+BST-bagTR16 
+
+BF-TR 
+BF-bagTR 
+BF-bstTR2 
+BF-bstTR3 
+BF-bstTR4 
+BF-bstTR8 
+BF-bstTR12 
+BF-bstTR16 
+BF-bbTR2 
+BF-bbTR3 
+BF-bbTR4 
+BF-bbTR8 
+BF-bbTR12 
+BF-bbTR16 
+
+Bias 
+Variance 
+
+(f) Synthetic 
+
+Figure 6: Bias-variance analysis for the six regression problem (bias = red at bottom of bars; variance = green at top of bars). 
+
+method base on gradient boost of size-limited bag tree that 
+yield significantly more accuracy than previous algorithm on both 
+regression and classification problem while retain the intelligi- 
+bility of GAM models. 
+
+Acknowledgments. We thank the anonymous reviewer and 
+Daria Sorokina for their valuable comments. This research have 
+be support by the NSF under Grants IIS-0911036 and IIS- 
+1012593 and by a gift from NEC. Any opinions, findings, conclu- 
+sion or recommendation express be those of the author and 
+do not necessarily reflect the view of the sponsors. 
+
+8. REFERENCES 
+[1] http://archive.ics.uci.edu/ml/. 
+[2] http://www.liaad.up.pt/~ltorgo/ 
+
+Regression/DataSets.html. 
+[3] http://www.cs.toronto.edu/~delve/data/ 
+
+datasets.html. 
+[4] http://osmot.cs.cornell.edu/kddcup/. 
+[5] http://additivegroves.net. 
+[6] E. Bauer and R. Kohavi. An empirical comparison of voting 
+
+classification algorithms: Bagging, boosting, and variants. 
+Machine learning, 36(1):105–139, 1999. 
+
+[7] H. Binder and G. Tutz. A comparison of method for the 
+fitting of generalize additive models. Statistics and 
+Computing, 18(1):87–99, 2008. 
+
+[8] L. Breiman. Random forests. Machine learning, 45(1):5–32, 
+2001. 
+
+[9] L. Breiman and J. Friedman. Estimating optimal 
+transformation for multiple regression and correlation. 
+Journal of the American Statistical Association, page 
+580–598, 1985. 
+
+[10] R. Caruana and A. Niculescu-Mizil. An empirical 
+comparison of supervise learn algorithms. In ICML, 
+2006. 
+
+[11] G. Forman, M. Scholz, and S. Rajaram. Feature shape for 
+linear svm classifiers. In KDD, 2009. 
+
+[12] J. Friedman. Greedy function approximation: a gradient 
+boost machine. Annals of Statistics, 29:1189–1232, 2001. 
+
+[13] J. Friedman. Stochastic gradient boosting. Computational 
+Statistics and Data Analysis, 38:367–378, 2002. 
+
+[14] T. Hastie and R. Tibshirani. Generalized additive model 
+(with discussion). Statistical Science, 1:297–318, 1986. 
+
+[15] T. Hastie and R. Tibshirani. Generalized additive models. 
+Chapman & Hall/CRC, 1990. 
+
+[16] G. Hooker. Generalized functional anova diagnostics for 
+high-dimensional function of dependent variables. Journal 
+of Computational and Graphical Statistics, 16(3):709–732, 
+2007. 
+
+[17] B. Panda, J. Herbach, S. Basu, and R. Bayardo. Planet: 
+massively parallel learn of tree ensemble with 
+mapreduce. PVLDB, 2009. 
+
+[18] P. Ravikumar, H. Liu, J. Lafferty, and L. Wasserman. Sparse 
+additive models. Journal of the Royal Statistical Society: 
+Series B (Statistical Methodology), 71(5):1009–1030, 2009. 
+
+[19] D. Sorokina, R. Caruana, and M. Riedewald. Additive grove 
+of regression trees. In ECML, 2007. 
+
+[20] S. Tyree, K. Weinberger, K. Agrawal, and J. Paykin. Parallel 
+boost regression tree for web search ranking. In WWW, 
+2011. 
+
+[21] S. Wood. Thin plate regression splines. Journal of the Royal 
+Statistical Society: Series B (Statistical Methodology), 
+65(1):95–114, 2003. 
+
+[22] S. Wood. Generalized additive models: an introduction with 
+R. CRC Press, 2006. 
+
+

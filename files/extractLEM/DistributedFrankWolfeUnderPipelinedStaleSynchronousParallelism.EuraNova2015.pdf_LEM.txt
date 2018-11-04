@@ -1,0 +1,1495 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+untitled 
+
+
+2015 IEEE International Conference on Big Data (Big Data) 
+
+978-1-4799-9926-2/15/$31.00 ©2015 IEEE 184 
+
+Distributed Frank-Wolfe under Pipelined Stale Synchronous Parallelism 
+
+Nam-Luc Tran, Thomas Peel, Sabri Skhiri 
+EURA NOVA 
+
+Email: {namluc.tran, thomas.peel, sabri.skhiri} 
+@euranova.eu 
+
+Abstract—Iterative-convergent algorithm represent an im- 
+portant family of application in big data analytics. These be 
+typically run on distribute processing framework deployed 
+on a cluster of machines. On the other hand, we be witness 
+the move towards data center operating system (OS), where 
+resource be unified by a resource manager and processing 
+framework coexist with each other. In this context, different 
+processing framework job task can be schedule on the same 
+machine and slow down a worker (straggler problem). Existing 
+work have show that an iteration model with relaxed consis- 
+tency such a the Stale Synchronous Parallel (SSP) model, while 
+still guarantee convergence, be able to cope with stragglers. 
+In this paper we propose a model for the integration of the 
+SSP model on a pipelined distribute processing framework. 
+We then apply SSP on a distribute version of the Frank- 
+Wolfe algorithm. We theoretically show it sparsity bound 
+and convergence under SSP. Finally, we experimentally show 
+that the Frank-Wolfe algorithm apply on LASSO regression 
+under SSP be able to converge faster than it BSP counterpart, 
+especially under load condition similar to those encounter 
+in a data center OS. 
+
+Keywords-stale synchronous parallel; distribute convex op- 
+timization; Frank-Wolfe; LASSO regression; parameter server; 
+big data 
+
+I. INTRODUCTION 
+
+Big data analytics have reach a certain level of maturity 
+in industry and science [1]. Machine learn algorithm be 
+one of the most important application of big data distribute 
+processing frameworks. These algorithm be different from 
+traditional workload by their iterative-convergent nature: 
+they iterate until they reach a threshold value, such a 
+in minimize a prediction error. Distributed processing 
+framework such a Twister [2], Haloop [3] or ScalOps [4] 
+implement the Bulk Synchronous Parallel (BSP) paradigm 
+[5] and be optimize for this type of iterative workload. 
+
+New approach have try to push forward those ma- 
+chine learn processing optimization by implement a 
+pipelined architecture in which tuples of data be stream 
+through a set of operators. This be the case for Dryad and 
+Naiad [6], but also for Spark [7] that pipeline mini-batches 
+of resilient distribute datasets (RDD), or even more recently 
+Flink [8]–[10]. Those pipelined architecture present inter- 
+esting advantage such a increase performance and the 
+ability to implement within the same framework both the 
+batch and speed layer of the lambda architecture [11]. All 
+
+Figure 1. Within a data center operating system, all resource be unified 
+by a resource manager and different framework compete with each other 
+for the allocation of resource with regard to the task they execute. 
+
+those new approach be however still base on the BSP 
+paradigm. 
+
+Following the recent evolution in data center towards the 
+unification of compute resources, BSP-based framework 
+could lead to negative impact in performance for such algo- 
+rithms. Indeed, the rise of resource manager such a Mesos 
+[12], Yarn [13], Omega [14] and Corona [15] have define 
+the concept of data center operating system a illustrate 
+in Figure 1. The comparison be often use to describe 
+a modern data center make from a cluster of machines, 
+see individually a resources, on which task workload be 
+submit in a transparent way. The resource manager auto- 
+matically provision and executes the tasks, and dynamically 
+shrink (deallocation) or increase (allocation) the resource 
+dedicate to the task of a framework. The whole system 
+be optimize in term of CPU, memory, disk I/O and data 
+locality. This brings the follow advantages: high rate of 
+data center usage, optimize automation and abstraction of 
+the resources. 
+
+Coming back to iterative-convergent tasks, this mean that 
+a BSP worker run on a machine be not isolated anymore 
+from other framework in the cluster. As a result, another 
+set of task can be schedule on the same machine and 
+slow down the worker. This kind of worker be identify a a 
+straggler in [16] where it be show that BSP program 
+dramatically suffers in the presence of stragglers. Instead, 
+the author of [16] propose the Stale Synchronous Parallel 
+
+
+
+185 
+
+(SSP) model of computation. 
+In the SSP paradigm, the synchronization barrier be re- 
+
+laxed in each superstep and faster worker continue to 
+iterate on stale version of the model, a show in Figure 
+2. Convergence and correctness of the solution be still 
+guaranteed for most of the iterative-convergent algorithms. 
+There be however currently no model for the implementation 
+of SSP on pipeline or stream architectures. 
+
+We focus on the distribute Frank-Wolfe algorithm a 
+we think that it be an excellent candidate for asynchronous 
+processing and especially within bound staleness a 
+be the case for SSP. The Frank-Wolfe algorithm aim at 
+solve convex optimization problem over a convex set 
+and have regain a lot of interest in the machine learn 
+community especially in large-scale applications. In it 
+basic version [17] the algorithm consists of a first phase 
+where parallel computation be perform with regard 
+to a selection criteria, follow by a synchronization 
+phase where the best candidate from the previous phase 
+be selected, in a pure BSP fashion. This work follow the 
+distribute Frank-Wolfe algorithm investigate in a fully 
+synchronous manner by [18] and already discuss in an 
+asynchronous set in [19]. 
+
+Our contribution: In this paper, we propose (1) an 
+SSP model base on the Apache Flink1 pipeline architecture, 
+(2) an asynchronous distribute Frank-Wolfe optimization 
+algorithm adapt to our propose SSP model and (3) an 
+empirical evaluation of an implementation of the well-known 
+LASSO regression algorithm [20] use our optimization 
+scheme in the core of the algorithm. Flink’s pipelining 
+engine and stream API make it a first choice for pipelined 
+SSP. Our model however be generic and can be apply a 
+such on pure stream processing architecture such a Storm 
+or SAMOA [21]. 
+
+We show a few theoretical result in a bad case scenario 
+include a convergence analysis of the distribute Frank- 
+Wolfe algorithm under SSP and an upper bound on the 
+sparsity of the final solution. Those result be then evaluate 
+in practice through an application of our algorithm to solve 
+a synthetic LASSO regression problem i.e. a l1 regularize 
+sparse approximation problem. Our choice of the LASSO be 
+motivate by it popularity in the feature selection domain 
+make it a good candidate to highlight our method. 
+
+This work be a first step toward a more detailed theoretical 
+analysis of our algorithm and an extension to the on-line 
+convex learn setting. 
+
+Outline: Section two discus our model for SSP 
+on a pipelined architecture. Section three describes the 
+distribute Franck-Wolfe algorithm in an asynchronous 
+environment leverage the SSP model. In this section, we 
+
+1The Apache Flink project: http://flink.apache.org 
+
+Figure 2. In Bulk Synchronous Parallelism (left), worker synchronize 
+their update to the model after each clock. Under Stale Synchronous 
+Parallelism (right), worker access the update of their co-worker in a 
+best-effort mode within the bound of staleness. 
+
+also present our proposal for the bound on the sparsity of the 
+solution a well a the theoretical proof of convergence of 
+our algorithm under SSP. The application of this algorithm 
+on LASSO regression be detailed in Section four. Finally, 
+Section five discus the experiment and the results. 
+
+Notations: In the rest of the paper, we denote vector 
+by bold low case letter x and matrix by bold upper 
+case letter A. ‖x‖0 be the number of non-zero entry in 
+the vector x. ∇f(α) denotes the gradient of a differentiable 
+function f take at α. We do not distinguish local worker 
+thread and worker thread locate on different hosts: we 
+call them all ”worker threads”. 
+
+II. STALE SYNCHRONOUS PARALLEL ITERATIONS IN 
+PIPELINED PROCESSING FRAMEWORKS 
+
+Distributed processing be one solution to the challenge 
+of treat big and big volume of data. There be 
+currently numerous framework that store and process data 
+in a distribute and scalable way. 
+
+In a distribute processing cluster, many situation can 
+lead to thread or process act slow than their peer for 
+some time. These process be call straggler and have 
+various causes, include the algorithm itself. Other reason 
+include hardware heterogeneity, skewed data distribution, 
+and garbage collection in the case of high-level languages. 
+Within data center operating system (Figure 1), other cause 
+for straggler include concurrency between task of different 
+frameworks. 
+
+The Bulk Synchronous Parallel model (BSP), one of the 
+most currently use paradigm in distribute processing 
+framework for iterative algorithms, have show it limit in 
+term of scalability [22]. The frequent and explicit nature 
+of the synchronization in BSP implies that each iteration 
+proceeds at the pace of the slowest thread. This lead 
+to poorer performance in the presence of stragglers. The 
+author of [23] have show that in some case the percentage 
+of effective time spent on the computation represent 25 
+percent of total time spent in the iteration, the rest of the time 
+be spent in network communication and synchronization. 
+
+
+
+186 
+
+A. Generalization of the iteration model 
+
+Within an iteration, a clock represent the amount of work 
+a worker performs on it data partition. Each worker do 
+not see the adjustment perform from the other worker 
+on their partition during a clock. This lead to the notion of 
+staleness which defines the number of clock during which a 
+worker do not see the adjustment from the other workers. 
+
+In Stale Synchronous Parallel processing (SSP), the stal- 
+ene parameter can take arbitrary value and different 
+worker can be at different value of clock, with the staleness 
+parameter define the maximum number of clock the 
+fast worker may be ahead of the slowest. Staleness be 
+a parameter to be tune depend on the algorithm and the 
+size of the cluster [16]. Under this generalization, BSP be the 
+particular case where the staleness parameter equal zero. 
+
+As there be no explicit barrier force every worker to 
+synchronize their adjustments, there be a need for a share 
+data structure that store the current algorithm state and that 
+the worker be able to update individually on each clock. 
+This component be call the parameter server. 
+
+In SSP, each worker start with an internal clock equal 
+to zero. The worker repeat the follow sequence: (1) 
+perform computation use the share model store in the 
+parameter server, (2) perform additive update to the share 
+model in the parameter server, (3) advance it internal clock 
+by 1. This sequence of operation result in a window 
+bound by the slowest and the fast worker, and with a 
+maximum length define by the staleness value (Figure 2). 
+The SSP condition [24] be such that within that window, each 
+worker see a noisy view of the system state, compose of, 
+on one hand, the update guaranteed until the low bound 
+of the window, and on the other side, the best-effort update 
+make within the window. 
+
+B. Convergence guarantee 
+
+To the best of our knowledge, the convergence proof for 
+the SSP model have be demonstrate only for the stochastic 
+gradient descent algorithm in [23] and [24]. Although the 
+author have use SSP for other algorithm such a latent 
+Dirichlet allocation, there be no formal demonstration for 
+variant such a coordinate descent algorithms. The dis- 
+tributed Frank-Wolfe algorithm belongs to the latter cate- 
+gory. In this paper, we propose an SSP implementation for 
+the distribute Frank-Wolfe algorithm a well a a theoretical 
+proof of it convergence under SSP. 
+
+C. Integration model on pipelined processing framework 
+
+In a pipelined architecture, the distribute processing 
+framework process the data tuples one by one by stream 
+them through the operator that compose the dataflow graph 
+of operations. From an architectural viewpoint, this can be 
+see a a stream processing environment on which the data 
+tuples be stream to the workers. 
+
+Figure 3. SSP iteration control model for a pipelined distribute processing 
+framework. (a) Workers communicate their internal clock to the sink, which 
+communicates the cluster-wide clock, use an event-driven architecture. (b) 
+Overview of the parameter server, built on top of a data grid. Each worker 
+store a partition of the grid and automatically benefit from local read 
+and replication of the grid. 
+
+In this context we have design SSP iteration to work in 
+such pipelined frameworks. Instead of rely on a design 
+center around the parameter server which handle both 
+the clock synchronization between worker through block 
+call and the storage of the parameter a in [24], we break 
+down the architecture in two components: the first part 
+handle the staleness synchronization among worker and 
+the second provide a share data structure between workers. 
+
+As a result, the most important change come from (1) the 
+event-driven nature of the parameter server and (2) the adap- 
+tation of the iteration control model to be SSP-compliant. 
+In Flink, when a job be submitted, it be first compile into 
+a dataflow graph of task include the execution control 
+structures, and then transform into a physical execution 
+plan that defines where each task will be executed. The task 
+that handle iteration be control by special structure that 
+we call the iteration control model. 
+
+In the current iteration control model, all the task 
+spawn by an iterative job be connect to a clock 
+synchronization sink in an event-driven fashion. The 
+clock synchronization sink hold the value of the current 
+cluster-wide clock, define a the minimum clock value 
+among the workers. Each time a worker finish a clock 
+within an iterative task, it sends it update clock to the 
+clock synchronization task. The clock synchronization 
+task collect all the clock update from the worker, and 
+keep track of all the internal clock for each worker. 
+Each time the minimum clock value changes, the clock 
+synchronization sink broadcast the value to all the worker 
+a the new cluster-wide clock value. This process be 
+formalize on Figure 1. 
+
+During the execution, a worker start work on it 
+next clock only if it own clock value be not great than 
+the cluster-wide clock plus the value of the staleness. 
+This constraint guarantee that the fast worker be never 
+ahead of the slowest worker by a number of clock great 
+than the value of the staleness, and thus verifies the SSP 
+condition [24]. Algorithm 3 illustrates the process of a 
+
+
+
+187 
+
+1: C = (0, 0, 0 . . .) where |C| = |V | and V be the set of 
+all worker 
+
+2: clock = 0 
+
+3: loop 
+4: ci = receive clock for worker vi 
+5: Ci = ci 
+
+6: if min(C) > clock then 
+7: clock = min(C) 
+
+8: Broadcast clock to all worker a the new cluster- 
+wide clock 
+
+9: end if 
+10: end loop 
+
+Algorithm 1. Process of the clock synchronization task involve in the 
+SSP iteration control model. 
+
+worker under SSP accord to our iteration control model. 
+The parameter server be built on top of a data grid 
+
+distribute among all the worker in the cluster. This have 
+the advantage that writes make by a worker to the grid be 
+propagate and replicate to each of the worker in the 
+background. Values write by a worker be locally store 
+on it partition of the grid. Writes to the model overwrite the 
+version present on the parameter server and read always 
+return the late update write to the parameter server. 
+The latter have the effect of directly “pushing” the late 
+version of the share model and allows slow worker to 
+immediately benefit from the advance of faster workers, 
+while the former enables the benefit of local access in a 
+pipelined implementation of SSP. 
+
+Finally, one can notice that this implementation be fully 
+applicable on pure stream processing system such a Storm. 
+
+Related work: Peetuum be the implementation of a 
+parameter server use for SSP iteration a described in 
+[23]. The SSP iteration control model be implement a 
+block call to the workers. In a more recent contribution, 
+[24] describes Eager SSP (ESSP) in which update to the 
+model be push immediately to the workers. In our SSP 
+integration model, writes to the parameter server overwrite 
+
+1: Let α(0) ∈ D 
+2: for k = 0, 1, 2, . . . do 
+3: s(k) = argmins∈D 〈s,∇f(α(k))〉 
+4: α(k+1) = (1 − γ)α(k) + γs(k), where γ = 2k+2 or 
+
+obtain via line-search 
+5: end for 
+6: stop criterion: 〈α(k) − s(k),∇f(α(k))〉 ≤ � 
+
+Algorithm 2. The Frank-Wolfe algorithm. 
+
+the value already present. This lead to the same effect a 
+ESSP in practice. 
+
+The concept of microstep iteration describe a setup 
+where data be partition among worker and each iteration 
+take a single element from a work set and update an 
+element in a solution set have be define in [25]. When 
+the data flow between the solution set and the work 
+set do not cross partition boundaries, this lead to fully 
+asynchronous iterations. However, in distribute processing 
+frameworks, this make iteration control difficult a well 
+a the checkpointing of intermediate result for recovery. 
+These issue however can be address with a parameter 
+server approach. 
+
+III. DEFINITION OF THE DISTRIBUTED FRANK-WOLFE 
+ALGORITHM UNDER STALE SYNCHRONOUS 
+
+PARALLELISM 
+
+In this section, we remind the reader of the basic Frank- 
+Wolfe algorithm and it distribute counterpart. Then, we 
+present our variant of the distribute version under the SSP 
+paradigm. Finally, we state some nice property of our 
+algorithm and compare it to related works. 
+
+A. The Frank-Wolfe algorithm 
+
+The Frank-Wolfe algorithm [17] be a simple yet powerful 
+algorithm target the follow optimization problem: 
+
+min 
+x∈D 
+
+f(x), (1) 
+
+where the f be a continuously differentiable convex function, 
+and the domain D be a compact convex subset of R. 
+Algorithm 2 show the basic Frank-Wolfe algorithm. 
+
+Despite it simplicity, the Frank-Wolfe algorithm show 
+nice convergence properties: let α∗ be the optimal solution 
+of Equation (1), Theorem 1 state that the Frank-Wolfe 
+algorithm find an �-approximate solution α̃ after O(1/�) 
+iteration at most. 
+
+Theorem 1 (Jaggi, 2013 [26]). Let Cf be the curvature of 
+f . Algorithm 2 output a feasible point α̃ satisfy f(α̃)− 
+f(α∗) ≤ � after at most (1+δ)×6.75Cf/� iteration where 
+δ ≥ 0 be the accuracy to which the linear sub-problems be 
+solved. 
+
+The O(1/�) standard convergence rate of the Frank-Wolfe 
+algorithm compare badly to optimal first order methods.2 
+
+However, the Frank-Wolfe method iterates have good proper- 
+ties. For example, when the convex domain D = conv(S) be 
+a convex hull of another set S then the iterates be express 
+a a linear combination of element from S . In such a 
+setting, if the element (referred to a atom thereafter) 
+expose a structure (sparsity or low-rank) then the iterates can 
+inherit this structure. Moreover, only one atom per iteration 
+
+2This can be improve with additional assumption (see [27] and 
+reference therein). 
+
+
+
+188 
+
+can be add to the current solution. Thus, the iterates of 
+the algorithm have a compact representation that can be 
+leveraged to reduce the memory usage of the algorithm. 
+We now recall the distribute version of the Frank-Wolfe 
+algorithm. 
+
+B. Distributed Frank-Wolfe algorithm 
+
+In [28], the author propose a distribute version of this 
+algorithm to solve a slightly different problem, namely : 
+
+min 
+α∈Rn 
+
+f(α) s.t. ‖α‖1 ≤ β, (2) 
+
+where f(α) = g(Aα) for a matrix A = [a1, . . . ,an] ∈ 
+Rd×n with d << n. We name atom a column of the matrix 
+A. We assume with no loss of generality that the atom be 
+unit norm vectors: ‖ai‖2 = 1. We consider the column-wise 
+partition of A across a set of N worker V = {vi}Ni=1. 
+A node vi be give a set of column denote by Ai such 
+that 
+
+⋃ 
+i Ai = A and Ai 
+
+⋂Aj = ∅ ∀i �= j. In this setting, 
+one wish to find a weight vector α ∈ Rn under a sparsity 
+constraint. This formulation be tightly related to optimize 
+over an atomic set a mention in [26] and fit well to the 
+distribute setting: on the one hand the linear sub-problems 
+can be compute in parallel and on the other hand the iterates 
+be a sparse linear combination of atom allow for an 
+efficient communication scheme. 
+
+Each iteration of the algorithm propose in [28] take 
+place in three steps: 
+
+Step 1 : each worker computes the best atom si locally 
+and broadcast it to all other workers, 
+Step 2 : each worker elect the best atom from all the 
+atom it have received, 
+Step 3 : each worker update it local version of pa- 
+rameter α use the atom select during the previous 
+step. 
+
+This algorithm be part of the BSP iterative algorithm 
+paradigm and the author demonstrate the convergence and 
+correctness of their approach. In [28] the author focus on 
+decrease the amount of communication and the wait 
+cost of their procedure and propose an extension to case 
+where worker be heterogeneous. Basically, they propose 
+to distribute less atom to slow worker and more to the 
+fast one by run a cluster algorithm to group atom 
+around centroid that they propose to use a proxy on 
+which to run the Frank-Wolfe algorithm. 
+
+However, they notice that run their algorithm in 
+a simulated asynchronous environment not only converges 
+but also have a high acceleration potential. When straggler 
+randomly appear among workers, a common scenario in a 
+data center OS, an unbalanced partition like the one pro- 
+pose in [28] be not appropriate. Moreover, in such situation, 
+obtain a dynamic load-balancing schedule policy can 
+be costly. This scenario lead u to explore an asynchronous 
+variant we describe in the follow subsection. 
+
+C. Distributed Frank-Wolfe under SSP 
+
+We propose an asynchronous version of the distribute 
+Frank-Wolfe algorithm base on the SSP paradigm. More 
+precisely, each worker can use a locally optimal atom in 
+order to update it current possibly out-of-date, but with 
+bound staleness, version of the parameter vector α. Our 
+claim be that avoid the synchronize update step can help 
+the algorithm be tolerant to the straggler problem without 
+sacrifice the convergence rate. Algorithm 3 formalizes 
+the use of the SSP paradigm to reach our goal. At each 
+iteration, each worker request the current value of the 
+parameter store in a parameter server. Then, it process 
+the sub-problem optimization step with respect to it local 
+atom set. Finally, it update the parameter and writes the 
+new parameter value on the parameter server. 
+
+Implementation details: The atom be in the sup- 
+port of the current solution be store only once in a share 
+replicate cache and the coefficient be partition across 
+worker in another cache. This allows for communication- 
+efficient update propagation. The solution be update in 
+a greedy fashion. This can lead to lose improvement 
+make by worker upstream when a late worker update the 
+parameter vector α. To prevent this kind of scenario, the 
+function updateParameter check the improvement between 
+the current store solution and the solution to be inserted. 
+Hence, our algorithm be guaranteed to make improvement 
+at each iteration. This lead to the follow theorem that 
+state the convergence of our algorithm. 
+
+Theorem 2 (Convergence of Algorithm 3). Let Cf be the 
+curvature of f . Algorithm 3 output a feasible point α̃ satis- 
+fying f(α̃)−f(α∗) ≤ � after at most 2s×(1+δ)×6.75Cf/� 
+iteration where δ ≥ 0 be the accuracy to which the linear 
+sub-problems be solved. 
+
+Sketch of proof: The intuition behind the proof be 
+the following. Each worker can only improve the current 
+solution. Moreover, because of the SSP paradigm, we be 
+assure to see each atom at least once every 2 iterations. 
+Thus, we make an update that be a good a Frank-Wolfe 
+update every 2 iteration at least. 
+
+This convergence rate be a bad case result that badly 
+compare to the original distribute Frank-Wolfe algorithm. 
+However, in practice, we show in Section V that our 
+algorithm converges more quickly to the optimum. A more 
+detailed analysis of this property be left for future work. 
+
+We shall now make two proposition related to property 
+of the distribute Frank-Wolfe algorithm under SSP. The first 
+one be that our asynchronous set do not increase too 
+much the number of non-zero entry of each of the iterates 
+that remain upper bounded. 
+
+Proposition 1 (Sparsity of the iterates). At iteration k, the 
+
+
+
+189 
+
+1: Let α(0)i = 0, ci = 0 for all worker vi ∈ V , clock = 0 
+and s the staleness parameter. 
+
+2: clock be update onwards from the clock synchroniza- 
+tion sink 
+
+3: for all worker vi ∈ V in parallel do 
+4: repeat 
+5: if ci ≤ clock + s then 
+6: α(ci) = getParameter() 
+
+7: s(ci) = argmins∈Di 〈s,∇f(α(ci))i〉 
+8: α(ci+1) = (1 − γ)α(ci) + γs(ci), where γ be 
+
+obtain via line-search 
+9: updateParameter 
+
+( 
+i, ci,α 
+
+(ci+1) 
+) 
+
+10: ci = ci + 1 
+
+11: send ci to the clock synchronization sink 
+12: else 
+13: wait until ci ≤ clock + s 
+14: end if 
+15: until 〈α(ci) − s(ci),∇f(α(ci))〉 ≤ � for all node vi 
+16: end for 
+
+Algorithm 3. Stale Synchronous Parallel distribute Frank-Wolfe Algo- 
+rithm. The main contribution lie in the staleness bound (line 5) in which 
+at each clock iteration the late parameter be obtain (line 6). The local 
+optimal value be update (lines 7-8) and an update to the parameter server 
+be sent (line 9). Finally, the clock be incremented and propagate (lines 
+10-11). 
+
+number of non-zero element in the weight vector αk be at 
+most : 
+
+‖αk‖0 ≤ k ×N (3) 
+Proof: It be easy to prove the proposition by induction 
+
+on k. At the first iteration, k = 1 and since each worker 
+can only add one atom per iteration to the current solution, 
+hence add only one non-zero coefficient, we have that 
+‖α1‖0 ≤ N . In the bad case scenario, worker sequen- 
+tially update the parameter within each iteration and since 
+Ai 
+
+⋂Aj = ∅ ∀i �= j there be at most N new non-zero entry 
+in αk+1 compare to αk. Suppose that the assumption hold 
+at iteration k and show that it hold for k + 1 : 
+
+‖αk+1‖0 ≤ ‖αk‖0 +N 
+≤ k ×N +N 
+≤ (k + 1)×N, 
+
+where the first line come from the precede observation 
+and the second one be give by our induction hypothesis. 
+This concludes the proof. 
+
+The second proposition deal with an interest metric 
+which be the communication cost incur by our algorithm. 
+It tell u that the communication cost be not bad than 
+
+the one of the distribute Frank-Wolfe algorithm [28] in a 
+star network setting. Actually, in practice, the cost be slightly 
+low in our implementation because we do not need to send 
+over the network an atom that have already be chosen in 
+a previous iteration. Indeed, we leverage the cache feature 
+of the parameter server. Note that the algorithm of [28] can 
+also benefit from this feature with a small change. 
+
+Proposition 2 (Communication cost). We assume that send- 
+ing a number over the network have a constant cost. Then 
+the total communication cost of our algorithm to obtain an 
+� approximate solution be at most 
+
+O (δ × (N2 +Nd)× 6.75Cf/�) . 
+Sketch of proof: This result be a straightforward appli- 
+
+cation of Theorem 1 jointly with Proposition (1). 
+
+Again, this be a bad case result assume that none of 
+the atom be select twice. In practice, we will see that 
+atom be select multiple time and hence we can leverage 
+the atom grid that cache the already select atom at a 
+worker level avoid unnecessary atom broadcasting once 
+it be present in the cache. 
+
+Related work: In [28], the author have already 
+point out that their algorithm be robust to asynchronous 
+updates. Under random communication drop to simulated 
+asynchronism, they show that their algorithm empirically 
+converges. In [19], the author study an asynchronous 
+version of the Frank-Wolfe algorithm to solve a convex 
+optimization problem subject to block-separable constraint 
+and they discus a distribute variant of the algorithm. In 
+a nutshell, they sample group of atom from the entire set 
+and each of these be process asynchronously by a worker 
+lie in a worker pool. When the sub-samples set be empty, 
+they update the parameter and repeat the procedure until 
+a convergence criterion be met. They propose an extension 
+in order to leverage a distribute environment. Each worker 
+asynchronously sample one block of coordinate at a time 
+and give back it result to a parameter server. Every τ 
+result received, the parameter server update the parameter 
+and broadcast the new value the workers. This work be 
+related to what we present in this paper but instead of let 
+worker randomly choose block of variable we leverage 
+the data locality provide by our pipelined set such that 
+each block be assign to a worker at the begin of the 
+process. In such a set we be sure not to process the 
+same block more than once at each iteration, thus reduce 
+the number of redundant computation that can appear in 
+[19]. Moreover, a our update take place at the worker- 
+side there be no computation overhead at the task manager. 
+Finally, we propose a more detailed view on how atom be 
+store and sent to workers. 
+
+
+
+190 
+
+IV. APPLICATION: LASSO REGRESSION 
+
+We choose the LASSO algorithm [20] to empirically 
+validate the effectiveness of our approach. LASSO be a 
+linear regression method for solve the follow sparse 
+approximation problem : 
+
+min 
+α∈Rn 
+
+1 
+2 ‖y −Aα‖22 s.t. ‖α‖1 ≤ β, (4) 
+
+where we seek to approximate the target value yi for the 
+training point i by a sparse linear combination of it feature 
+aij , use the same small number of feature for all data 
+points. 
+
+A. Duality gap 
+
+The Frank-Wolfe algorithm expose a nice certificate for 
+the current iterate quality, the so-called duality-gap : 
+
+h(α) = max 
+α∈D 
+
+〈α− s,∇f(α)〉 ≥ f(α)− f(α∗). 
+Given that s be a minimizer of the linearize problem 
+at point α, the duality gap be give by the by-product 
+〈α − s,∇f(α)〉. Moreover in the special case of LASSO, 
+the duality-gap be fast to compute. This quantity, a show 
+below, only depends on information that be available at each 
+worker level : 
+
+〈α− s,∇f(α)〉 = − (α− s)T AT (y −Aα) 
+= (A (s−α))T (y −Aα) 
+= (As−Aα)T r 
+
+The residual be easily computable by each worker (or it can 
+be broadcast along with the current sparse approximation) 
+and s belongs to the set of available column of this worker. 
+Moreover, the matrix-vector product only involve sparse 
+vector : As be only the multiplication of a column of A by 
+a scalar. 
+
+B. Line search 
+
+For LASSO, the line search problem can be obtain 
+analytically with nearly no additional computation cost. 
+Indeed, the optimal step-size be obtain by solve the 
+follow problem : 
+
+γ∗ = argmin 
+γ∈[0,1] 
+
+f 
+( 
+α(k) + γ(s(k) −α(k)) 
+
+) 
+, (5) 
+
+which be equivalent to find the minimum of a quadratic 
+function. Setting the derivative with respect to γ to zero 
+give : 
+
+∂f 
+
+∂γ 
+= 0 ⇔ − (A(s−α))T (y −A(α+ γ∗(s−α)) = 0 
+
+⇔ γ∗ = (s−α) 
+T 
+AT (y −Aα) 
+
+‖A(s−α)‖22 
+⇔ γ∗ = 〈α− s,∇f(α)〉‖A(s−α)‖22 
+
+Thus 
+
+γ∗ = max 
+( 
+0, min 
+
+( 
+1, 
+
+〈α− s,∇f(α)〉 
+‖A(s−α)‖22 
+
+)) 
+(6) 
+
+The optimal step-size be obtain through the duality-gap and 
+‖A(s−α)‖22 can be evaluate efficiently (because A(s−α) 
+be available a it be involve in the duality-gap computation). 
+
+V. EXPERIMENTS 
+We have implement the SSP model on an exist 
+
+pipelined distribute processing framework. The pipelined 
+model we have described do not rely on any particular 
+framework feature and be suit for most exist frame- 
+work support a pipelined setup. We have chosen the 
+Apache Flink project a the basis for our implementation. 
+At it core Flink defines each data processing job a a 
+dataflow graph with pipelined operators. The graph describes 
+the transformation of the data set during the process. 
+
+The platform support the execution of iterative algo- 
+rithms with a convergence criterion. Like many other frame- 
+works, it support the bulk synchronous parallel model for 
+iterative algorithm among distribute workers. We have ex- 
+tend the exist structure for the control of the iteration 
+to implement SSP and we have integrate our own parameter 
+server built on top of a data grid. 
+
+We have run experiment on sparse random matrix of 
+dimension 1.000 × 10.000 with a sparsity ratio of 0.001 
+and a random vector α∗ such that ‖α∗‖0 = 100. For each 
+staleness bounds, we have repeat the experiment 5 times. 
+The cluster be compose of five node on the same switch, 
+each equip with a 2Ghz single-core equivalent and 3Gb 
+of memory. We use a plain BSP implementation of the 
+Frank-Wolfe algorithm in Flink with no use of the parameter 
+server a the baseline for our comparisons. 
+
+A. Convergence and quality of the solution 
+
+Figure 4 show the evolution of the residual over the 
+iterations. We observe that, despite the staleness introduce 
+by SSP, the model converges well. Under the value for the 
+staleness that we have experiment with, the convergence 
+with regard to the residual be even good than the baseline 
+BSP counterpart with no staleness. This can be explain 
+by the fact that in SSP, a worker at a certain clock can read 
+a model that have already be update by another worker at 
+a more advanced clock. While be several clock behind, 
+a worker can already work with a more converge model 
+update by other workers. 
+
+B. Performance under load 
+
+In order to test our solution in a situation where different 
+framework share the same cluster in an environment similar 
+to Yarn or Mesos, we have write a tool that generates 
+load on the hosts. The generate load be independent from 
+the processing framework and be not predictable from the 
+schedule point of view of the processing framework. 
+
+
+
+191 
+
+This behaviour simulates a concurrent task deployed on 
+the cluster by another framework involve compute or 
+garbage collection. This type of temporary load have an 
+impact on the performance of a worker but due to it short 
+duration, compute a dynamic load-balancing policy and 
+relocate the task from a worker to another host be costly 
+and inefficient. 
+
+Figure 4 show the convergence of the residual under 
+generate load. Our tool selectively run a compute-intensive 
+process on a random worker for 12 second continuously, 
+one worker at a time. The result show that even under load 
+our solution be able to perform good than the baseline BSP 
+implementation, with a speedup of up to two time faster. 
+
+C. Sparsity of the final model 
+
+Figure 5 show the distribution of the αi coefficient at 
+convergence after 250 iteration for our SSP implementation 
+and the baseline BSP implementation. The result show that 
+the final model obtain with our SSP implementation be 
+nearly two time less sparse than the model obtain with 
+BSP, despite be asynchronous with a staleness parameter 
+of 10 and have 5 worker in parallel. This be in line with 
+the bound state in Proposition 1. 
+
+These result however show that the final model have a 
+high proportion of very small αi coefficients. This open 
+the way to prune method that will clean up the model 
+and render it more sparse. It be possible to prune the model 
+either dynamically, in which case the intermediate model 
+will then be cleaner, either at the end of the job, which 
+allows for a good control of the error. To do so, we think 
+that incorporate the use of away-steps [29] may be a good 
+candidate to remove those small coefficients. 
+
+50 100 150 200 250 
+
+iteration 
+
+0.00 
+
+0.01 
+
+0.02 
+
+0.03 
+
+0.04 
+
+0.05 
+
+0.06 
+
+0.07 
+
+0.08 
+
+0.09 
+
+O 
+b 
+je 
+
+c 
+ti 
+
+v 
+e 
+
+BSP-load 
+
+SSP0-load 
+
+SSP5-load 
+
+SSP10-load 
+
+0 50 100 150 200 
+
+Time (s) 
+
+BSP-load 
+
+SSP0-load 
+
+SSP5-load 
+
+SSP10-load 
+
+Figure 4. Evolution of the residual of the Frank-Wolfe algorithm under 
+various value of SSP staleness and in BSP, in function of the iteration 
+(left) and over time (right). A load be generate on a random node in 
+the cluster at any moment during twelve second for the duration the 
+experiment. 
+
+−0.005 0.000 0.005 0.010 0.015 0.020 
+
+BSP 
+
+0 
+
+10 
+
+20 
+
+30 
+
+40 
+
+50 
+
+60 
+
+−0.005 0.000 0.005 0.010 0.015 0.020 
+
+SSP-10 
+
+Figure 5. Histogram of the distribution of the weight in the solution 
+obtain after 250 iterations. Left: BSP, right: SSP with staleness 10. 
+
+VI. CONCLUSION AND FUTURE DIRECTION 
+
+In this paper we have present a model for SSP iteration 
+suit for distribute and pipelined processing frameworks. 
+We have propose an implementation of the Frank-Wolfe 
+algorithm under SSP to ass our SSP framework. We have 
+theoretically show the upper bound of the distribute and 
+SSP variant of the algorithm, a well a it convergence. We 
+show with experiment that our solution be able to converge 
+faster than it BSP counterpart, even under a randomly 
+load environment. This result be particularly valuable in 
+the light of cluster manage by the recent resource man- 
+agers, in which several distribute processing framework 
+compete for resource over their respective tasks. 
+
+Our future line of research include the study of the more 
+general context of optimize over atomic sets, the study 
+of the sparsity of the iterates (away step might be useful) 
+and the comparison of our solution with other asynchronous 
+approach like [19], [30]. 
+
+ACKNOWLEDGMENT 
+
+The author would like to thank the Apache Flink team 
+for their support during the implementation. 
+
+REFERENCES 
+
+[1] Applications power by hadoop. [Online]. Available: 
+http://wiki.apache.org/hadoop/PoweredBy 
+
+[2] J. Ekanayake, H. Li, B. Zhang, T. Gunarathne, S.-H. Bae, 
+J. Qiu, and G. Fox, “Twister: A runtime for iterative mapre- 
+duce,” in Proceedings of the 19th ACM International Sym- 
+posium on High Performance Distributed Computing, ser. 
+HPDC ’10. New York, NY, USA: ACM, 2010, pp. 810– 
+818. 
+
+[3] Y. Bu, B. Howe, M. Balazinska, and M. D. Ernst, “Haloop: 
+Efficient iterative data processing on large clusters,” Proc. 
+VLDB Endow., vol. 3, no. 1-2, pp. 285–296, Sep. 2010. 
+
+[4] M. Weimer, T. Condie, and R. Ramakrishnan, “Machine 
+learn in scalops, a high order cloud compute lan- 
+guage,” in NIPS 2011 Workshop on parallel and large-scale 
+machine learn (BigLearn), December 2011. 
+
+[5] L. G. Valiant, “A bridging model for parallel computation,” 
+Commun. ACM, vol. 33, no. 8, pp. 103–111, Aug. 1990. 
+
+
+
+192 
+
+[6] D. G. Murray, F. McSherry, R. Isaacs, M. Isard, P. Barham, 
+and M. Abadi, “Naiad: A timely dataflow system,” in Pro- 
+ceedings of the 24th ACM Symposium on Operating Systems 
+Principles (SOSP). ACM, November 2013. 
+
+[7] M. Zaharia, M. Chowdhury, T. Das, A. Dave, J. Ma, M. Mc- 
+Cauley, M. J. Franklin, S. Shenker, and I. Stoica, “Re- 
+silient distribute datasets: A fault-tolerant abstraction for 
+in-memory cluster computing,” in Proceedings of the 9th 
+USENIX Conference on Networked Systems Design and Im- 
+plementation, ser. NSDI’12. Berkeley, CA, USA: USENIX 
+Association, 2012, pp. 2–2. 
+
+[8] S. Dudoladov, C. Xu, S. Schelter, A. Katsifodimos, S. Ewen, 
+K. Tzoumas, and V. Markl, “Optimistic recovery for itera- 
+tive dataflows in action,” in Proceedings of the 2015 ACM 
+SIGMOD International Conference on Management of Data, 
+Melbourne, Victoria, Australia, May 31 - June 4, 2015, 2015, 
+pp. 1439–1443. 
+
+[9] S. Ewen, S. Schelter, K. Tzoumas, D. Warneke, and V. Markl, 
+“Iterative parallel data processing with stratosphere: An inside 
+look,” in Proceedings of the 2013 ACM SIGMOD Interna- 
+tional Conference on Management of Data, ser. SIGMOD 
+’13. New York, NY, USA: ACM, 2013, pp. 1053–1056. 
+
+[10] Flink iteration and delta-iteration. [Online]. 
+Available: ci.apache.org/projects/flink/flink-docs-release-0.6/ 
+iterations.html 
+
+[11] N. Marz. Big data lambda architecture. [On- 
+line]. Available: http://www.databasetube.com/database/ 
+big-data-lambda-architecture/ 
+
+[12] B. Hindman, A. Konwinski, M. Zaharia, A. Ghodsi, A. D. 
+Joseph, R. Katz, S. Shenker, and I. Stoica, “Mesos: A 
+platform for fine-grained resource share in the data center,” 
+in Proceedings of the 8th USENIX Conference on Networked 
+Systems Design and Implementation, ser. NSDI’11. Berkeley, 
+CA, USA: USENIX Association, 2011, pp. 295–308. 
+
+[13] V. K. Vavilapalli, A. C. Murthy, C. Douglas, S. Agarwal, 
+M. Konar, R. Evans, T. Graves, J. Lowe, H. Shah, S. Seth, 
+B. Saha, C. Curino, O. O’Malley, S. Radia, B. Reed, and 
+E. Baldeschwieler, “Apache hadoop yarn: Yet another re- 
+source negotiator,” in Proceedings of the 4th Annual Sym- 
+posium on Cloud Computing, ser. SOCC ’13. New York, 
+NY, USA: ACM, 2013, pp. 5:1–5:16. 
+
+[14] M. Schwarzkopf, A. Konwinski, M. Abd-El-Malek, and 
+J. Wilkes, “Omega: Flexible, scalable scheduler for large 
+compute clusters,” in Proceedings of the 8th ACM European 
+Conference on Computer Systems, ser. EuroSys ’13. New 
+York, NY, USA: ACM, 2013, pp. 351–364. 
+
+[15] (2012) Under the hood: Scheduling mapreduce job 
+more efficiently with corona. [Online]. Available: http: 
+//on.fb.me/TxUsYN 
+
+[16] H. Cui, J. Cipar, Q. Ho, J. K. Kim, S. Lee, A. Kumar, J. Wei, 
+W. Dai, G. R. Ganger, P. B. Gibbons, G. A. Gibson, and 
+E. P. Xing, “Exploiting bound staleness to speed up big data 
+analytics,” in Proceedings of the 2014 USENIX Conference on 
+USENIX Annual Technical Conference, ser. USENIX ATC’14. 
+Berkeley, CA, USA: USENIX Association, 2014, pp. 37–48. 
+
+[17] M. Frank and P. Wolfe, “An algorithm for quadratic program- 
+ming,” Naval research logistics quarterly, vol. 3, no. 1-2, pp. 
+95–110, 1956. 
+
+[18] A. Bellet, Y. Liang, A. B. Garakani, M. Balcan, and F. Sha, 
+“Distributed frank-wolfe algorithm: A unified framework 
+for communication-efficient sparse learning,” CoRR, vol. 
+abs/1404.2644, 2014. 
+
+[19] Y.-x. Wang, V. Sadhanala, W. Dai, W. Neiswanger, S. Sra, and 
+E. P. Xing, “Asynchronous Parallel Block-Coordinate Frank- 
+Wolfe,” 2014. 
+
+[20] R. Tibshirani, “Regression Shrinkage and Selection via the 
+Lasso,” Journal of the Royal Statistical Society, vol. 58, no. 1, 
+pp. 267–288, 1996. 
+
+[21] G. De Francisci Morales and A. Bifet, “Samoa: Scalable 
+advanced massive online analysis,” J. Mach. Learn. Res., 
+vol. 16, no. 1, pp. 149–153, Jan. 2015. 
+
+[22] J. Cipar, Q. Ho, J. K. Kim, S. Lee, G. R. Ganger, G. Gibson, 
+K. Keeton, and E. Xing, “Solving the straggler problem with 
+bound staleness,” in Proceedings of the 14th USENIX Con- 
+ference on Hot Topics in Operating Systems, ser. HotOS’13. 
+Berkeley, CA, USA: USENIX Association, 2013, pp. 22–22. 
+
+[23] Q. Ho, J. Cipar, H. Cui, and S. Lee, “More Effective 
+distribute ML via a Stale synchronous parallel parameter 
+server,” Nips, no. July, pp. 1–9, 2013. 
+
+[24] W. Dai, A. Kumar, J. Wei, Q. Ho, G. Gibson, and E. P. 
+Xing, “Analysis of High-Performance Distributed ML at Scale 
+through Parameter Server Consistency Models,” 2014. 
+
+[25] S. Ewen, K. Tzoumas, M. Kaufmann, and V. Markl, “Spin- 
+ning fast iterative data flows,” Proc. VLDB Endow., vol. 5, 
+no. 11, pp. 1268–1279, Jul. 2012. 
+
+[26] M. Jaggi, “Revisiting Frank-Wolfe: Projection-Free Sparse 
+Convex Optimization,” Proceedings of the 30th International 
+Conference on Machine Learning, vol. 28, pp. 427–435, 2013. 
+
+[27] D. Garber and E. Hazan, “Faster rate for the frank-wolfe 
+method over strongly-convex sets,” in The 32nd International 
+Conference on Machine Learning, 2015. 
+
+[28] A. Bellet, Y. Liang, A. B. Garakani, F. Sha, and M.-F. Balcan, 
+“A Distributed Frank-Wolfe Algorithm for Communication- 
+Efficient Sparse Learning,” 2015. 
+
+[29] J. Guélat and P. Marcotte, “Some comment of wolfe’s 
+‘away step’,” Math. Program., vol. 35, no. 1, pp. 110–119, 
+May 1986. [Online]. Available: http://dx.doi.org/10.1007/ 
+BF01589445 
+
+[30] J. Liu, S. Wright, C. Ré, and V. Bittorf, “An asynchronous 
+parallel stochastic coordinate descent algorithm,” 2014. 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<< 
+/ASCII85EncodePages false 
+/AllowTransparency false 
+/AutoPositionEPSFiles false 
+/AutoRotatePages /None 
+/Binding /Left 
+/CalGrayProfile (Gray Gamma 2.2) 
+/CalRGBProfile (sRGB IEC61966-2.1) 
+/CalCMYKProfile (U.S. Web Coated \050SWOP\051 v2) 
+/sRGBProfile (sRGB IEC61966-2.1) 
+/CannotEmbedFontPolicy /Warning 
+/CompatibilityLevel 1.4 
+/CompressObjects /Off 
+/CompressPages true 
+/ConvertImagesToIndexed true 
+/PassThroughJPEGImages true 
+/CreateJobTicket false 
+/DefaultRenderingIntent /Default 
+/DetectBlends true 
+/DetectCurves 0.0000 
+/ColorConversionStrategy /LeaveColorUnchanged 
+/DoThumbnails false 
+/EmbedAllFonts true 
+/EmbedOpenType false 
+/ParseICCProfilesInComments true 
+/EmbedJobOptions true 
+/DSCReportingLevel 0 
+/EmitDSCWarnings false 
+/EndPage -1 
+/ImageMemory 1048576 
+/LockDistillerParams true 
+/MaxSubsetPct 100 
+/Optimize false 
+/OPM 0 
+/ParseDSCComments false 
+/ParseDSCCommentsForDocInfo false 
+/PreserveCopyPage true 
+/PreserveDICMYKValues true 
+/PreserveEPSInfo false 
+/PreserveFlatness true 
+/PreserveHalftoneInfo true 
+/PreserveOPIComments false 
+/PreserveOverprintSettings true 
+/StartPage 1 
+/SubsetFonts false 
+/TransferFunctionInfo /Remove 
+/UCRandBGInfo /Preserve 
+/UsePrologue false 
+/ColorSettingsFile () 
+/AlwaysEmbed [ true 
+/Arial-Black 
+/Arial-BoldItalicMT 
+/Arial-BoldMT 
+/Arial-ItalicMT 
+/ArialMT 
+/ArialNarrow 
+/ArialNarrow-Bold 
+/ArialNarrow-BoldItalic 
+/ArialNarrow-Italic 
+/ArialUnicodeMS 
+/BookAntiqua 
+/BookAntiqua-Bold 
+/BookAntiqua-BoldItalic 
+/BookAntiqua-Italic 
+/BookmanOldStyle 
+/BookmanOldStyle-Bold 
+/BookmanOldStyle-BoldItalic 
+/BookmanOldStyle-Italic 
+/BookshelfSymbolSeven 
+/Century 
+/CenturyGothic 
+/CenturyGothic-Bold 
+/CenturyGothic-BoldItalic 
+/CenturyGothic-Italic 
+/CenturySchoolbook 
+/CenturySchoolbook-Bold 
+/CenturySchoolbook-BoldItalic 
+/CenturySchoolbook-Italic 
+/ComicSansMS 
+/ComicSansMS-Bold 
+/CourierNewPS-BoldItalicMT 
+/CourierNewPS-BoldMT 
+/CourierNewPS-ItalicMT 
+/CourierNewPSMT 
+/EstrangeloEdessa 
+/FranklinGothic-Medium 
+/FranklinGothic-MediumItalic 
+/Garamond 
+/Garamond-Bold 
+/Garamond-Italic 
+/Gautami 
+/Georgia 
+/Georgia-Bold 
+/Georgia-BoldItalic 
+/Georgia-Italic 
+/Haettenschweiler 
+/Impact 
+/Kartika 
+/Latha 
+/LetterGothicMT 
+/LetterGothicMT-Bold 
+/LetterGothicMT-BoldOblique 
+/LetterGothicMT-Oblique 
+/LucidaConsole 
+/LucidaSans 
+/LucidaSans-Demi 
+/LucidaSans-DemiItalic 
+/LucidaSans-Italic 
+/LucidaSansUnicode 
+/Mangal-Regular 
+/MicrosoftSansSerif 
+/MonotypeCorsiva 
+/MSReferenceSansSerif 
+/MSReferenceSpecialty 
+/MVBoli 
+/PalatinoLinotype-Bold 
+/PalatinoLinotype-BoldItalic 
+/PalatinoLinotype-Italic 
+/PalatinoLinotype-Roman 
+/Raavi 
+/Shruti 
+/Sylfaen 
+/SymbolMT 
+/Tahoma 
+/Tahoma-Bold 
+/TimesNewRomanMT-ExtraBold 
+/TimesNewRomanPS-BoldItalicMT 
+/TimesNewRomanPS-BoldMT 
+/TimesNewRomanPS-ItalicMT 
+/TimesNewRomanPSMT 
+/Trebuchet-BoldItalic 
+/TrebuchetMS 
+/TrebuchetMS-Bold 
+/TrebuchetMS-Italic 
+/Tunga-Regular 
+/Verdana 
+/Verdana-Bold 
+/Verdana-BoldItalic 
+/Verdana-Italic 
+/Vrinda 
+/Webdings 
+/Wingdings2 
+/Wingdings3 
+/Wingdings-Regular 
+/ZWAdobeF 
+] 
+/NeverEmbed [ true 
+] 
+/AntiAliasColorImages false 
+/CropColorImages true 
+/ColorImageMinResolution 200 
+/ColorImageMinResolutionPolicy /OK 
+/DownsampleColorImages true 
+/ColorImageDownsampleType /Bicubic 
+/ColorImageResolution 300 
+/ColorImageDepth -1 
+/ColorImageMinDownsampleDepth 1 
+/ColorImageDownsampleThreshold 1.50000 
+/EncodeColorImages true 
+/ColorImageFilter /DCTEncode 
+/AutoFilterColorImages false 
+/ColorImageAutoFilterStrategy /JPEG 
+/ColorACSImageDict << 
+/QFactor 0.76 
+/HSamples [2 1 1 2] /VSamples [2 1 1 2] 
+>> 
+/ColorImageDict << 
+/QFactor 0.76 
+/HSamples [2 1 1 2] /VSamples [2 1 1 2] 
+>> 
+/JPEG2000ColorACSImageDict << 
+/TileWidth 256 
+/TileHeight 256 
+/Quality 15 
+>> 
+/JPEG2000ColorImageDict << 
+/TileWidth 256 
+/TileHeight 256 
+/Quality 15 
+>> 
+/AntiAliasGrayImages false 
+/CropGrayImages true 
+/GrayImageMinResolution 200 
+/GrayImageMinResolutionPolicy /OK 
+/DownsampleGrayImages true 
+/GrayImageDownsampleType /Bicubic 
+/GrayImageResolution 300 
+/GrayImageDepth -1 
+/GrayImageMinDownsampleDepth 2 
+/GrayImageDownsampleThreshold 1.50000 
+/EncodeGrayImages true 
+/GrayImageFilter /DCTEncode 
+/AutoFilterGrayImages false 
+/GrayImageAutoFilterStrategy /JPEG 
+/GrayACSImageDict << 
+/QFactor 0.76 
+/HSamples [2 1 1 2] /VSamples [2 1 1 2] 
+>> 
+/GrayImageDict << 
+/QFactor 0.76 
+/HSamples [2 1 1 2] /VSamples [2 1 1 2] 
+>> 
+/JPEG2000GrayACSImageDict << 
+/TileWidth 256 
+/TileHeight 256 
+/Quality 15 
+>> 
+/JPEG2000GrayImageDict << 
+/TileWidth 256 
+/TileHeight 256 
+/Quality 15 
+>> 
+/AntiAliasMonoImages false 
+/CropMonoImages true 
+/MonoImageMinResolution 400 
+/MonoImageMinResolutionPolicy /OK 
+/DownsampleMonoImages true 
+/MonoImageDownsampleType /Bicubic 
+/MonoImageResolution 600 
+/MonoImageDepth -1 
+/MonoImageDownsampleThreshold 1.50000 
+/EncodeMonoImages true 
+/MonoImageFilter /CCITTFaxEncode 
+/MonoImageDict << 
+/K -1 
+>> 
+/AllowPSXObjects false 
+/CheckCompliance [ 
+/None 
+] 
+/PDFX1aCheck false 
+/PDFX3Check false 
+/PDFXCompliantPDFOnly false 
+/PDFXNoTrimBoxError true 
+/PDFXTrimBoxToMediaBoxOffset [ 
+0.00000 
+0.00000 
+0.00000 
+0.00000 
+] 
+/PDFXSetBleedBoxToMediaBox true 
+/PDFXBleedBoxToTrimBoxOffset [ 
+0.00000 
+0.00000 
+0.00000 
+0.00000 
+] 
+/PDFXOutputIntentProfile (None) 
+/PDFXOutputConditionIdentifier () 
+/PDFXOutputCondition () 
+/PDFXRegistryName () 
+/PDFXTrapped /False 
+
+/CreateJDFFile false 
+/Description << 
+/CHS <FEFF4f7f75288fd94e9b8bbe5b9a521b5efa7684002000410064006f006200650020005000440046002065876863900275284e8e55464e1a65876863768467e5770b548c62535370300260a853ef4ee54f7f75280020004100630072006f0062006100740020548c002000410064006f00620065002000520065006100640065007200200035002e003000204ee553ca66f49ad87248672c676562535f00521b5efa768400200050004400460020658768633002> 
+/CHT <FEFF4f7f752890194e9b8a2d7f6e5efa7acb7684002000410064006f006200650020005000440046002065874ef69069752865bc666e901a554652d965874ef6768467e5770b548c52175370300260a853ef4ee54f7f75280020004100630072006f0062006100740020548c002000410064006f00620065002000520065006100640065007200200035002e003000204ee553ca66f49ad87248672c4f86958b555f5df25efa7acb76840020005000440046002065874ef63002> 
+/DAN <FEFF004200720075006700200069006e0064007300740069006c006c0069006e006700650072006e0065002000740069006c0020006100740020006f007000720065007400740065002000410064006f006200650020005000440046002d0064006f006b0075006d0065006e007400650072002c0020006400650072002000650067006e006500720020007300690067002000740069006c00200064006500740061006c006a006500720065007400200073006b00e60072006d007600690073006e0069006e00670020006f00670020007500640073006b007200690076006e0069006e006700200061006600200066006f0072007200650074006e0069006e006700730064006f006b0075006d0065006e007400650072002e0020004400650020006f007000720065007400740065006400650020005000440046002d0064006f006b0075006d0065006e0074006500720020006b0061006e002000e50062006e00650073002000690020004100630072006f00620061007400200065006c006c006500720020004100630072006f006200610074002000520065006100640065007200200035002e00300020006f00670020006e0079006500720065002e> 
+/DEU <FEFF00560065007200770065006e00640065006e0020005300690065002000640069006500730065002000450069006e007300740065006c006c0075006e00670065006e0020007a0075006d002000450072007300740065006c006c0065006e00200076006f006e002000410064006f006200650020005000440046002d0044006f006b0075006d0065006e00740065006e002c00200075006d002000650069006e00650020007a0075007600650072006c00e40073007300690067006500200041006e007a006500690067006500200075006e00640020004100750073006700610062006500200076006f006e00200047006500730063006800e40066007400730064006f006b0075006d0065006e00740065006e0020007a0075002000650072007a00690065006c0065006e002e00200044006900650020005000440046002d0044006f006b0075006d0065006e007400650020006b00f6006e006e0065006e0020006d006900740020004100630072006f00620061007400200075006e0064002000520065006100640065007200200035002e003000200075006e00640020006800f600680065007200200067006500f600660066006e00650074002000770065007200640065006e002e> 
+/ESP <FEFF005500740069006c0069006300650020006500730074006100200063006f006e0066006900670075007200610063006900f3006e0020007000610072006100200063007200650061007200200064006f00630075006d0065006e0074006f0073002000640065002000410064006f00620065002000500044004600200061006400650063007500610064006f007300200070006100720061002000760069007300750061006c0069007a00610063006900f3006e0020006500200069006d0070007200650073006900f3006e00200064006500200063006f006e006600690061006e007a006100200064006500200064006f00630075006d0065006e0074006f007300200063006f006d00650072006300690061006c00650073002e002000530065002000700075006500640065006e00200061006200720069007200200064006f00630075006d0065006e0074006f00730020005000440046002000630072006500610064006f007300200063006f006e0020004100630072006f006200610074002c002000410064006f00620065002000520065006100640065007200200035002e003000200079002000760065007200730069006f006e0065007300200070006f00730074006500720069006f007200650073002e> 
+/FRA <FEFF005500740069006c006900730065007a00200063006500730020006f007000740069006f006e00730020006100660069006e00200064006500200063007200e900650072002000640065007300200064006f00630075006d0065006e00740073002000410064006f006200650020005000440046002000700072006f00660065007300730069006f006e006e0065006c007300200066006900610062006c0065007300200070006f007500720020006c0061002000760069007300750061006c00690073006100740069006f006e0020006500740020006c00270069006d007000720065007300730069006f006e002e0020004c0065007300200064006f00630075006d0065006e00740073002000500044004600200063007200e900e90073002000700065007500760065006e0074002000ea0074007200650020006f007500760065007200740073002000640061006e00730020004100630072006f006200610074002c002000610069006e00730069002000710075002700410064006f00620065002000520065006100640065007200200035002e0030002000650074002000760065007200730069006f006e007300200075006c007400e90072006900650075007200650073002e> 
+/ITA (Utilizzare queste impostazioni per creare documenti Adobe PDF adatti per visualizzare e stampare documenti aziendali in modo affidabile. I documenti PDF creati possono essere aperti con Acrobat e Adobe Reader 5.0 e versioni successive.) 
+/JPN <FEFF30d330b830cd30b9658766f8306e8868793a304a3088307353705237306b90693057305f002000410064006f0062006500200050004400460020658766f8306e4f5c6210306b4f7f75283057307e305930023053306e8a2d5b9a30674f5c62103055308c305f0020005000440046002030d530a130a430eb306f3001004100630072006f0062006100740020304a30883073002000410064006f00620065002000520065006100640065007200200035002e003000204ee5964d3067958b304f30533068304c3067304d307e305930023053306e8a2d5b9a3067306f30d530a930f330c8306e57cb30818fbc307f3092884c3044307e30593002> 
+/KOR <FEFFc7740020c124c815c7440020c0acc6a9d558c5ec0020be44c988b2c8c2a40020bb38c11cb97c0020c548c815c801c73cb85c0020bcf4ace00020c778c1c4d558b2940020b3700020ac00c7a50020c801d569d55c002000410064006f0062006500200050004400460020bb38c11cb97c0020c791c131d569b2c8b2e4002e0020c774b807ac8c0020c791c131b41c00200050004400460020bb38c11cb2940020004100630072006f0062006100740020bc0f002000410064006f00620065002000520065006100640065007200200035002e00300020c774c0c1c5d0c11c0020c5f40020c2180020c788c2b5b2c8b2e4002e> 
+/NLD (Gebruik deze instellingen om Adobe PDF-documenten te maken waarmee zakelijke documenten betrouwbaar kunnen worden weergegeven en afgedrukt. De gemaakte PDF-documenten kunnen worden geopend met Acrobat en Adobe Reader 5.0 en hoger.) 
+/NOR <FEFF004200720075006b00200064006900730073006500200069006e006e007300740069006c006c0069006e00670065006e0065002000740069006c002000e50020006f0070007000720065007400740065002000410064006f006200650020005000440046002d0064006f006b0075006d0065006e00740065007200200073006f006d002000650072002000650067006e0065007400200066006f00720020007000e5006c006900740065006c006900670020007600690073006e0069006e00670020006f00670020007500740073006b007200690066007400200061007600200066006f0072007200650074006e0069006e006700730064006f006b0075006d0065006e007400650072002e0020005000440046002d0064006f006b0075006d0065006e00740065006e00650020006b0061006e002000e50070006e00650073002000690020004100630072006f00620061007400200065006c006c00650072002000410064006f00620065002000520065006100640065007200200035002e003000200065006c006c00650072002e> 
+/PTB <FEFF005500740069006c0069007a006500200065007300730061007300200063006f006e00660069006700750072006100e700f50065007300200064006500200066006f0072006d00610020006100200063007200690061007200200064006f00630075006d0065006e0074006f0073002000410064006f00620065002000500044004600200061006400650071007500610064006f00730020007000610072006100200061002000760069007300750061006c0069007a006100e700e3006f002000650020006100200069006d0070007200650073007300e3006f00200063006f006e0066006900e1007600650069007300200064006500200064006f00630075006d0065006e0074006f007300200063006f006d0065007200630069006100690073002e0020004f007300200064006f00630075006d0065006e0074006f00730020005000440046002000630072006900610064006f007300200070006f00640065006d0020007300650072002000610062006500720074006f007300200063006f006d0020006f0020004100630072006f006200610074002000650020006f002000410064006f00620065002000520065006100640065007200200035002e0030002000650020007600650072007300f50065007300200070006f00730074006500720069006f007200650073002e> 
+/SUO <FEFF004b00e40079007400e40020006e00e40069007400e4002000610073006500740075006b007300690061002c0020006b0075006e0020006c0075006f0074002000410064006f0062006500200050004400460020002d0064006f006b0075006d0065006e007400740065006a0061002c0020006a006f0074006b006100200073006f0070006900760061007400200079007200690074007900730061007300690061006b00690072006a006f006a0065006e0020006c0075006f00740065007400740061007600610061006e0020006e00e400790074007400e4006d0069007300650065006e0020006a0061002000740075006c006f007300740061006d0069007300650065006e002e0020004c0075006f0064007500740020005000440046002d0064006f006b0075006d0065006e00740069007400200076006f0069006400610061006e0020006100760061007400610020004100630072006f0062006100740069006c006c00610020006a0061002000410064006f00620065002000520065006100640065007200200035002e0030003a006c006c00610020006a006100200075007500640065006d006d0069006c006c0061002e> 
+/SVE <FEFF0041006e007600e4006e00640020006400650020006800e4007200200069006e0073007400e4006c006c006e0069006e006700610072006e00610020006f006d002000640075002000760069006c006c00200073006b006100700061002000410064006f006200650020005000440046002d0064006f006b0075006d0065006e007400200073006f006d00200070006100730073006100720020006600f60072002000740069006c006c006600f60072006c00690074006c006900670020007600690073006e0069006e00670020006f006300680020007500740073006b007200690066007400650072002000610076002000610066006600e4007200730064006f006b0075006d0065006e0074002e002000200053006b006100700061006400650020005000440046002d0064006f006b0075006d0065006e00740020006b0061006e002000f600700070006e00610073002000690020004100630072006f0062006100740020006f00630068002000410064006f00620065002000520065006100640065007200200035002e00300020006f00630068002000730065006e006100720065002e> 
+/ENU (Use these setting to create PDFs that match the "Required" setting for PDF Specification 4.01) 
+>> 
+>> setdistillerparams 
+<< 
+/HWResolution [600 600] 
+/PageSize [612.000 792.000] 
+>> setpagedevice 
+

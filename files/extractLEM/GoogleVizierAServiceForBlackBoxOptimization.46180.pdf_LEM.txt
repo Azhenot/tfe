@@ -1,0 +1,1618 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Google Vizier: A Service for Black-Box Optimization 
+
+
+Google Vizier: A Service for Black-Box Optimization 
+
+Daniel Golovin, Benjamin Solnik, Subhodeep Moitra, Greg Kochanski, John Karro, D. Sculley 
+{dgg, bsolnik, smoitra, gpk, karro, dsculley}@google.com 
+
+Google Research 
+Pittsburgh, PA, USA 
+
+ABSTRACT 
+
+Any sufficiently complex system act a a black box when 
+it becomes easy to experiment with than to understand. 
+Hence, black-box optimization have become increasingly im- 
+portant a system have become more complex. In this paper 
+we describe Google Vizier, a Google-internal service for per- 
+form black-box optimization that have become the de facto 
+parameter tune engine at Google. Google Vizier be use 
+to optimize many of our machine learn model and other 
+systems, and also provide core capability to Google’s Cloud 
+Machine Learning HyperTune subsystem. We discus our re- 
+quirements, infrastructure design, underlie algorithms, and 
+advanced feature such a transfer learn and automate 
+early stop that the service provides. 
+
+KEYWORDS 
+
+Black-Box Optimization, Bayesian Optimization, Gaussian 
+Processes, Hyperparameters, Transfer Learning, Automated 
+Stopping 
+
+1 INTRODUCTION 
+
+Black–box optimization be the task of optimize an objective 
+function 𝑓 : 𝑋 → R with a limited budget for evaluations. 
+The adjective “black–box” mean that while we can eval- 
+uate 𝑓(𝑥) for any 𝑥 ∈ 𝑋, we have no access to any other 
+information about 𝑓 , such a gradient or the Hessian. When 
+function evaluation be expensive, it make sense to carefully 
+and adaptively select value to evaluate; the overall goal be 
+for the system to generate a sequence of 𝑥𝑡 that approach 
+the global optimum a rapidly a possible. 
+
+Black box optimization algorithm can be use to find the 
+best operating parameter for any system whose performance 
+can be measure a a function of adjustable parameters. It 
+have many important applications, such a automate tune 
+of the hyperparameters of machine learn system (e.g., 
+learn rates, or the number of hidden layer in a deep neural 
+network), optimization of the user interface of web service 
+(e.g. optimize color and font to maximize reading speed), 
+and optimization of physical system (e.g., optimize airfoil 
+in simulation). 
+
+Permission to make digital or hard copy of part or all of this work 
+for personal or classroom use be grant without fee provide that 
+copy be not make or distribute for profit or commercial advantage 
+and that copy bear this notice and the full citation on the first page. 
+Copyrights for third-party component of this work must be honored. 
+For all other uses, contact the owner/author(s). 
+
+KDD ’17, August 13-17, 2017, Halifax, NS, Canada 
+
+© 2017 Copyright held by the owner/author(s). 
+ACM ISBN 978-1-4503-4887-4/17/08. 
+https://doi.org/10.1145/3097983.3098043 
+
+In this paper we discus a state-of-the-art system for black– 
+box optimization developed within Google, call Google 
+Vizier, name after a high official who offer advice to rulers. 
+It be a service for black-box optimization that support several 
+advanced algorithms. The system have a convenient Remote 
+Procedure Call (RPC) interface, along with a dashboard and 
+analysis tools. Google Vizier be a research project, part of 
+which supply core capability to our Cloud Machine Learning 
+HyperTune1 subsystem. We discus the architecture of the 
+system, design choices, and some of the algorithm used. 
+
+1.1 Related Work 
+
+Black–box optimization make minimal assumption about 
+the problem under consideration, and thus be broadly appli- 
+cable across many domain and have be study in multiple 
+scholarly field under name include Bayesian Optimiza- 
+tion [2, 25, 26], Derivative–free optimization [7, 24], Sequen- 
+tial Experimental Design [5], and assort variant of the 
+multiarmed bandit problem [13, 20, 29]. 
+
+Several class of algorithm have be propose for the 
+problem. The simplest of these be non-adaptive procedure 
+such a Random Search, which selects 𝑥𝑡 uniformly at ran- 
+dom from 𝑋 at each time step 𝑡 independent of the previous 
+point selected, {𝑥𝜏 : 1 ≤ 𝜏 < 𝑡}, and Grid Search, which 
+selects along a grid (i.e., the Cartesian product of finite set 
+of feasible value for each parameter). Classic algorithm 
+such a SimulatedAnnealing and assort genetic algo- 
+rithms have also be investigated, e.g., Covariance Matrix 
+Adaptation [16]. 
+
+Another class of algorithm performs a local search by 
+select point that maintain a search pattern, such a a sim- 
+plex in the case of the classic Nelder–Mead algorithm [22]. 
+More modern variant of these algorithm maintain simple 
+model of the objective 𝑓 within a subset of the feasible 
+region (called the trust region), and select a point 𝑥𝑡 to 
+improve the model within the trust region [7]. 
+
+More recently, some researcher have combine powerful 
+technique for model the objective 𝑓 over the entire feasible 
+region, use idea developed for multiarmed bandit problem 
+for manage explore / exploit trade-offs. These approach 
+be fundamentally Bayesian in nature, hence this literature 
+go under the name Bayesian Optimization. Typically, the 
+model for 𝑓 be a Gaussian process (as in [26, 29]), a deep 
+neural network (as in [27, 31]), or a regression forest (as 
+in [2, 19]). 
+
+Many of these algorithm have open-source implemen- 
+tations available. Within the machine learn community, 
+
+1https://cloud.google.com/ml/ 
+
+https://doi.org/10.1145/3097983.3098043 
+https://cloud.google.com/ml/ 
+
+
+example include, e.g., HyperOpt2, MOE3, Spearmint4, and 
+AutoWeka5, among many others. In contrast to such software 
+packages, which require practitioner to set them up and run 
+them locally, we opt to develop a manage service for 
+black–box optimization, which be more convenient for user 
+but involves additional design considerations. 
+
+1.2 Definitions 
+
+Throughout the paper, we use to the follow term to 
+describe the semantics of the system: 
+
+A Trial be a list of parameter values, 𝑥, that will lead to a 
+single evaluation of 𝑓(𝑥). A trial can be “Completed”, which 
+mean that it have be evaluate and the objective value 
+𝑓(𝑥) have be assign to it, otherwise it be “Pending”. 
+
+A Study represent a single optimization run over a feasible 
+space. Each Study contains a configuration describe the 
+feasible space, a well a a set of Trials. It be assume that 
+𝑓(𝑥) do not change in the course of a Study. 
+
+A Worker refers to a process responsible for evaluate a 
+Pending Trial and calculate it objective value. 
+
+2 SYSTEM OVERVIEW 
+
+This section explores the design consideration involve in 
+implement black-box optimization a a service. 
+
+2.1 Design Goals and Constraints 
+
+Vizier’s design satisfies the follow desiderata: 
+
+∙ Ease of use. Minimal user configuration and setup. 
+∙ Hosts state-of-the-art black-box optimization algorithms. 
+∙ High availability 
+∙ Scalable to million of trial per study, thousand of 
+parallel trial evaluation per study, and billion of stud- 
+ies. 
+∙ Easy to experiment with new algorithms. 
+∙ Easy to change out algorithm deployed in production. 
+
+For ease of use, we implement Vizier a a manage ser- 
+vice that store the state of each optimization. This approach 
+drastically reduces the effort a new user need to get up and 
+running; and a manage service with a well-documented and 
+stable RPC API allows u to upgrade the service without user 
+effort. We provide a default configuration for our manage 
+service that be good enough to ensure that most user need 
+never concern themselves with the underlie optimization 
+algorithms. 
+
+The default option allows the service to dynamically select 
+a recommend black–box algorithm along with low–level 
+setting base on the study configuration. We choose to 
+make our algorithm stateless, so that we can seamlessly 
+switch algorithm during a study, dynamically choose the 
+algorithm that be likely to perform good for a particular trial 
+of a give study. For example, Gaussian Process Bandits [26, 
+29] provide excellent result quality, but naive implementation 
+
+2https://github.com/jaberg/hyperopt 
+3https://github.com/Yelp/MOE 
+4https://github.com/HIPS/Spearmint 
+5https://github.com/automl/autoweka 
+
+scale a 𝑂(𝑛3) with the number of training points. Thus, once 
+we’ve collect a large number of complete Trials, we may 
+want to switch to use a more scalable algorithm. 
+
+At the same time, we want to allow ourselves (and advanced 
+users) the freedom to experiment with new algorithm or 
+special-case modification of the support algorithm in a 
+manner that be safe, easy, and fast. Hence, we’ve built Google 
+Vizier a a modular system consist of four cooperate 
+process (see Figure 1) that update the state of Studies in the 
+central database. The process themselves be modular with 
+several clean abstraction layer that allow u to experiment 
+with and apply different algorithm easily. 
+
+Finally we want to allow multiple trial to be evaluate 
+in parallel, and allow for the possibility that evaluate the 
+objective function for each trial could itself be a distribute 
+process. To this end we define Workers, responsible for evalu- 
+ating suggestions, and identify each work by a persistent 
+name (a worker handle) that persists across process preemp- 
+tions or crashes. 
+
+2.2 Basic User Workflow 
+
+To use Vizier, a developer may use one of our client library 
+(currently implement in C++, Python, Golang), which will 
+generate service request encode a protocol buffer [15]. 
+The basic workflow be extremely simple. Users specify a study 
+configuration which includes: 
+
+∙ Identifying characteristic of the study (e.g. name, 
+owner, permissions). 
+∙ The set of parameter along with feasible set for each 
+(c.f., Section 2.3.1 for details); Vizier do constrain 
+optimization over the feasible set. 
+
+Given this configuration, basic use of the service (with each 
+trial be evaluate by a single process) can be implement 
+a follows: 
+
+# Register this client with the Study, create it if 
+# necessary. 
+client.LoadStudy(study config, worker handle) 
+while (not client.StudyIsDone()): 
+# Obtain a trial to evaluate. 
+trial = client.GetSuggestion() 
+# Evaluate the objective function at the trial parameters. 
+metric = RunTrial(trial) 
+# Report back the results. 
+client.CompleteTrial(trial, metrics) 
+
+Here RunTrial be the problem–specific evaluation of the 
+objective function 𝑓 . Multiple name metric may be report 
+back to Vizier, however one must be distinguish a the 
+objective value 𝑓(𝑥) for trial 𝑥. Note that multiple process 
+work on a study should share the same worker handle if 
+and only if they be collaboratively evaluate the same trial. 
+All process register with a give study with the same 
+worker handle be guaranteed to receive the same trial when 
+upon request, which enables distribute trial evaluation. 
+
+https://github.com/HIPS/Spearmint 
+
+
+Vizier API 
+
+Persistent 
+
+Database 
+Suggestion Service 
+
+Suggestion 
+Workers 
+
+Automated Stopping Service 
+
+Dangling 
+
+Work Finder 
+AutomatedStopping 
+
+Workers 
+
+Evaluation 
+Workers 
+
+Figure 1: Architecture of Vizier service: Main compo- 
+nents be (1) Dangling work finder (restarts work lose 
+to preemptions) (2) Persistent Database hold the cur- 
+
+rent state of all Studies (3) Suggestion Service (creates 
+
+new Trials), (4) Early Stopping Service (helps terminate 
+a Trial early) (5) Vizier API (JSON, validation, multi- 
+
+plexing) (6) Evaluation worker (provided and own by 
+
+the user). 
+
+2.3 Interfaces 
+
+2.3.1 Configuring a Study. To configure a study, the user 
+provide a study name, owner, optional access permissions, an 
+optimization goal from {MAXIMIZE, MINIMIZE}, and specifies 
+the feasible region 𝑋 via a set of ParameterConfigs, each of 
+which declares a parameter name along with it values. We 
+support the follow parameter types: 
+
+∙ DOUBLE: The feasible region be a close interval [𝑎, 𝑏] for 
+some real value 𝑎 ≤ 𝑏. 
+∙ INTEGER: The feasible region have the form [𝑎, 𝑏] ∩ Z for 
+some integer 𝑎 ≤ 𝑏. 
+∙ DISCRETE: The feasible region be an explicitly specified, 
+order set of real numbers. 
+∙ CATEGORICAL: The feasible region be an explicitly speci- 
+fied, unordered set of strings. 
+
+Users may also suggest recommend scaling, e.g., loga- 
+rithmic scale for parameter for which the objective may 
+depend only on the order of magnitude of a parameter value. 
+
+2.3.2 API Definition. Workers and end user can make 
+call to the Vizier Service use either a REST API or use 
+Google’s internal RPC protocol [15]. The most important 
+service call are: 
+
+∙ CreateStudy: Given a Study configuration, this creates 
+an optimization Study and return a globally unique 
+identifier (“guid”) which be then use for all future 
+service calls. If a Study with a match name exists, 
+the guid for that Study be returned. This allows parallel 
+worker to call this method and all register with the 
+same Study. 
+∙ SuggestTrials: This method take a “worker handle” 
+a input, and immediately return a globally unique 
+handle for a “long-running operation” that represent 
+
+the work of generate Trial suggestions. The user 
+can then poll the API periodically to check the status 
+of the operation. Once the operation be completed, it 
+will contain the suggest Trials. This design ensures 
+that all service call be make with low latency, while 
+allow for the fact that the generation of Trials can 
+take longer. 
+∙ AddMeasurementToTrial: This method allows client to 
+provide intermediate metric during the evaluation of 
+a Trial. These metric be then use by the Automated 
+Stopping rule to determine which Trials should be 
+stop early. 
+∙ CompleteTrial: This method change a Trial’s status 
+to “Completed”, and provide a final objective value 
+that be then use to inform the suggestion provide 
+by future call to SuggestTrials. 
+∙ ShouldTrialStop: This method return a globally unique 
+handle for a long-running operation that represent the 
+work of determine whether a Pending Trial should 
+be stopped. 
+
+2.4 Infrastructure 
+
+2.4.1 Parallel Processing of Suggestion Work. As the de 
+facto parameter tune engine of Google, Vizier be constantly 
+work on generate suggestion for a large number of 
+Studies concurrently. As such, a single machine would be in- 
+sufficient for handle the workload. Our Suggestion Service be 
+therefore partition across several Google datacenters, with 
+a number of machine be use in each one. Each instance 
+of the Suggestion Service potentially can generate sugges- 
+tions for several Studies in parallel, give u a massively 
+scalable suggestion infrastructure. Google’s load balance 
+infrastructure be then use to allow client to make call to a 
+unified endpoint, without need to know which instance be 
+do the work. 
+
+When a request be receive by a Suggestion Service instance 
+to generate suggestions, the instance first place a distribute 
+lock on the Study. This lock be acquire for a fix period 
+of time, and be periodically extend by a separate thread 
+run on the instance. In other words, the lock will be held 
+until either the instance fails, or it decides it’s do work 
+on the Study. If the instance fails (due to e.g. hardware 
+failure, job preemption, etc), the lock soon expires, make 
+it eligible to be picked up by a separate process (called the 
+“DanglingWorkFinder”) which then reassigns the Study to a 
+different Suggestion Service instance. 
+
+One consideration in maintain a production system be 
+that bug be inevitably introduce a our code matures. 
+Occasionally, a new algorithmic change, however well tested, 
+will lead to instance of the Suggestion Service fail for 
+particular Studies. If a Study be picked up by the Dangling- 
+WorkFinder too many times, it will temporarily halt the 
+Study and alert us. This prevents subtle bug that only affect 
+a few Studies from cause crash loop that affect the overall 
+stability of the system. 
+
+
+
+Vizier API 
+
+Persistent 
+
+Database 
+
+Evaluation 
+
+Workers 
+
+Playground Binary 
+
+Abstract PolicyCustom Policy 
+
+Figure 2: Architecture of Playground mode: Main com- 
+ponents be (1) The Vizier API take service requests. 
+
+(2) The Custom Policy implement the Abstract Policy 
+
+and generates suggest Trials. (3) The Playground Bi- 
+nary drive the custom policy base on demand report 
+
+by the Vizier API. (4) The Evaluation Workers behave 
+a normal, i.e., they request and evaluate Trials. 
+
+2.5 The Algorithm Playground 
+
+Vizier’s algorithm playground provide a mechanism for ad- 
+vanced user to easily, quickly, and safely replace Vizier’s 
+core optimization algorithm with arbitrary algorithms. 
+
+The playground serf a dual purpose; it allows rapid 
+prototyping of new algorithms, and it allows power-users to 
+easily customize Vizier with advanced or exotic capability 
+that be particular to their use-case. In all cases, user of 
+the playground benefit from all of Vizier’s infrastructure 
+aside from the core algorithms, such a access to a persistent 
+database of Trials, the dashboard, and visualizations. 
+
+At the core of the playground be the ability to inject Trials 
+into a Study. Vizier allows the user or other authorize pro- 
+ce to request one or more particular Trials be evaluated. 
+In Playground mode, Vizier do not suggest Trials for eval- 
+uation, but relies on an external binary to generate Trials, 
+which be then push to the service for late distribution to 
+the workers. 
+
+More specifically, the architecture of the Playground in- 
+volves the follow key components: (1) Abstract Policy (2) 
+Playground Binary, (3) Vizier Service and (4) Evaluation 
+Workers. See Figure 2 for an illustration. 
+
+The Abstract Policy contains two abstract methods: 
+
+(1) GetNewSuggestions(trials, num suggestions) 
+(2) GetEarlyStoppingTrials(trials) 
+
+which should be implement by the user’s custom policy. 
+Both these method be pass the full state of all Trials in the 
+Study, so stateless algorithm be support but not required. 
+GetNewSuggestions be expect to generate num suggestion 
+new trials, while the GetEarlyStoppingTrials method be ex- 
+pected to return a list of Pending Trials that should be 
+stop early. The custom policy be register with the Play- 
+ground Binary which periodically poll the Vizier Service. 
+The Evaluation Workers maintain the service abstraction 
+and be unaware of the existence of the Playground. 
+
+Figure 3: A section of the dashboard for track the 
+progress of Trials and the correspond objective func- 
+tion values. Note also, the presence of action button 
+
+such a Get Suggestions for manually request sugges- 
+tions. 
+
+2.6 Benchmarking Suite 
+
+Vizier have an integrate framework that allows u to effi- 
+ciently benchmark our algorithm on a variety of objective 
+functions. Many of the objective function come from the 
+Black-Box Optimization Benchmarking Workshop [10], but 
+the framework allows for any function to be model by 
+implement an abstract Experimenter class, which have a 
+virtual method responsible for calculate the objective value 
+for a give Trial, and a second virtual method that return 
+the optimal solution for that benchmark. 
+
+Users configure a set of benchmark run by provide a set 
+of algorithm configuration and a set of objective functions. 
+The benchmarking suite will optimize each function with each 
+algorithm 𝑘 time (where 𝑘 be configurable), produce a series 
+of performance-over-time metric which be then format 
+after execution. The individual run be distribute over 
+multiple thread and multiple machines, so it be easy to have 
+thousand of benchmark run execute in parallel. 
+
+2.7 Dashboard and Visualizations 
+
+Vizier have a web dashboard which be use for both monitoring 
+and change the state of Vizier studies. The dashboard be 
+fully feature and implement the full functionality of the 
+Vizier API. The dashboard be commonly use for: (1) Tracking 
+the progress of a study. (2) Interactive visualizations. (3) 
+Creating, update and delete a study. (4) Requesting new 
+suggestions, early stopping, activating/deactivating a study. 
+See Figure 3 for a section of the dashboard. In addition to 
+monitoring and visualizations, the dashboard contains action 
+button such a Get Suggestions. 
+
+The dashboard us a translation layer which convert 
+between JSON and protocol buffer [15] when talk with 
+backend servers. The dashboard be built with Polymer [14] 
+an open source web framework support by Google and 
+us material design principles. It contains interactive vi- 
+sualizations for analyze the parameter in your study. In 
+particular, we use the parallel coordinate visualization [18] 
+which have the benefit of scale to high dimensional space 
+
+
+
+Figure 4: The Parallel Coordinates visualization [18] be 
+use for examine result from different Vizier runs. It 
+have the benefit of scale to high dimensional space (∼15 
+dimensions) and work with both numerical and categor- 
+ical parameters. Additionally, it be interactive and allows 
+
+various mode of slice and dice data. 
+
+(∼15 dimensions) and work with both numerical and categor- 
+ical parameters. See Figure 4 for an example. Each vertical 
+axis be a dimension correspond to a parameter, whereas 
+each horizontal line be an individual trial. The point at which 
+the horizontal line intersects the vertical axis give the value 
+of the parameter in that dimension. This can be use for 
+examine how the dimension co-vary with each other and 
+also against the objective function value (left most axis). The 
+visualization be built use d3.js [4]. 
+
+3 THE VIZIER ALGORITHMS 
+
+Vizier’s modular design allows u to easily support multiple 
+algorithms. For study with under a thousand trials, Vizier 
+default to use Batched Gaussian Process Bandits [8]. We 
+use a Matérn kernel with automatic relevance determination 
+(see e.g. section 5.1 of Rasmussen and Williams [23] for a 
+discussion) and the expect improvement acquisition func- 
+tion [21]. We search for and find local maximum of the acquisi- 
+tion function with a proprietary gradient-free hill climb 
+algorithm, with random start points. 
+
+We implement discrete parameter by embed them in 
+R. Categorical parameter with 𝑘 feasible value be repre- 
+sented via one-hot encoding, i.e., embed in [0, 1]𝑘. In both 
+cases, the Gaussian Process regressor give u a continuous 
+and differentiable function upon which we can walk uphill, 
+then when the walk have converged, round to the near 
+feasible point. 
+
+While some author recommend use Bayesian deep learn- 
+ing model in lieu of Gaussian process for scalability [27, 31], 
+in our experience they be too sensitive to their own hyperpa- 
+rameters and do not reliably perform well. Other researcher 
+have recognize this problem a well, and be work to 
+address it [28]. 
+
+For study with ten of thousand of trial or more, other al- 
+gorithms may be used. ThoughRandomSearch andGridSearch 
+be support a first–class choice and may be use in this 
+regime, and many other publish algorithm be support 
+
+through the algorithm playground, we currently recommend 
+a proprietary local–search algorithm under these conditions. 
+
+For all of these algorithm we support data normalization, 
+which map numeric parameter value into [0, 1] and objec- 
+tive value onto [−0.5, 0.5]. Depending on the problem, a 
+one-to-one nonlinear mapping may be use for some of the 
+parameters, and be typically use for the objective. Data nor- 
+malization be handle before trial be present to the trial 
+suggestion algorithms, and it suggestion be transparently 
+mapped back to the user-specified scaling. 
+
+3.1 Automated Early Stopping 
+
+In some important application of black–box optimization, 
+information related to the performance of a trial may become 
+available during trial evaluation. Perhaps the best example 
+of such a performance curve occurs when tune machine 
+learn hyperparameters for model train progressively 
+(e.g., via some version of stochastic gradient descent). In this 
+case, the model typically becomes more accurate a it train 
+on more data, and the accuracy of the model be available at the 
+end of each training epoch. Using these accuracy vs. training 
+step curves, it be often possible to determine that a trial’s 
+parameter setting be unpromising well before evaluation be 
+finished. In this case we can terminate trial evaluation early, 
+free those evaluation resource for more promising trial 
+parameters. When do algorithmically, this be refer to a 
+automate early stopping. 
+
+Vizier support automate early stop via an API call to 
+a 
+ShouldTrialStop method. Analogously to the Suggestion Ser- 
+vice, there be an Automated Stopping Service that accepts 
+request from the Vizier API to analyze a study and de- 
+termine the set of trial that should be stopped, accord 
+to the configure early stop algorithm. As with sugges- 
+tion algorithms, several automate early stop algorithm 
+be supported, and rapid prototyping can be do via the 
+algorithm playground. 
+
+3.2 Automated Stopping Algorithms 
+
+Vizier support the follow automate stop algorithms. 
+These be meant to work in a stateless fashion i.e. they be 
+give the full state of all trial in the Vizier study when 
+determine which trial should stop. 
+
+3.2.1 Performance Curve Stopping Rule. This stop rule 
+performs regression on the performance curve to make a 
+prediction of the final objective value of a Trial give a set of 
+Trials that be already Completed, and a partial performance 
+curve (i.e., a set of measurement take during Trial evalua- 
+tion). Given this prediction, if the probability of exceed 
+the optimal value found thus far be sufficiently low, early 
+stop be request for the Trial. 
+
+While prior work on automate early stop use Bayesian 
+parametric regression [9, 30], we opt for a Bayesian non- 
+parametric regression, specifically a Gaussian process model 
+with a carefully design kernel that measure similarity be- 
+tween performance curves. Our motivation in this be to 
+
+
+
+be robust to many kind of performance curves, include 
+those come from application other than tune machine 
+learn hyperparameters in which the performance curve 
+may have very different semantics. Notably, this stop 
+rule still work well even when the performance curve be not 
+measure the same quantity a the objective value, but be 
+merely predictive of it. 
+
+3.2.2 Median Stopping Rule. The median stop rule 
+stop a pending trial 𝑥𝑡 at step 𝑠 if the trial’s best objective 
+value by step 𝑠 be strictly bad than the median value of the 
+run average 𝑜𝜏1:𝑠 of all complete trials’ objective 𝑥𝜏 
+report up to step 𝑠. Here, we calculate the run average 
+of a trial 𝑥𝜏 up to step 𝑠 a 𝑜 
+
+𝜏 
+1:𝑠 = 
+
+1 
+𝑠 
+Σ𝑠𝑖=1𝑜 
+
+𝜏 
+𝑖 , where 𝑜 
+
+𝜏 
+𝑖 be 
+
+the objective value of 𝑥𝜏 at step 𝑖. As with the performance 
+curve stop rule, the median stop rule do not depend 
+on a parametric model, and be applicable to a wide range 
+of performance curves. In fact, the median stop rule 
+be model–free, and be more reminiscent of a bandit-based 
+approach such a HyperBand [20]. 
+
+3.3 Transfer learn 
+
+When do black-box optimization, user often run study 
+that be similar to study they have run before, and we can 
+use this fact to minimize repeat work. Vizier support a 
+form of Transfer Learning which leverage data from prior 
+study to guide and accelerate the current study. For instance, 
+one might tune the learn rate and regularization of a 
+machine learn system, then use that Study a a prior to 
+tune the same ML system on a different data set. 
+
+Vizier’s current approach to transfer learn be relatively 
+simple, yet robust to change in objective across studies. We 
+design our transfer learn approach with these goal in 
+mind: 
+
+(1) Scale well to situation where there be many prior 
+studies. 
+
+(2) Accelerate study (i.e., achieve good result with 
+few trials) when the prior be good, particularly in 
+case where the location of the optimum, 𝑥*, doesn’t 
+change much. 
+
+(3) Be robust against poorly chosen prior study (i.e., a 
+bad prior should give only a modest deceleration). 
+
+(4) Share information even when there be no formal rela- 
+tionship between the prior and current Studies. 
+
+In previous work on transfer learn in the context of 
+hyperparameter optimization, Bardenet et al. [1] discus the 
+difficulty in transfer knowledge across different datasets 
+especially when the observe metric and the sample of 
+the datasets be different. They use a rank approach for 
+construct a surrogate model for the response surface. This 
+approach suffers from the computational overhead of run 
+a rank algorithm. Yogatama and Mann [32] propose a 
+more efficient approach, which scale a Θ(𝑘𝑛 + 𝑛3) for 𝑘 
+study of 𝑛 trial each, where the cubic term come from 
+use a Gaussian process in their acquisition function. 
+
+Vizier typically us Gaussian Process regressors, so one 
+natural approach to implement transfer learn might be 
+
+Figure 5: An illustration of our transfer learn 
+scheme, show how 𝜇′𝑖 be built from the residual 
+label w.r.t. 𝜇𝑖−1 (shown in dot red lines). 
+
+to build a large Gaussian Process regressor that be train 
+on both the prior(s) and the current Study. However that 
+approach fails to satisfy design goal 1: for 𝑘 study with 𝑛 
+trial each it would require Ω(𝑘3𝑛3) time. Such an approach 
+also require one to specify or learn kernel function that 
+bridge between the prior(s) and current Study, violate 
+design goal 4. 
+
+Instead, our strategy be to build a stack of Gaussian Process 
+regressors, where each regressor be associate with a study, 
+and where each level be train on the residual relative to 
+the regressor below it. Our model be that the study be 
+perform in a linear sequence, each study use the study 
+before it a priors. 
+
+The bottom of the stack contains a regressor built use 
+data from the old study in the stack. The regressor above 
+it be associate with the 2nd old study, and regress on 
+the residual of it objective relative to the prediction of the 
+regressor below it. Similarly, the regressor associate with 
+the 𝑖th study be built use the data from that study, and 
+regress on the residual of the objective with respect to the 
+prediction of the regressor below it. 
+
+More formally, we have a sequence of study {𝑆𝑖}𝑘𝑖=1 on un- 
+know objective function {𝑓𝑖}𝑘𝑖=1, where the current study 
+be 𝑆𝑘, and we build two sequence of regressors {𝑅𝑖}𝑘𝑖=1 
+and {𝑅′𝑖} 
+
+𝑘 
+𝑖=1 have posterior mean function {𝜇𝑖} 
+
+𝑘 
+𝑖=1 and 
+
+{𝜇′𝑖} 
+𝑘 
+𝑖=1 respectively, and posterior standard deviation func- 
+
+tions {𝜎𝑖}𝑘𝑖=1 and {𝜎 
+′ 
+𝑖} 
+
+𝑘 
+𝑖=1, respectively. Our final prediction 
+
+will be 𝜇𝑘 and 𝜎𝑘. 
+Let 𝐷𝑖 = 
+
+{︀ 
+(𝑥𝑖𝑡, 𝑦 
+
+𝑖 
+𝑡) 
+}︀ 
+𝑡 
+be the dataset for study 𝑆𝑖. Let 𝑅 
+
+′ 
+𝑖 be 
+
+a regressor train use data 
+{︀ 
+((𝑥𝑖𝑡, 𝑦 
+
+𝑖 
+𝑡 − 𝜇𝑖−1(𝑥𝑖𝑡)) 
+
+}︀ 
+𝑡 
+which 
+
+computes 𝜇′𝑖 and 𝜎 
+′ 
+𝑖. Then we define a our posterior mean 
+
+at level 𝑖 a 𝜇𝑖(𝑥) := 𝜇 
+′ 
+𝑖(𝑥) + 𝜇𝑖−1(𝑥). We take our poste- 
+
+rior standard deviation at level 𝑖, 𝜎𝑖(𝑥), to be a weight 
+geometric mean of 𝜎′𝑖(𝑥) and 𝜎𝑖−1(𝑥), where the weight be 
+a function of the amount of data (i.e., complete trials) in 
+𝑆𝑖 and 𝑆𝑖−1. The exact weight function depends on a 
+constant 𝛼 ≈ 1 set the relative importance of old and new 
+standard deviations. 
+
+This approach have nice property when the prior regressors 
+be densely support (i.e. have many well-spaced data points), 
+
+
+
+but the top-level regressor have relatively little training data: 
+(1) fine structure in the prior carry through to 𝜇𝑘, even 
+if the top-level regressor give a low-resolution model of the 
+objective function residual; (2) since the estimate for 𝜎′𝑘 be 
+inaccurate, average it with 𝜎𝑘−1 can lead to an improve 
+estimate. Further, when the top-level regressor have dense 
+support, 𝛽 → 1 and the 𝜎𝑘 → 𝜎′𝑘, a one might desire. 
+
+We provide detail in the pseudocode in Algorithm 1, and 
+illustrate the regressors in Figure 5. 
+
+Algorithm 1 Transfer Learning Regressor 
+
+# This be a high order function that return a regressor 
+R(𝑥test); 
+# then R(𝑥test) can be evaluate to obtain (𝜇, 𝜎) 
+function GetRegressor(𝐷training, 𝑖) 
+
+If 𝑖 < 0: Return function that return (0,1) for all input 
+# Recurse to get a Regressor (𝜇i−1(𝑥), 𝜎i−1(𝑥)) train 
+
+on 
+# the data for all level of the stack below this one. 
+𝑅prior ← GetRegressor(𝐷training, 𝑖− 1) 
+# Compute training residual 
+𝐷residuals ← [(𝑥, 𝑦 −𝑅prior(𝑥)[0])for(𝑥, 𝑦) ∈ 𝐷i] 
+# Train a Gaussian Process (𝜇′𝑖(𝑥), 𝜎 
+
+′ 
+𝑖(𝑥)) on the resid- 
+
+uals. 
+𝐺𝑃residuals = TrainGP(𝐷residuals) 
+function StackedRegressor(𝑥test) 
+
+𝜇prior, 𝜎prior ← 𝑅prior(𝑥test) 
+𝜇top, 𝜎top ← 𝐺𝑃residuals(𝑥test) 
+𝜇← 𝜇top + 𝜇prior 
+𝛽 ← 𝛼|𝐷i|/(𝛼|𝐷i|+ |𝐷𝑖−1|) 
+𝜎 ← 𝜎𝛽top𝜎 
+
+1−𝛽 
+prior 
+
+return 𝜇, 𝜎 
+end function 
+return StackedRegressor 
+
+end function 
+
+Algorithm 1 be then use in the Batched Gaussian Process 
+Bandits [8] algorithm. Algorithm 1 have the property that 
+for a sufficiently dense sample of the feasible region in the 
+training data for the current study, the prediction converge 
+to those of a regressor train only on the current study data. 
+This ensures a certain degree of robustness: badly chosen 
+prior will eventually be overwhelmed (design goal 3). 
+
+In production settings, transfer learn be often particu- 
+larly valuable when the number of trial per study be relatively 
+small, but there be many such studies. For example, certain 
+production machine learn system may be very expensive 
+to train, limit the number of trial that can be run for 
+hyperparameter tuning, yet be mission critical for a busi- 
+ness and be thus work on year after year. Over time, the 
+total number of trial span several small hyperparameter 
+tune run can be quite informative. Our transfer learn 
+scheme be particularly well-suited to this case, a illustrate 
+in section 4.3. 
+
+4 RESULTS 
+
+4.1 Performance Evaluation 
+
+To evaluate the performance of Google Vizier we require func- 
+tions that can be use to benchmark the results. These be 
+pre-selected, easily calculate function with know optimal 
+point that have proven challenge for black-box optimiza- 
+tion algorithms. We can measure the success of an optimizer 
+on a benchmark function 𝑓 by it final optimality gap. That 
+is, if 𝑥* minimizes 𝑓 , and �̂� be the best solution found by the 
+optimizer, then |𝑓(�̂�)− 𝑓(𝑥*)| measure the success of that 
+optimizer on that function. If, a be frequently the case, the 
+optimizer have a stochastic component, we then calculate the 
+average optimality gap by average over multiple run of the 
+optimizer on the same benchmark function. 
+
+Comparing between benchmark be a more difficult give 
+that the different benchmark function have different range 
+and difficulties. For example, a good black-box optimizer 
+apply to the Rastrigin function might achieve an optimal- 
+ity gap of 160, while simple random sample of the Beale 
+function can quickly achieve an optimality gap of 60 [10]. We 
+normalize for this by take the ratio of the optimality gap 
+to the optimality gap of Random Search on the same func- 
+tion under the same conditions. Once normalized, we average 
+over the benchmark to get a single value represent an 
+optimizer’s performance. 
+
+The benchmark select be primarily take from the 
+Black-Box Optimization Benchmarking Workshop [10] (an 
+academic competition for black–box optimizers), and include 
+the Beale, Branin, Ellipsoidal, Rastrigin, Rosenbrock, Six 
+Hump Camel, Sphere, and Styblinski benchmark functions. 
+
+4.2 Empirical Results 
+
+In Figures 6 we look at result quality for four optimization 
+algorithm currently implement in the Vizier framework: a 
+multiarmed bandit technique use a Gaussian process regres- 
+sor [29], the SMAC algorithm [19], the Covariance Matrix 
+Adaption Evolution Strategy (CMA-ES) [16], and a proba- 
+bilistic search method of our own. For a give dimension 𝑑, 
+we generalize each benchmark function into a 𝑑 dimensional 
+space, ran each optimizer on each benchmark 100 times, 
+and record the intermediate result (averaging these over 
+the multiple runs). Figure 6 show their improvement over 
+Random Search; the horizontal axis represent the number 
+of trial have be evaluated, while the vertical axis indicates 
+each optimality gap a a fraction of the Random Search 
+optimality gap at the same point. The 2×Random Search 
+curve be the Random Search algorithm when it be al- 
+low to sample two point for each point the other algo- 
+rithms evaluated. While some author have claimed that 
+2×Random Search be highly competitive with Bayesian Op- 
+timization method [20], our data suggests this be only true 
+when the dimensionality of the problem be sufficiently high 
+(e.g., over 16). 
+
+
+
+100 101 102 103 104 
+
+Batch (log scale) 
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+1.2 
+
+1.4 
+
+R 
+e 
+d 
+u 
+ct 
+
+io 
+n 
+i 
+n 
+o 
+
+p 
+ti 
+
+m 
+a 
+lit 
+
+y 
+g 
+
+a 
+p 
+
+re 
+la 
+
+ti 
+v 
+e 
+t 
+
+o 
+R 
+
+a 
+n 
+d 
+o 
+m 
+
+S 
+e 
+a 
+rc 
+
+h 
+
+Dimension = 4 
+
+100 101 102 103 104 
+
+Batch (log scale) 
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+1.2 
+
+1.4 
+
+Dimension = 8 
+
+100 101 102 103 104 
+
+Batch (log scale) 
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+1.2 
+
+1.4 
+
+Dimension = 16 
+
+100 101 102 103 104 
+
+Batch (log scale) 
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+1.2 
+
+1.4 
+
+Dimension = 32 
+
+2xRandom 
+
+GP Bandit 
+
+SMAC 
+
+CMA-ES 
+
+Probabilistic Search 
+
+100 101 102 103 104 
+
+Batch (log scale) 
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+1.2 
+
+1.4 
+
+Dimension = 64 
+
+Figure 6: Ratio of the average optimality gap of each optimizer to that of Random Search at a give number of 
+samples. The 2×Random Search be a Random Search allow to sample two point at every step (as oppose 
+to a single point for the other algorithms). 
+
+0 5 10 15 20 25 30 
+
+Number of transfer learn step (i.e. studies) 
+
+5.0 
+
+5.5 
+
+6.0 
+
+6.5 
+
+lo 
+g 
+(b 
+
+e 
+st 
+
+o 
+p 
+ti 
+
+m 
+a 
+lit 
+
+y 
+g 
+
+a 
+p 
+s 
+
+e 
+e 
+n 
+i 
+n 
+s 
+
+tu 
+d 
+y 
+) 
+
+Figure 7: Convergence of transfer learn in a 10 
+dimensional space. This show a sequence of stud- 
+y with progressive transfer learn for both GP 
+Bandit (blue diamonds) and Random Search (red 
+squares) optimizers. The X-axis show the index of 
+the study, i.e. the number of time that transfer 
+learn have be applied; the Y-axis show the log 
+of the best mean optimality gap see in the study 
+(see Section 4.1). Each study contains six trials; for 
+the GP Bandit-based optimizer the previous study 
+be use a prior for transfer learning. Note that the 
+GP bandit show a consistent improvement in opti- 
+mality gap from study to study, thus demonstrate 
+an effective transfer of knowledge from the early 
+trials; Random Search do not do transfer learning. 
+
+4.3 Transfer Learning 
+
+We display the value of transfer learn in Figure 7 with a 
+series of short studies; each study be just six trial long. Even 
+so, one can see that transfer learn from one study to the 
+next lead to steady progress towards the optimum, a the 
+stack of regressors gradually build up information about the 
+shape of the objective function. 
+
+This experiment be conduct in a 10 dimensional space, 
+use the 8 black-box function described in section 4.1. 
+We run 30 study (180 trials) and each study us transfer 
+learn from all previous studies. 
+
+As one might hope, transfer learn cause the GP ban- 
+dit algorithm to show a strong systematic decrease in the 
+optimality gap from study to study, with it final average 
+optimality gap 37% the size of Random Search’s. As ex- 
+pected, Random Search show no systematic improvement 
+in it optimality gap from study to study. 
+
+Note that a systematic improvement in the optimality gap 
+be a difficult task since each study get a budget of only 6 
+trial whilst operating in a 10 dimensional space, and the GP 
+regressor be optimize 8 internal hyperparameters for each 
+study. By any reasonable measure, a single study’s data be 
+insufficient for the regressor to learn much about the shape 
+of the objective function. 
+
+4.4 Automated Stopping 
+
+4.4.1 Performance Curve Stopping Rule. In our experi- 
+ments, we found that the use of the performance curve stop- 
+ping rule result in achieve optimality gap comparable to 
+those achieve without the stop rule, while use approx- 
+imately 50% few CPU-hours when tune hyperparameter 
+for deep neural networks. Our result be in line with figure 
+report by other researchers, while use a more flexible 
+non-parametric model (e.g., Domhan et al. [9] report reduc- 
+tions in the 40% to 60% range on three ML hyperparameter 
+tune benchmarks). 
+
+4.4.2 Median Automated Stopping Rule. We evaluate the 
+Median Stopping Rule for several hyperparameter search 
+problems, include a state-of-the-art residual network archi- 
+tecture base on [17] for image classification on CIFAR10 
+with 16 tunable hyperparameters, and an LSTM architec- 
+ture [33] for language model on the Penn TreeBank data 
+set with 12 tunable hyperparameters. We observe that in all 
+case the stop rule consistently achieve a factor two to 
+three speedup over random search, while always find the 
+best perform Trial. Li et al. [20] argue that “2X random 
+
+
+
+search”, i.e., random search at twice the speed, be competitive 
+with several state-of-the-art black-box optimization method 
+on a broad range of benchmarks. The robustness of the stop- 
+ping rule be also evaluate by run repeat simulation 
+on a large set of complete random search trial under ran- 
+dom permutation, which show that the algorithm almost 
+never decide to stop the ultimately-best-performing trial 
+early. 
+
+5 USE CASES 
+
+Vizier be use for a number of different application domains. 
+
+5.1 Hyperparameter tune and 
+HyperTune 
+
+Vizier be use across Google to optimize hyperparameters 
+of machine learn models, both for research and produc- 
+tion models. Our implementation scale to service the entire 
+hyperparameter tune workload across Alphabet, which be 
+extensive. As one (admittedly extreme) example, Collins et al. 
+[6] use Vizier to perform hyperparameter tune study that 
+collectively contain million of trial for a research project 
+investigate the capacity of different recurrent neural net- 
+work architectures. In this context, a single trial involve 
+training a distinct machine learn model use different 
+hyperparameter values. That research project would not be 
+possible without effective black–box optimization. For other 
+research projects, automate the arduous and tedious task 
+of hyperparameter tune accelerates their progress. 
+
+Perhaps even more importantly, Vizier have make notable 
+improvement to production model underlie many Google 
+products, result in measurably good user experience for 
+over a billion people. External researcher and developer 
+can achieve the same benefit use Google Cloud Machine 
+Learning HyperTune subsystem, which benefit from our 
+experience and technology. 
+
+5.2 Automated A/B test 
+
+In addition to tune hyperparameters, Vizier have a number 
+of other uses. It be use for automate A/B test of Google 
+web properties, for example tune user–interface parameter 
+such a font and thumbnail sizes, color schema, and spacing, 
+or traffic-serving parameter such a the relative importance 
+of various signal in determine which item to show to a user. 
+An example of the latter would be “how should the search 
+result return from Google Maps trade off search-relevance 
+for distance from the user?” 
+
+5.3 Delicious Chocolate Chip Cookies 
+
+Vizier be also use to solve complex black–box optimization 
+problem arise from physical design or logistical problems. 
+Here we present an example that highlight some additional 
+capability of the system: find the most delicious chocolate 
+chip cookie recipe from a parameterized space of recipes. 
+
+Parameters include baking soda, brown sugar, white 
+sugar, butter, vanilla, egg, flour, chocolate, chip type, salt, 
+cayenne, orange extract, baking time, and baking temperature. 
+
+We provide recipe to contractor responsible for provid- 
+ing dessert for Google employees. The head chef among 
+the contractor be give discretion to alter parameter if 
+(and only if) they strongly believe it to be necessary, but 
+would carefully note what alteration be made. The cooky 
+be baked, and distribute to the cafe for taste–testing. 
+Cafe goer taste the cooky and provide feedback via a 
+survey. Survey result be aggregate and the result be 
+sent back to Vizier. The “machine learn cookies” be 
+provide about twice a week over several weeks. 
+
+The cooky improve significantly over time; late round 
+be extremely well-rated and, in the authors’ opinions, deli- 
+cious. However, we wish to highlight the follow capability 
+of Vizier the cookie design experiment exercised: 
+
+∙ Infeasible trials: In real applications, some trial may 
+be infeasible, meaning they cannot be evaluate for 
+reason that be intrinsic to the parameter settings. 
+Very high learn rate may cause training to diverge, 
+lead to garbage models. In this example: very low 
+level of butter may make your cookie dough impossibly 
+crumbly and incohesive. 
+∙ Manual override of suggest trials: Sometimes you 
+cannot evaluate the suggest trial or else mistakenly 
+evaluate a different trial than the one ask for. For 
+example, when baking you might be run low on 
+an ingredient and have to settle for less than the rec- 
+ommended amount. 
+∙ Transfer learning: Before start to bake at large scale, 
+we bake some recipe in a small scale run-through. 
+This provide useful data that we could transfer learn 
+from when baking at scale. Conditions be not iden- 
+tical, however, result in some unexpected conse- 
+quences. For example, the large-scale production the 
+dough be allow to sit longer, which unexpectedly, 
+and somewhat dramatically, increase the subjective 
+spiciness of the cooky for trial that involve cayenne. 
+Fortunately, our transfer learn scheme be relatively 
+robust to such shifts. 
+
+Vizier support mark trial a infeasible, in which case 
+they do not receive an objective value. In the case of Bayesian 
+Optimization, previous work either assigns them a particu- 
+larly bad objective value, attempt to incorporate a proba- 
+bility of infeasibility into the acquisition function to penalize 
+point that be likely to be infeasible [3], or try to explicitly 
+model the shape of the infeasible region [11, 12]. We take the 
+first approach, which be simple and fairly effective for the ap- 
+plication we consider. Regarding manual overrides, Vizier’s 
+stateless design make it easy to support update or delete 
+trials; we simply update the trial state on the database. For 
+detail on transfer learning, refer to section 3.3. 
+
+6 CONCLUSION 
+
+We have present our design for Vizier, a scalable, state- 
+of-the-art internal service for black–box optimization within 
+Google, explain many of it design choices, and described it 
+use case and benefits. It have already proven to be a valuable 
+
+
+
+platform for research and development, and we expect it will 
+only grow more so a the area of black–box optimization 
+grows in importance. Also, it design excellent cookies, which 
+be a very rare capability among computational systems. 
+
+7 ACKNOWLEDGMENTS 
+
+We gratefully acknowledge the contribution of the following: 
+Jeremy Kubica, Jeff Dean, Eric Christiansen, Moritz Hardt, 
+Katya Gonina, Kevin Jamieson, and Abdul Salem. 
+
+REFERENCES 
+[1] Rémi Bardenet, Mátyás Brendel, Balázs Kégl, and Michele Sebag. 
+
+2013. Collaborative hyperparameter tuning. ICML 2 (2013), 199. 
+[2] James S Bergstra, Rémi Bardenet, Yoshua Bengio, and Balázs 
+
+Kégl. 2011. Algorithms for hyper-parameter optimization. In 
+Advances in Neural Information Processing Systems. 2546–2554. 
+
+[3] J Bernardo, MJ Bayarri, JO Berger, AP Dawid, D Heckerman, 
+AFM Smith, and M West. 2011. Optimization under unknown 
+constraints. Bayesian Statistics 9 9 (2011), 229. 
+
+[4] Michael Bostock, Vadim Ogievetsky, and Jeffrey Heer. 2011. D3 
+
+data-driven documents. IEEE transaction on visualization and 
+computer graphic 17, 12 (2011), 2301–2309. 
+
+[5] Herman Chernoff. 1959. Sequential Design of Experiments. Ann. 
+Math. Statist. 30, 3 (09 1959), 755–770. https://doi.org/10.1214/ 
+aoms/1177706205 
+
+[6] Jasmine Collins, Jascha Sohl-Dickstein, and David Sussillo. 2017. 
+Capacity and Trainability in Recurrent Neural Networks. In Pro- 
+feeding of the International Conference on Learning Represen- 
+tations (ICLR). 
+
+[7] Andrew R Conn, Katya Scheinberg, and Luis N Vicente. 2009. 
+Introduction to derivative-free optimization. SIAM. 
+
+[8] Thomas Desautels, Andreas Krause, and Joel W Burdick. 2014. 
+Parallelizing exploration-exploitation tradeoff in Gaussian pro- 
+ce bandit optimization. Journal of Machine Learning Research 
+15, 1 (2014), 3873–3923. 
+
+[9] Tobias Domhan, Jost Tobias Springenberg, and Frank Hutter. 
+2015. Speeding Up Automatic Hyperparameter Optimization of 
+Deep Neural Networks by Extrapolation of Learning Curves.. In 
+IJCAI. 3460–3468. 
+
+[10] Steffen Finck, Nikolaus Hansen, Raymond Rost, and Anne 
+Auger. 2009. Real-Parameter Black-Box Optimization 
+Benchmarking 2009: Presentation of the Noiseless Func- 
+tions. http://coco.gforge.inria.fr/lib/exe/fetch.php?media= 
+download3.6:bbobdocfunctions.pdf. (2009). [Online]. 
+
+[11] Jacob R Gardner, Matt J Kusner, Zhixiang Eddie Xu, Kilian Q 
+Weinberger, and John P Cunningham. 2014. Bayesian Optimiza- 
+tion with Inequality Constraints.. In ICML. 937–945. 
+
+[12] Michael A Gelbart, Jasper Snoek, and Ryan P Adams. 2014. 
+Bayesian optimization with unknown constraints. In Proceed- 
+ings of the Thirtieth Conference on Uncertainty in Artificial 
+Intelligence. AUAI Press, 250–259. 
+
+[13] Josep Ginebra and Murray K. Clayton. 1995. Response Surface 
+Bandits. Journal of the Royal Statistical Society. Series B 
+(Methodological) 57, 4 (1995), 771–784. http://www.jstor.org/ 
+stable/2345943 
+
+[14] Google. 2017. Polymer: Build modern apps use web components. 
+https://github.com/Polymer/polymer. (2017). [Online]. 
+
+[15] Google. 2017. Protocol Buffers: Google’s data interchange format. 
+https://github.com/google/protobuf. (2017). [Online]. 
+
+[16] Nikolaus Hansen and Andreas Ostermeier. 2001. Completely de- 
+randomize self-adaptation in evolution strategies. Evolutionary 
+computation 9, 2 (2001), 159–195. 
+
+[17] Kaiming He, Xiangyu Zhang, Shaoqing Ren, and Jian Sun. 2016. 
+Deep residual learn for image recognition. In Proceedings of the 
+IEEE Conference on Computer Vision and Pattern Recognition. 
+770–778. 
+
+[18] Julian Heinrich and Daniel Weiskopf. 2013. State of the Art of 
+Parallel Coordinates.. In Eurographics (STARs). 95–116. 
+
+[19] Frank Hutter, Holger H Hoos, and Kevin Leyton-Brown. 2011. 
+Sequential model-based optimization for general algorithm config- 
+uration. In International Conference on Learning and Intelligent 
+Optimization. Springer, 507–523. 
+
+[20] Lisha Li, Kevin G. Jamieson, Giulia DeSalvo, Afshin Ros- 
+tamizadeh, and Ameet Talwalkar. 2016. Hyperband: A Novel 
+Bandit-Based Approach to Hyperparameter Optimization. CoRR 
+abs/1603.06560 (2016). http://arxiv.org/abs/1603.06560 
+
+[21] J Moćkus, V Tiesis, and A Źilinskas. 1978. The Application of 
+Bayesian Methods for Seeking the Extremum. Vol. 2. Elsevier. 
+117–128 pages. 
+
+[22] John A Nelder and Roger Mead. 1965. A simplex method for 
+function minimization. The computer journal 7, 4 (1965), 308– 
+313. 
+
+[23] Carl Edward Rasmussen and Christopher K. I. Williams. 2005. 
+Gaussian Processes for Machine Learning (Adaptive Computa- 
+tion and Machine Learning). The MIT Press. 
+
+[24] Luis Miguel Rios and Nikolaos V Sahinidis. 2013. Derivative-free 
+optimization: a review of algorithm and comparison of software 
+implementations. Journal of Global Optimization 56, 3 (2013), 
+1247–1293. 
+
+[25] Bobak Shahriari, Kevin Swersky, Ziyu Wang, Ryan P Adams, 
+and Nando de Freitas. 2016. Taking the human out of the loop: 
+A review of bayesian optimization. Proc. IEEE 104, 1 (2016), 
+148–175. 
+
+[26] Jasper Snoek, Hugo Larochelle, and Ryan P Adams. 2012. Prac- 
+tical bayesian optimization of machine learn algorithms. In 
+Advances in neural information processing systems. 2951–2959. 
+
+[27] Jasper Snoek, Oren Rippel, Kevin Swersky, Ryan Kiros, Nadathur 
+Satish, Narayanan Sundaram, Md. Mostofa Ali Patwary, Prab- 
+hat, and Ryan P. Adams. 2015. Scalable Bayesian Optimization 
+Using Deep Neural Networks. In Proceedings of the 32nd Inter- 
+national Conference on Machine Learning, ICML 2015, Lille, 
+France, 6-11 July 2015 (JMLR Workshop and Conference Pro- 
+ceedings), Francis R. Bach and David M. Blei (Eds.), Vol. 37. 
+JMLR.org, 2171–2180. http://jmlr.org/proceedings/papers/v37/ 
+snoek15.html 
+
+[28] Jost Tobias Springenberg, Aaron Klein, Stefan Falkner, and 
+Frank Hutter. 2016. Bayesian Optimization with Robust 
+Bayesian Neural Networks. In Advances in Neural Infor- 
+mation Processing Systems 29, D. D. Lee, M. Sugiyama, 
+U. V. Luxburg, I. Guyon, and R. Garnett (Eds.). Cur- 
+ran Associates, Inc., 4134–4142. http://papers.nips.cc/paper/ 
+6117-bayesian-optimization-with-robust-bayesian-neural-networks. 
+pdf 
+
+[29] Niranjan Srinivas, Andreas Krause, Sham Kakade, and Matthias 
+Seeger. 2010. Gaussian Process Optimization in the Bandit Set- 
+ting: No Regret and Experimental Design. ICML (2010). 
+
+[30] Kevin Swersky, Jasper Snoek, and Ryan Prescott Adams. 
+2014. Freeze-thaw Bayesian optimization. arXiv preprint 
+arXiv:1406.3896 (2014). 
+
+[31] Andrew Gordon Wilson, Zhiting Hu, Ruslan Salakhutdinov, and 
+Eric P Xing. 2016. Deep kernel learning. In Proceedings of the 
+19th International Conference on Artificial Intelligence and 
+Statistics. 370–378. 
+
+[32] Dani Yogatama and Gideon Mann. 2014. Efficient Transfer Learn- 
+ing Method for Automatic Hyperparameter Tuning. JMLR: 
+W&CP 33 (2014), 1077–1085. 
+
+[33] Wojciech Zaremba, Ilya Sutskever, and Oriol Vinyals. 2014. 
+Recurrent neural network regularization. arXiv preprint 
+arXiv:1409.2329 (2014). 
+
+https://doi.org/10.1214/aoms/1177706205 
+https://doi.org/10.1214/aoms/1177706205 
+http://coco.gforge.inria.fr/lib/exe/fetch.php?media=download3.6:bbobdocfunctions.pdf 
+http://coco.gforge.inria.fr/lib/exe/fetch.php?media=download3.6:bbobdocfunctions.pdf 
+http://www.jstor.org/stable/2345943 
+http://www.jstor.org/stable/2345943 
+https://github.com/Polymer/polymer 
+https://github.com/google/protobuf 
+http://arxiv.org/abs/1603.06560 
+http://jmlr.org/proceedings/papers/v37/snoek15.html 
+http://jmlr.org/proceedings/papers/v37/snoek15.html 
+http://papers.nips.cc/paper/6117-bayesian-optimization-with-robust-bayesian-neural-networks.pdf 
+http://papers.nips.cc/paper/6117-bayesian-optimization-with-robust-bayesian-neural-networks.pdf 
+http://papers.nips.cc/paper/6117-bayesian-optimization-with-robust-bayesian-neural-networks.pdf 
+
+Abstract 
+1 Introduction 
+1.1 Related Work 
+1.2 Definitions 
+
+2 System Overview 
+2.1 Design Goals and Constraints 
+2.2 Basic User Workflow 
+2.3 Interfaces 
+2.4 Infrastructure 
+2.5 The Algorithm Playground 
+2.6 Benchmarking Suite 
+2.7 Dashboard and Visualizations 
+
+3 The Vizier algorithm 
+3.1 Automated Early Stopping 
+3.2 Automated Stopping Algorithms 
+3.3 Transfer learn 
+
+4 Results 
+4.1 Performance Evaluation 
+4.2 Empirical Results 
+4.3 Transfer Learning 
+4.4 Automated Stopping 
+
+5 Use Cases 
+5.1 Hyperparameter tune and HyperTune 
+5.2 Automated A/B test 
+5.3 Delicious Chocolate Chip Cookies 
+
+6 Conclusion 
+7 Acknowledgments 
+References 
+

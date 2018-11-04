@@ -1,0 +1,3619 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+P:\TEX\SISC\33-5\79687\79687.dvi 
+
+
+SIAM J. SCI. COMPUT. c© 2011 Society for Industrial and Applied Mathematics 
+Vol. 33, No. 5, pp. 2950–2971 
+
+LSMR: AN ITERATIVE ALGORITHM FOR SPARSE 
+LEAST-SQUARES PROBLEMS∗ 
+
+DAVID CHIN-LUNG FONG† AND MICHAEL SAUNDERS‡ 
+
+Abstract. An iterative method LSMR be present for solve linear system Ax = b and least- 
+square problem min ‖Ax−b‖2, with A be sparse or a fast linear operator. LSMR be base on the 
+Golub–Kahan bidiagonalization process. It be analytically equivalent to the MINRES method apply 
+to the normal equation ATAx = ATb, so that the quantity ‖ATrk‖ be monotonically decrease 
+(where rk = b−Axk be the residual for the current iterate xk). We observe in practice that ‖rk‖ also 
+decrease monotonically, so that compare to LSQR (for which only ‖rk‖ be monotonic) it be safer to 
+terminate LSMR early. We also report some experiment with reorthogonalization. 
+
+Key words. least-squares problem, sparse matrix, LSQR, MINRES, Krylov subspace method, 
+Golub–Kahan process, conjugate-gradient method, minimum-residual method, iterative method 
+
+AMS subject classifications. 15A06, 65F10, 65F20, 65F22, 65F25, 65F35, 65F50, 93E24 
+
+DOI. 10.1137/10079687X 
+
+1. Introduction. We present a numerical method call LSMR for compute 
+a solution x to the follow problems: 
+
+Unsymmetric equations: minimize ‖x‖2 subject to Ax = b, 
+Linear least square (LS): minimize ‖Ax− b‖2, 
+Regularized least squares: minimize 
+
+∥∥∥∥(AλI 
+) 
+x− 
+
+( 
+b 
+0 
+
+)∥∥∥∥ 
+2 
+
+, 
+
+where A ∈ Rm×n, b ∈ Rm, and λ ≥ 0, with m ≤ n or m ≥ n. The matrix A be use a 
+an operator for which product of the form Av and ATu can be compute for various 
+v and u. (If A be symmetric or Hermitian and λ = 0, MINRES-QLP [4] be applicable.) 
+
+LSMR be similar in style to the well-known method LSQR [16, 17] in be base 
+on the Golub–Kahan bidiagonalization of A [6]. LSQR be equivalent to the conjugate- 
+gradient (CG) method apply to the normal equation (ATA+λ2I)x = ATb. It have the 
+property of reduce ‖rk‖ monotonically, where rk = b − Axk be the residual for the 
+approximate solution xk. (For simplicity, we be let λ = 0.) In contrast, LSMR 
+be equivalent to MINRES [15] apply to the normal equation, so that the quantity 
+‖ATrk‖ be monotonically decreasing. In practice we observe that ‖rk‖ also decrease 
+monotonically and be never very far behind the correspond value for LSQR. Hence, 
+although LSQR and LSMR ultimately converge to similar points, it be safer to use 
+LSMR in situation where the solver must be terminate early. 
+
+Stopping condition be typically base on backward error : the norm of some per- 
+turbation to A for which the current iterate xk solves the perturbed problem exactly. 
+
+∗Received by the editor June 1, 2010; accepted for publication (in revise form) June 6, 2011; 
+publish electronically October 27, 2011. 
+
+http://www.siam.org/journals/sisc/33-5/79687.html 
+†ICME, Stanford University, Stanford, CA 94305-4042 (clfong@stanford.edu). This author’s re- 
+
+search be partially support by a Stanford Graduate Fellowship. 
+‡Systems Optimization Laboratory, Department of Management Science and Engineering, Stan- 
+
+ford University, Stanford, CA 94305-4026 (saunders@stanford.edu). This author’s research be par- 
+tially support by Office of Naval Research grant N00014-08-1-0191 and by the U.S. Army Research 
+Laboratory, through the Army High Performance Computing Research Center, Cooperative Agree- 
+ment W911NF-07-0027. 
+
+2950 
+
+
+
+LSMR: AN ITERATIVE ALGORITHM FOR LEAST SQUARES 2951 
+
+Experiments on many sparse LS test problem show that for LSMR, a certain cheaply 
+computable backward error for each xk be close to the optimal (smallest possible) 
+backward error. This be an unexpected but highly desirable advantage. 
+
+1.1. Overview. Section 2 introduces the Golub–Kahan process and derives the 
+basic LSMR algorithm with λ = 0. Section 3 derives various norm and stop 
+criteria. Section 4 discus singular system and complexity. Section 5 derives the 
+LSMR algorithm with λ ≥ 0. Section 6 describes backward error estimates. Section 7 
+give numerical result on a range of overdetermined and square systems. Section 8 
+summarizes our findings, and Appendix A prof one of the main lemmas. 
+
+1.2. Notation. Matrices be denote by A,B, . . . , vector by v, w, . . . , and 
+scalar by α, β, . . . . Two exception be c and s, which denote the significant com- 
+ponents of a plane rotation matrix, with c2 + s2 = 1. For a vector v, ‖v‖ always 
+denotes the 2-norm of v. For a matrix A, ‖A‖ usually denotes the Frobenius norm, 
+and the condition number of a matrix A be define by cond(A) = ‖A‖‖A+‖, where 
+A+ denotes the pseudoinverse of A. Vectors e1 and ek denote column of an identity 
+matrix. Items like β̇k and β̈k be about to change to something similar like β̃k. 
+
+2. Derivation of LSMR. We begin with the Golub–Kahan process [6], an 
+iterative procedure for transform 
+
+( 
+b A 
+
+) 
+to upper-bidiagonal form 
+
+( 
+β1e1 Bk 
+
+) 
+. 
+
+2.1. The Golub–Kahan process. 
+1. Set β1u1 = b (shorthand for β1 = ‖b‖, u1 = b/β1) and α1v1 = ATu1. 
+2. For k = 1, 2, . . . , set 
+
+(2.1) βk+1uk+1 = Avk − αkuk and αk+1vk+1 = ATuk+1 − βk+1vk. 
+After k steps, we have 
+
+AVk = Uk+1Bk and A 
+TUk+1 = Vk+1L 
+
+T 
+k+1, 
+
+where we define Vk = 
+( 
+v1 v2 . . . vk 
+
+) 
+, Uk = 
+
+( 
+u1 u2 . . . uk 
+
+) 
+, and 
+
+Bk = 
+
+⎛⎜⎜⎜⎜⎜⎝ 
+α1 
+β2 α2 
+
+. . . 
+. . . 
+
+βk αk 
+βk+1 
+
+⎞⎟⎟⎟⎟⎟⎠ , Lk+1 = 
+( 
+Bk αk+1ek+1 
+
+) 
+. 
+
+Now consider 
+
+ATAVk = A 
+TUk+1Bk = Vk+1L 
+
+T 
+k+1Bk = Vk+1 
+
+( 
+BTk 
+
+αk+1e 
+T 
+k+1 
+
+) 
+Bk 
+
+= Vk+1 
+
+( 
+BTkBk 
+
+αk+1βk+1e 
+T 
+k 
+
+) 
+. 
+
+This be equivalent to what would be generate by the symmetric Lanczos process with 
+matrix ATA and start vector ATb. (For this reason, we define β̄k ≡ αkβk below.) 
+
+2.2. Using Golub–Kahan to solve the normal equation. Krylov subspace 
+method for solve linear equation form solution estimate xk = Vkyk for some yk, 
+where the column of Vk be an expand set of theoretically independent vectors. 
+(In this case, Vk and also Uk be theoretically orthonormal.) 
+
+
+
+2952 DAVID CHIN-LUNG FONG AND MICHAEL SAUNDERS 
+
+For the equation ATAx = ATb, any solution x have the property of minimize ‖r‖, 
+where r = b − Ax be the correspond residual vector. Thus, in the development of 
+LSQR it be natural to choose yk to minimize ‖rk‖ at each stage. Since 
+
+rk = b− AVkyk = β1u1 − Uk+1Bkyk = Uk+1(β1e1 −Bkyk), 
+
+where Uk+1 be theoretically orthonormal, the subproblem minyk ‖β1e1 −Bkyk‖ easily 
+arose. In contrast, for LSMR we wish to minimize ‖ATrk‖. Let β̄k ≡ αkβk for all k. 
+Since ATrk = A 
+
+Tb−ATAxk = β1α1v1 −ATAVkyk, we have 
+
+ATrk = β̄1v1 − Vk+1 
+( 
+
+BTkBk 
+αk+1βk+1e 
+
+T 
+k 
+
+) 
+yk = Vk+1 
+
+( 
+β̄1e1 − 
+
+( 
+BTkBk 
+β̄k+1e 
+
+T 
+k 
+
+) 
+yk 
+
+) 
+, 
+
+and we be lead to the subproblem 
+
+(2.2) min 
+yk 
+
+‖AT rk‖ = min 
+yk 
+
+∥∥∥∥β̄1e1 − ( BTkBkβ̄k+1eTk 
+) 
+yk 
+
+∥∥∥∥ . 
+Efficient solution of this LS subproblem be the heart of algorithm LSMR. 
+
+2.3. Two QR factorizations. As in LSQR, we form the QR factorization 
+
+(2.3) Qk+1Bk = 
+
+( 
+Rk 
+0 
+
+) 
+, Rk = 
+
+⎛⎜⎜⎜⎜⎝ 
+ρ1 θ2 
+
+ρ2 
+. . . 
+
+. . . θk 
+ρk 
+
+⎞⎟⎟⎟⎟⎠ . 
+
+If we define tk = Rkyk and solve R 
+T 
+kqk = β̄k+1ek, we have qk = (β̄k+1/ρk)ek = ϕkek 
+
+with ρk = (Rk)kk and ϕk ≡ β̄k+1/ρk. Then we perform a second QR factorization 
+
+(2.4) Q̄k+1 
+
+( 
+RTk β̄1e1 
+ϕke 
+
+T 
+k 0 
+
+) 
+= 
+
+( 
+R̄k zk 
+0 ζ̄k+1 
+
+) 
+, R̄k = 
+
+⎛⎜⎜⎜⎜⎝ 
+ρ̄1 θ̄2 
+
+ρ̄2 
+. . . 
+
+. . . θ̄k 
+ρ̄k 
+
+⎞⎟⎟⎟⎟⎠ . 
+
+Combining what we have with (2.2) give 
+
+min 
+yk 
+
+‖AT rk‖ = min 
+yk 
+
+∥∥∥∥β̄1e1 − (RTkRkqTk Rk 
+) 
+yk 
+
+∥∥∥∥ = mintk 
+∥∥∥∥β̄1e1 − ( RTkϕkeTk 
+
+) 
+tk 
+
+∥∥∥∥ 
+= min 
+
+tk 
+
+∥∥∥∥( zkζ̄k+1 
+) 
+− 
+( 
+R̄k 
+0 
+
+) 
+tk 
+
+∥∥∥∥ .(2.5) 
+The subproblem be solve by choose tk from R̄ktk = zk. 
+
+2.4. Recurrence for xk. Let Wk and W̄k be compute by forward substitution 
+from RTk W 
+
+T 
+k = V 
+
+T 
+k and R̄ 
+
+T 
+k W̄ 
+
+T 
+k = W 
+
+T 
+k . Then from xk = Vkyk, Rkyk = tk, and 
+
+R̄ktk = zk, we have x0 ≡ 0 and 
+
+xk = WkRkyk = Wktk = W̄kR̄ktk = W̄kzk = xk−1 + ζkw̄k. 
+
+
+
+LSMR: AN ITERATIVE ALGORITHM FOR LEAST SQUARES 2953 
+
+2.5. Recurrence for Wk and W̄k. If we write 
+
+Vk = 
+( 
+v1 v2 · · · vk 
+
+) 
+, Wk = 
+
+( 
+w1 w2 · · · wk 
+
+) 
+, 
+
+W̄k = 
+( 
+w̄1 w̄2 · · · w̄k 
+
+) 
+, zk = 
+
+( 
+ζ1 ζ2 · · · ζk 
+
+)T 
+, 
+
+an important fact be that when k increase to k + 1, all quantity remain the same 
+except for one additional term. 
+
+The first QR factorization proceeds a follows. At iteration k we construct a plane 
+rotation operating on row l and l + 1: 
+
+Pl = 
+
+⎛⎜⎜⎝ 
+Il−1 
+
+cl sl 
+−sl cl 
+
+Ik−l−1 
+
+⎞⎟⎟⎠ . 
+Now if Qk+1 = Pk . . . P2P1, we have 
+
+Qk+1Bk+1 = Qk+1 
+
+( 
+Bk αk+1ek+1 
+
+βk+2 
+
+) 
+= 
+
+⎛⎝Rk θk+1ek0 ᾱk+1 
+βk+2 
+
+⎞⎠ , 
+Qk+2Bk+1 = Pk+1 
+
+⎛⎝Rk θk+1ek0 ᾱk+1 
+βk+2 
+
+⎞⎠ = 
+⎛⎝Rk θk+1ek0 ρk+1 
+
+0 0 
+
+⎞⎠ 
+and we see that θk+1 = skαk+1 = (βk+1/ρk)αk+1 = β̄k+1/ρk = ϕk. Therefore we can 
+write θk+1 instead of ϕk. 
+
+For the second QR factorization, if Q̄k+1 = P̄k . . . P̄2P̄1, we know that 
+
+Q̄k+1 
+
+( 
+RTk 
+
+θk+1e 
+T 
+k 
+
+) 
+= 
+
+( 
+R̄k 
+0 
+
+) 
+, 
+
+and so 
+
+(2.6) Q̄k+2 
+
+( 
+RTk+1 
+
+θk+2e 
+T 
+k+1 
+
+) 
+= P̄k+1 
+
+⎛⎝R̄k θ̄k+1ekc̄kρk+1 
+θk+2 
+
+⎞⎠ = 
+⎛⎝R̄k θ̄k+1ekρ̄k+1 
+
+0 
+
+⎞⎠ . 
+By consider the last row of the matrix equation RTk+1W 
+
+T 
+k+1 = V 
+
+T 
+k+1 and the last 
+
+row of R̄Tk+1W̄ 
+T 
+k+1 = W 
+
+T 
+k+1 we obtain equation that define wk+1 and w̄k+1: 
+
+θk+1w 
+T 
+k + ρk+1w 
+
+T 
+k+1 = v 
+
+T 
+k+1, 
+
+θ̄k+1w̄ 
+T 
+k + ρ̄k+1w̄ 
+
+T 
+k+1 = w 
+
+T 
+k+1. 
+
+2.6. The two rotations. To summarize, the rotation Pk and P̄k have the 
+follow effect on our computation:( 
+
+ck sk 
+−sk ck 
+
+)( 
+ᾱk 
+βk+1 αk+1 
+
+) 
+= 
+
+( 
+ρk θk+1 
+0 ᾱk+1 
+
+) 
+,( 
+
+c̄k s̄k 
+−s̄k c̄k 
+
+)( 
+c̄k−1ρk ζ̄k 
+θk+1 ρk+1 
+
+) 
+= 
+
+( 
+ρ̄k θ̄k+1 ζk 
+0 c̄kρk+1 ζ̄k+1 
+
+) 
+. 
+
+
+
+2954 DAVID CHIN-LUNG FONG AND MICHAEL SAUNDERS 
+
+2.7. Speeding up forward substitution. The forward substitution for com- 
+put w and w̄ can be make more efficient if we define hk = ρkwk and h̄k = ρkρ̄kw̄k. 
+We then obtain the update described in part 6 of the pseudocode below. 
+
+2.8. Algorithm LSMR. The follow summarizes the main step of algorithm 
+LSMR for solve Ax ≈ b, exclude the norm and stop rule developed later: 
+
+1. (Initialize) 
+
+β1u1 = b, α1v1 = A 
+Tu1, ᾱ1 = α1, ζ̄1 = α1β1, ρ0 = 1, ρ̄0 = 1, 
+
+c̄0 = 1, s̄0 = 0, h1 = v1, h̄0 = 0, x0 = 0. 
+
+2. For k = 1, 2, 3 . . . , repeat step 3–6. 
+3. (Continue the bidiagonalization) 
+
+βk+1uk+1 = Avk − αkuk, αk+1vk+1 = ATuk+1 − βk+1vk. 
+4. (Construct and apply rotation Pk) 
+
+ρk = 
+( 
+ᾱ2k + β 
+
+2 
+k+1 
+
+) 1 
+2 , ck = ᾱk/ρk, sk = βk+1/ρk,(2.7) 
+
+θk+1 = skαk+1, ᾱk+1 = ckαk+1.(2.8) 
+
+5. (Construct and apply rotation P̄k) 
+
+θ̄k = s̄k−1ρk, ρ̄k = 
+( 
+(c̄k−1ρk)2 + θ2k+1 
+
+) 1 
+2 , 
+
+c̄k = c̄k−1ρk/ρ̄k, s̄k = θk+1/ρ̄k,(2.9) 
+ζk = c̄k ζ̄k, ζ̄k+1 = −s̄kζ̄k.(2.10) 
+
+6. (Update h, h̄ x) 
+
+h̄k = hk − (θ̄kρk/(ρk−1ρ̄k−1))h̄k−1, 
+xk = xk−1 + (ζk/(ρkρ̄k))h̄k, 
+
+hk+1 = vk+1 − (θk+1/ρk)hk. 
+3. Norms and stop rules. Here we derive ‖rk‖, ‖AT rk‖, ‖xk‖ and esti- 
+
+mate of ‖A‖ and cond(A) for use within stop rules. All quantity require O(1) 
+computation at each iteration. 
+
+3.1. Computing ‖rk‖. We transform R̄Tk to upper-bidiagonal form use a 
+third QR factorization: R̃k = Q̃kR̄ 
+
+T 
+k with Q̃k = P̃k−1 . . . P̃1. This amount to one 
+
+additional rotation per iteration. Now let 
+
+(3.1) t̃k = Q̃ktk, b̃k = 
+
+( 
+Q̃k 
+
+1 
+
+) 
+Qk+1e1β1. 
+
+Then rk = b−Axk = β1u1 −AVkyk = Uk+1e1β1 − Uk+1Bkyk give 
+
+rk = Uk+1 
+
+( 
+e1β1 −QTk+1 
+
+( 
+Rk 
+0 
+
+) 
+yk 
+
+) 
+= Uk+1 
+
+( 
+e1β1 −QTk+1 
+
+( 
+tk 
+0 
+
+)) 
+= Uk+1 
+
+( 
+QTk+1 
+
+( 
+Q̃Tk 
+
+1 
+
+) 
+b̃k −QTk+1 
+
+( 
+Q̃Tk t̃k 
+0 
+
+)) 
+= Uk+1Q 
+
+T 
+k+1 
+
+( 
+Q̃Tk 
+
+1 
+
+)( 
+b̃k − 
+
+( 
+t̃k 
+0 
+
+)) 
+. 
+
+
+
+LSMR: AN ITERATIVE ALGORITHM FOR LEAST SQUARES 2955 
+
+Therefore, assume orthogonality of Uk+1, we have 
+
+(3.2) ‖rk‖ = 
+∥∥∥∥b̃k − (t̃k0 
+
+)∥∥∥∥ . 
+The vector b̃k and t̃k can be write in the form 
+
+(3.3) b̃k = 
+( 
+β̃1 · · · β̃k−1 β̇k β̈k+1 
+
+)T 
+, t̃k = 
+
+( 
+τ̃1 · · · τ̃k−1 τ̇k 
+
+)T 
+. 
+
+The vector t̃k can be compute by forward substitution from R̃ 
+T 
+k t̃k = zk. 
+
+Lemma 3.1. In (3.2)–(3.3), β̃i = τ̃i for i = 1, . . . , k − 1. 
+Proof. Appendix A prof the lemma by induction. 
+Using this lemma we can estimate ‖rk‖ from just the last two element of b̃k and 
+
+the last element of t̃k, a show in (3.6). 
+
+3.1.1. Pseudocode for compute ‖rk‖. The follow summarizes how ‖rk‖ 
+may be obtain from quantity arise from the first and third QR factorizations: 
+
+1. (Initialize) 
+
+β̈1 = β1, β̇0 = 0, ρ̇0 = 1, τ̃−1 = 0, θ̃0 = 0, ζ0 = 0. 
+
+2. For the kth iteration, repeat step 3–6. 
+3. (Apply rotation Pk) 
+
+β̂k = ckβ̈k, β̈k+1 = −skβ̈k.(3.4) 
+4. (If k ≥ 2, construct and apply rotation P̃k−1) 
+
+ρ̃k−1 = 
+( 
+ρ̇2k−1 + θ̄ 
+
+2 
+k 
+
+) 1 
+2 , 
+
+c̃k−1 = ρ̇k−1/ρ̃k−1, s̃k−1 = θ̄k/ρ̃k−1,(3.5) 
+
+θ̃k = s̃k−1ρ̄k, ρ̇k = c̃k−1ρ̄k, 
+
+β̃k−1 = c̃k−1β̇k−1 + s̃k−1β̂k, β̇k = −s̃k−1β̇k−1 + c̃k−1β̂k. 
+5. (Update t̃k by forward substitution) 
+
+τ̃k−1 = (ζk−1 − θ̃k−1τ̃k−2)/ρ̃k−1, τ̇k = (ζk − θ̃k τ̃k−1)/ρ̇k. 
+6. (Form ‖rk‖) 
+
+(3.6) γ = (β̇k − τ̇k)2 + β̈2k+1, ‖rk‖ = 
+√ 
+γ. 
+
+3.2. Computing ‖ATrk‖. From (2.5) we have ‖ATrk‖ = |ζ̄k+1|, which by (2.10) 
+be monotonically decreasing. 
+
+3.3. Computing ‖xk‖. From section 2.4 we have xk = VkR−1k R̄−1k zk. From 
+the third QR factorization Q̃kR̄ 
+
+T 
+k = R̃k in section 3.1 and a fourth QR factorization 
+
+Q̂k(Q̃kRk) 
+T = R̂k we can write 
+
+xk = VkR 
+−1 
+k R̄ 
+
+−1 
+k zk = VkR 
+
+−1 
+k R̄ 
+
+−1 
+k R̄kQ̃ 
+
+T 
+k z̃k = VkR 
+
+−1 
+k Q̃ 
+
+T 
+k Q̃kRkQ̂ 
+
+T 
+k ẑk = VkQ̂ 
+
+T 
+k ẑk, 
+
+where z̃k and ẑk be define by forward substitution R̃ 
+T 
+k z̃k = zk and R̂ 
+
+T 
+k ẑk = z̃k. 
+
+Assuming orthogonality of Vk we arrive at the estimate ‖xk‖ = ‖ẑk‖. Since only 
+the last diagonal of R̃k and the bottom 2 × 2 part of R̂k change each iteration, this 
+estimate of ‖xk‖ can again be update cheaply. The pseudocode, omit here, can be 
+derive a in section 3.1.1. Experimentally we have observe that for every iteration, 
+‖xk‖ > ‖xk−1‖ be either true or very nearly true. 
+
+
+
+2956 DAVID CHIN-LUNG FONG AND MICHAEL SAUNDERS 
+
+3.4. Estimates of ‖A‖ and cond(A). It be know that the singular value 
+of Bk be interlaced by those of A and be bound above and below by the large 
+and small nonzero singular value of A [16]. Therefore we can estimate ‖A‖ and 
+cond(A) by ‖Bk‖ and cond(Bk), respectively. Considering the Frobenius norm of Bk, 
+we have the recurrence relation ‖Bk+1‖2F = ‖Bk‖2F +α2k +β2k+1. From (2.3)–(2.4) and 
+(2.6), we can show that the follow QLP factorization [23] holds: 
+
+Qk+1BkQ̄ 
+T 
+k = 
+
+( 
+R̄Tk−1 
+θ̄ke 
+
+T 
+k−1 c̄k−1ρk 
+
+) 
+
+(the same a R̄Tk except for the last diagonal). Since the singular value of Bk be 
+approximate by the diagonal element of that lower-bidiagonal matrix [23], and since 
+the diagonal be all positive, we can estimate cond(A) by the ratio of the large and 
+small value in {ρ̄1, . . . , ρ̄k−1, c̄k−1ρk}. Those value can be update cheaply. 
+
+3.5. Stopping criteria. With exact arithmetic, the Golub–Kahan process ter- 
+minates when either αk+1 = 0 or βk+1 = 0. For certain data b, this could happen in 
+practice when k be small (but be unlikely later). We show that LSMR will have solve 
+the problem at that point and should therefore terminate. 
+
+When αk+1 = 0, with the expression of ‖AT rk‖ from section 3.2, we have 
+‖AT rk‖ = |ζ̄k+1| = |s̄k ζ̄k| = |θk+1ρ̄−1k ζ̄k| = |skαk+1ρ̄−1k ζ̄k| = 0, 
+
+where (2.10), (2.9), (2.8) be used. Thus, an LS solution have be obtained. 
+When βk+1 = 0, we have 
+
+sk = βk+1ρ 
+−1 
+k = 0 (from (2.7)),(3.7) 
+
+β̈k+1 = −skβ̈k = 0 (from (3.4), (3.7)),(3.8) 
+β̇k = c̃ 
+
+−1 
+k 
+
+( 
+β̃k − s̃k(−1)ks(k)ck+1β1 
+
+) 
+(from (A.6)), 
+
+= c̃−1k β̃k (from (3.7)) 
+
+= ρ̇−1k ρ̃kβ̃k (from (3.5)) 
+
+= ρ̇−1k ρ̃k τ̃k (from Lemma 3.1) 
+= τ̇k (from (A.2), (A.3)).(3.9) 
+
+By (3.9), (3.8), and (3.6) we conclude that ‖rk‖ = 0. It follow that Axk = b. 
+3.6. Practical stop criteria. For LSMR we use the same stop rule 
+
+a LSQR [16], involve dimensionless quantity ATOL, BTOL, CONLIM: 
+S1: Stop if ‖rk‖ ≤ BTOL‖b‖+ATOL‖A‖‖xk‖. 
+S2: Stop if ‖AT rk‖ ≤ ATOL‖A‖‖rk‖. 
+S3: Stop if cond(A) ≥ CONLIM. 
+S1 applies to consistent systems, allow for uncertainty in A and b [10, Theo- 
+
+rem 7.1]. S2 applies to inconsistent system and come from Stewart’s backward error 
+estimate ‖E2‖ assume uncertainty in A; see section 6.1. S3 applies to any system. 
+
+4. Characteristics of the solution on singular systems. If A do not have 
+full column rank, the normal equation ATAx = ATb be singular but consistent. We 
+show that LSQR and LSMR both give the minimum-norm LS solution. That is, they 
+both solve the optimization problem min ‖x‖2 such that ATAx = ATb. Let N(A) and 
+R(A) denote the nullspace and range of a matrix A. 
+
+
+
+LSMR: AN ITERATIVE ALGORITHM FOR LEAST SQUARES 2957 
+
+Table 4.1 
+Storage and computational requirement for various LS methods. 
+
+Storage Work 
+m n m n 
+
+LSMR Av, u x, v, h, h̄ 3 6 
+LSQR Av, u x, v, w 3 5 
+MINRES on ATAx = ATb Av x, v1, v2, w1, w2, w3 8 
+
+Lemma 4.1. If A ∈ Rm×n and p ∈ Rn satisfy ATAp = 0, then p ∈ N(A). 
+Proof. ATAp = 0 ⇒ pTATAp = 0 ⇒ (Ap)TAp = 0 ⇒ Ap = 0. 
+Theorem 4.2. LSQR return the minimum-norm solution. 
+Proof. The final LSQR solution satisfies ATAxLSQRk = A 
+
+Tb, and any other solution 
+
+x̂ satisfies ATAx̂ = ATb. With p = x̂− xLSQRk , the difference between the two normal 
+equation give ATAp = 0, so that Ap = 0 by Lemma 4.1. From α1v1 = A 
+
+Tu1 and 
+αk+1vk+1 = A 
+
+Tuk+1 − βk+1vk (2.1), we have v1, . . . , vk ∈ R(AT ). With Ap = 0, this 
+implies pTVk = 0, so that 
+
+‖x̂‖22 − ‖xLSQRk ‖22 = ‖xLSQRk + p‖22 − ‖xLSQRk ‖22 = pTp+ 2pTxLSQRk 
+= pTp+ 2pTVky 
+
+LSQR 
+k = p 
+
+Tp ≥ 0. 
+Corollary 4.3. LSMR return the minimum-norm solution. 
+Proof. At convergence, αk+1 = 0 or βk+1 = 0. Thus β̄k+1 = αk+1βk+1 = 0, 
+
+which mean (2.2) becomes min ‖β̄1e1 − BTkBkyk‖ and hence BTkBkyk = β̄1e1, since 
+Bk have full rank. This be the normal equation for min ‖Bkyk − β1e1‖, the same LS 
+subproblem solve by LSQR. We conclude that at convergence, yk = y 
+
+LSQR 
+k and thus 
+
+xk = Vkyk = Vky 
+LSQR 
+k = x 
+
+LSQR 
+k , and Theorem 4.2 applies. 
+
+4.1. Complexity. We compare the storage requirement and computational com- 
+plexity for LSMR and LSQR on Ax ≈ b and MINRES on the normal equation 
+ATAx = ATb. In Table 4.1, we list the vector storage need (excluding storage 
+for A and b). Recall that A be m×n and for LS system m may be considerably large 
+than n. Av denotes the work storage for matrix-vector products. Work represent 
+the number of floating-point multiplication require at each iteration. 
+
+5. Regularized least squares. In this section, we extend LSMR to the regu- 
+larized LS problem: 
+
+(5.1) min 
+
+∥∥∥∥(AλI 
+) 
+x− 
+
+( 
+b 
+0 
+
+)∥∥∥∥ 
+2 
+
+. 
+
+If Ā = 
+( 
+A 
+λI 
+
+) 
+and r̄k = 
+
+( 
+b 
+0 
+
+)− Āxk, then 
+ĀT r̄k = A 
+
+T rk − λ2xk = Vk+1 
+( 
+β̄1e1 − 
+
+( 
+BTkBk 
+
+β̄k+1e 
+T 
+k 
+
+) 
+yk − λ2 
+
+( 
+yk 
+0 
+
+)) 
+= Vk+1 
+
+( 
+β̄1e1 − 
+
+( 
+RTkRk 
+
+β̄k+1e 
+T 
+k 
+
+) 
+yk 
+
+) 
+and the rest of the main algorithm follow the same a in the unregularized case. In 
+the last equality, Rk be define by the QR factorization 
+
+Q2k+1 
+
+( 
+Bk 
+λI 
+
+) 
+= 
+
+( 
+Rk 
+0 
+
+) 
+, Q2k+1 ≡ PkP̂k . . . P2P̂2P1P̂1, 
+
+
+
+2958 DAVID CHIN-LUNG FONG AND MICHAEL SAUNDERS 
+
+where P̂l be a rotation operating on row l and l+ k+1. The effect of P̂1 and P1 be 
+illustrate here: 
+
+P̂1 
+
+⎛⎜⎜⎜⎜⎝ 
+α1 
+β2 α2 
+
+β3 
+λ 
+
+λ 
+
+⎞⎟⎟⎟⎟⎠ = 
+⎛⎜⎜⎜⎜⎝ 
+α̂1 
+β2 α2 
+
+β3 
+0 
+
+λ 
+
+⎞⎟⎟⎟⎟⎠ , P1 
+⎛⎜⎜⎜⎜⎝ 
+α̂1 
+β2 α2 
+
+β3 
+
+λ 
+
+⎞⎟⎟⎟⎟⎠ = 
+⎛⎜⎜⎜⎜⎝ 
+ρ1 θ2 
+
+ᾱ2 
+β3 
+
+λ 
+
+⎞⎟⎟⎟⎟⎠ . 
+
+5.1. Effects on ‖r̄k‖. The introduction of regularization change the residual 
+norm a follows: 
+
+r̄k = 
+
+( 
+b 
+0 
+
+) 
+− 
+( 
+A 
+λI 
+
+) 
+xk = 
+
+( 
+u1 
+0 
+
+) 
+β1 − 
+
+( 
+AVk 
+λVk 
+
+) 
+yk = 
+
+( 
+u1 
+0 
+
+) 
+β1 − 
+
+( 
+Uk+1Bk 
+λVk 
+
+) 
+yk 
+
+= 
+
+( 
+Uk+1 
+
+Vk 
+
+)( 
+e1β1 − 
+
+( 
+Bk 
+λI 
+
+) 
+yk 
+
+) 
+= 
+
+( 
+Uk+1 
+
+Vk 
+
+)( 
+e1β1 −QT2k+1 
+
+( 
+Rk 
+0 
+
+) 
+yk 
+
+) 
+= 
+
+( 
+Uk+1 
+
+Vk 
+
+)( 
+e1β1 −QT2k+1 
+
+( 
+tk 
+0 
+
+)) 
+= 
+
+( 
+Uk+1 
+
+Vk 
+
+) 
+QT2k+1 
+
+( 
+Q̃Tk 
+
+1 
+
+)( 
+b̃k − 
+
+( 
+t̃k 
+0 
+
+)) 
+
+with b̃k = 
+( 
+˜Qk 
+
+1 
+
+) 
+Q2k+1e1β1, where we adopt the notation 
+
+b̃k = 
+( 
+β̃1 · · · β̃k−1 β̇k β̈k+1 β̌1 · · · β̌k 
+
+)T 
+. 
+
+We conclude that ‖r̄k‖2 = β̌21+ · · ·+ β̌2k+(β̇k−τk)2+ β̈2k+1. The effect of regularization 
+on the rotation be summarize as( 
+
+ĉk ŝk 
+−ŝk ĉk 
+
+)( 
+ᾱk β̈k 
+λ 
+
+) 
+= 
+
+( 
+α̂k β́k 
+
+β̌k 
+
+) 
+,( 
+
+ck sk 
+−sk ck 
+
+)( 
+α̂k β́k 
+βk+1 αk+1 
+
+) 
+= 
+
+( 
+ρk θk+1 β̂k 
+
+ᾱk+1 β̈k+1 
+
+) 
+. 
+
+5.2. Pseudocode for regularize LSMR. The follow summarizes algo- 
+rithm LSMR for solve the regularize problem (5.1) with give λ. Our MATLAB 
+implementation be base on these steps: 
+
+1. (Initialize) 
+
+β1u1 = b, α1v1 = A 
+Tu1, ᾱ1 = α1, ζ̄1 = α1β1, ρ0 = 1, ρ̄0 = 1, 
+
+c̄0 = 1, s̄0 = 0, β̈1 = β1, β̇0 = 0, ρ̇0 = 1, τ̃−1 = 0, 
+
+θ̃0 = 0, ζ0 = 0, d0 = 0, h1 = v1, h̄0 = 0, x0 = 0. 
+
+2. For k = 1, 2, 3, . . . , repeat step 3–12. 
+3. (Continue the bidiagonalization) 
+
+βk+1uk+1 = Avk − αkuk, αk+1vk+1 = ATuk+1 − βk+1vk. 
+
+
+
+LSMR: AN ITERATIVE ALGORITHM FOR LEAST SQUARES 2959 
+
+4. (Construct rotation P̂k) 
+
+α̂k = 
+( 
+ᾱ2k + λ 
+
+2 
+) 1 
+
+2 , ĉk = ᾱk/α̂k, ŝk = λ/α̂k. 
+
+5. (Construct and apply rotation Pk) 
+
+ρk = 
+( 
+α̂2k + β 
+
+2 
+k+1 
+
+) 1 
+2 , ck = α̂k/ρk, sk = βk+1/ρk, 
+
+θk+1 = skαk+1, ᾱk+1 = ckαk+1. 
+
+6. (Construct and apply rotation P̄k) 
+
+θ̄k = s̄k−1ρk, ρ̄k = 
+( 
+(c̄k−1ρk)2 + θ2k+1 
+
+) 1 
+2 , 
+
+c̄k = c̄k−1ρk/ρ̄k, s̄k = θk+1/ρ̄k, 
+ζk = c̄k ζ̄k, ζ̄k+1 = −s̄kζ̄k. 
+
+7. (Update h̄, x, h) 
+
+h̄k = hk − (θ̄kρk/(ρk−1ρ̄k−1))h̄k−1, 
+xk = xk−1 + (ζk/(ρkρ̄k))h̄k, 
+
+hk+1 = vk+1 − (θk+1/ρk)hk. 
+
+8. (Apply rotation P̂k, Pk) 
+
+β́k = ĉkβ̈k, β̌k = −ŝkβ̈k, β̂k = ckβ́k, β̈k+1 = −skβ́k. 
+
+9. (If k ≥ 2, construct and apply rotation P̃k−1) 
+
+ρ̃k−1 = 
+( 
+ρ̇2k−1 + θ̄ 
+
+2 
+k 
+
+) 1 
+2 , 
+
+c̃k−1 = ρ̇k−1/ρ̃k−1, s̃k−1 = θ̄k/ρ̃k−1, 
+
+θ̃k = s̃k−1ρ̄k, ρ̇k = c̃k−1ρ̄k, 
+
+β̃k−1 = c̃k−1β̇k−1 + s̃k−1β̂k, β̇k = −s̃k−1β̇k−1 + c̃k−1β̂k. 
+
+10. (Update t̃k by forward substitution) 
+
+τ̃k−1 = (ζk−1 − θ̃k−1τ̃k−2)/ρ̃k−1, τ̇k = (ζk − θ̃k τ̃k−1)/ρ̇k. 
+
+11. (Compute ‖r̄k‖) 
+
+dk = dk−1 + β̌2k, γ = dk + (β̇k − τ̇k)2 + β̈2k+1, ‖r̄k‖ = 
+√ 
+γ. 
+
+12. (Compute ‖ĀTr̄k‖, ‖xk‖, estimate ‖Ā‖, cond(Ā), and test for termination) 
+
+‖ĀTr̄k‖ = |ζ̄k+1| (section 3.2), 
+compute ‖xk‖ (section 3.3), 
+estimate σmax(Bk), σmin(Bk) and hence ‖Ā‖, cond(Ā) (section 3.4), 
+terminate if any of the stop criterion be satisfied (section 3.6). 
+
+
+
+2960 DAVID CHIN-LUNG FONG AND MICHAEL SAUNDERS 
+
+6. Backward errors. For inconsistent problem with uncertainty in A (but not 
+b), let x be any approximate solution. The normwise backward error for x measure 
+the perturbation to A that would make x an exact LS solution: 
+
+(6.1) μ(x) ≡ min 
+E 
+
+‖E‖ such that (A+ E)T (A+ E)x = (A+ E)T b. 
+
+It be know to be the small singular value of a certain m× (n+m) matrix C; see 
+Waldén, Karlson, and Sun [26] and Higham [10, pp. 392–393]: 
+
+μ(x) = σmin(C), C ≡ 
+[ 
+A ‖r‖‖x‖ 
+
+( 
+I − rrT‖r‖2 
+
+)] 
+. 
+
+Since it be generally too expensive to evaluate μ(x), we need to find approximations. 
+
+6.1. Approximate backward error E1 and E2. In 1975, Stewart [21] dis- 
+cuss a particular backward error estimate that we will call E1. Let x̂ and r̂ = b−Ax̂ 
+be the exact LS solution and residual. Stewart show that an approximate solu- 
+tion x with residual r = b − Ax be the exact LS solution of the perturbed problem 
+min ‖b− (A+ E1)x‖, where E1 be the rank-one matrix 
+
+(6.2) E1 = 
+exT 
+
+‖x‖2 , ‖E1‖ = 
+‖e‖ 
+‖x‖ , e ≡ r − r̂, 
+
+with ‖r‖2 = ‖r̂‖2 + ‖e‖2. Soon after, Stewart [22] give a further important result 
+that can be use within any LS solver. The approximate x and a certain vector 
+r̃ = b − (A + E2)x be the exact solution and residual of the perturbed LS problem 
+min ‖b− (A+ E2)x‖, where 
+
+(6.3) E2 = −rr 
+TA 
+
+‖r‖2 , ‖E2‖ = 
+‖ATr‖ 
+‖r‖ , r = b−Ax. 
+
+LSQR and LSMR both compute ‖E2‖ for each iterate xk because the current ‖rk‖ 
+and ‖ATrk‖ can be accurately estimate at almost no cost. An add feature be that 
+for both solvers, r̃ = b− (A+E2)xk = rk because E2xk = 0 (assuming orthogonality 
+of Vk). That is, xk and rk be theoretically exact for the perturbed LS problem 
+(A+ E2)x ≈ b. 
+
+Stopping rule S2 (section 3.6) require ‖E2‖ ≤ ATOL‖A‖. Hence the follow 
+property give LSMR an advantage over LSQR for stop early. 
+
+Theorem 6.1. ‖ELSMR2 ‖ ≤ ‖ELSQR2 ‖. 
+Proof. This follow from ‖ATrLSMRk ‖≤ ‖ATrLSQRk ‖ and ‖rLSMRk ‖≥ ‖rLSQRk ‖. 
+6.2. Approximate optimal backward error µ̃(x). Various author have de- 
+
+rive expression for a quantity μ̃(x) that have prove to be a very accurate approx- 
+imation to μ(x) in (6.1) when x be at least moderately close to the exact solution 
+x̂. Grcar, Saunders, and Su [8] and Su [24] show that μ̃(x) can be obtain from a 
+full-rank LS problem a follows: 
+
+(6.4) K = 
+
+[ 
+A 
+
+‖r‖ 
+‖x‖I 
+
+] 
+, v = 
+
+[ 
+r 
+
+0 
+
+] 
+, min 
+
+y 
+‖Ky − v‖, μ̃(x) = ‖Ky‖/‖x‖, 
+
+
+
+LSMR: AN ITERATIVE ALGORITHM FOR LEAST SQUARES 2961 
+
+and they give the follow MATLAB script for compute the “economy size” sparse 
+QR factorization K = QR and c ≡ QTv (for which ‖c‖ = ‖Ky‖) and thence μ̃(x): 
+
+[m,n] = size(A); r = b - A*x; 
+
+normx = norm(x); eta = norm(r)/normx; 
+
+p = colamd(A); 
+
+K = [A(:,p); eta*speye(n)]; 
+
+v = [ r ; zeros(n,1)]; 
+
+[c,R] = qr(K,v,0); mutilde = norm(c)/normx; 
+
+In our experiment we use this script to compute μ̃(xk) for each LSQR and LSMR 
+iterate xk. We refer to this a the optimal backward error for xk because it be provably 
+very close to the true μ(xk) [7]. 
+
+6.3. Related work. More precise stop rule have be derive recently 
+by Arioli and Gratton [1] and Titley-Peloquin and coworkers (see [3, 13, 25]). The 
+rule allow for uncertainty in both A and b and may prove to be useful for LSQR, 
+LSMR, and LS method in general. However, we would like to emphasize that rule S2 
+already terminates LSMR significantly sooner than LSQR on most of our inconsistent 
+test cases; see Theorem 6.1, Figure 7.2(left), and Figure 7.3(top left). 
+
+7. Numerical results. For test examples, we have drawn from the University 
+of Florida Sparse Matrix Collection (Davis [5]). We discus overdetermined system 
+first and then some square examples. 
+
+7.1. Least-squares problems. The LPnetlib group provide data for 138 lin- 
+ear program problem of widely vary origin, structure, and size. The con- 
+straint matrix and objective function may be use to define a sparse LS problem 
+min ‖Ax−b‖. Each example be download in MATLAB format, and a sparse matrix 
+A and dense vector b be extract from the data structure via A = (Problem.A)’ 
+and b = Problem.c (where ’ denotes transpose). 
+
+Five example have b = 0, and a further six give ATb = 0. The remain 127 
+problem have up to 243000 rows, 10000 columns, and 1.4M nonzeros in A. Diagonal 
+scale be apply to the column of 
+
+[ 
+A b 
+
+] 
+to give a scale problem min ‖Ax − b‖ 
+
+in which the column of A (and also b) have unit 2-norm. LSQR and LSMR be run 
+on each of the 127 scale problem with stop tolerance ATOL = 10−8, generate 
+sequence of approximate solution {xLSQRk } and {xLSMRk }. The iteration index k be 
+omit below. The associate residual vector be denote by r without ambiguity, 
+and x∗ be the solution to the LS problem, or the minimum-norm solution to the LS 
+problem if the system be singular. 
+
+As expected, the optimal residual be nonzero in all cases. We record some general 
+observations: 
+
+1. ‖rLSQR‖ be monotonic by design. ‖rLSMR‖ seem to be monotonic (no counter- 
+example be found) and nearly a small a ‖rLSQR‖ for all iteration on 
+almost all problems. Figure 7.1 show a typical example and a rare case. 
+
+2. ‖x‖ be nearly monotonic for LSQR and even more closely monotonic for 
+LSMR. With ‖r‖ monotonic for LSQR and essentially so for LSMR, ‖E1‖ 
+in (6.2) be likely to appear monotonic for both solvers. Although ‖E1‖ be not 
+normally available for each iteration, it provide a benchmark for ‖E2‖. 
+
+3. ‖ELSQR2 ‖ be not monotonic, but ‖ELSMR2 ‖ appear monotonic almost always. 
+Figure 7.2 show a typical case. The sole exception for this observation be 
+also shown. 
+
+
+
+2962 DAVID CHIN-LUNG FONG AND MICHAEL SAUNDERS 
+
+0 50 100 150 200 250 300 
+0.4 
+
+0.5 
+
+0.6 
+
+0.7 
+
+0.8 
+
+0.9 
+
+1 
+
+iteration count 
+
+||r 
+|| 
+
+Name:lp greenbeb, Dim:5598x2392, nnz:31070, id=631 
+
+
+
+
+LSQR 
+LSMR 
+
+0 10 20 30 40 50 60 70 80 90 
+0.988 
+
+0.99 
+
+0.992 
+
+0.994 
+
+0.996 
+
+0.998 
+
+1 
+
+iteration count 
+
+||r 
+|| 
+
+Name:lp woodw, Dim:8418x1098, nnz:37487, id=702 
+
+
+
+
+LSQR 
+LSMR 
+
+Fig. 7.1. For most iterations, ‖rLSMR‖ appear to be monotonic and nearly a small a 
+‖rLSQR‖. Left: A typical case (problem lp greenbeb). Right: A rare case (problem lp woodw). 
+LSMR’s residual norm be significantly large than that of LSQR during early iterations. 
+
+0 100 200 300 400 500 600 700 800 900 1000 
+−6 
+
+−5 
+
+−4 
+
+−3 
+
+−2 
+
+−1 
+
+0 
+
+iteration count 
+
+lo 
+g( 
+
+E 
+2) 
+
+Name:lp pilot ja, Dim:2267x940, nnz:14977, id=657 
+
+
+
+
+LSQR 
+LSMR 
+
+0 20 40 60 80 100 120 
+−8 
+
+−7 
+
+−6 
+
+−5 
+
+−4 
+
+−3 
+
+−2 
+
+−1 
+
+0 
+
+iteration count 
+
+lo 
+g( 
+
+E 
+2) 
+
+Name:lp sc205, Dim:317x205, nnz:665, id=665 
+
+
+
+
+LSQR 
+LSMR 
+
+Fig. 7.2. For most iterations, ‖ELSMR2 ‖ appear to be monotonic (but ‖ELSQR2 ‖ be not). Left: 
+A typical case (problem lp pilot ja). LSMR be likely to terminate much sooner than LSQR (see 
+Theorem 6.1). Right: Sole exception (problem lp sc205) at iteration 54–67. The exception remains 
+even if Uk and/or Vk be reorthogonalized. 
+
+4. Note that Benbow [2] have give numerical result compare a generalize 
+form of LSQR with application of MINRES to the correspond normal 
+equation. The curve in [2, Figure 3] show the irregular and smooth behavior 
+of LSQR and MINRES, respectively, in term of ‖ATrk‖. Those curve be 
+effectively a preview of the left-hand plot in Figure 7.2 (where LSMR serf 
+a our more reliable implementation of MINRES). 
+
+5. ‖ELSQR1 ‖ ≤ ‖ELSQR2 ‖ often, but this be not so for LSMR. Some example 
+be show in Figure 7.3 along with μ̃(xk), the accurate estimate (6.4) of the 
+optimal backward error for each point xk. 
+
+6. ‖ELSMR2 ‖ ≈ μ̃(xLSMR) almost always. Figure 7.4 show a typical example 
+and a rare case. In all such “rare” cases, ‖ELSMR1 ‖ ≈ μ̃(xLSMR) instead! 
+
+7. μ̃(xLSQR) be not always monotonic. μ̃(xLSMR) do seem to be monotonic. 
+Figure 7.5 give examples. 
+
+
+
+LSMR: AN ITERATIVE ALGORITHM FOR LEAST SQUARES 2963 
+
+0 200 400 600 800 1000 1200 1400 1600 
+−8 
+
+−7 
+
+−6 
+
+−5 
+
+−4 
+
+−3 
+
+−2 
+
+−1 
+
+0 
+
+iteration count 
+
+lo 
+g( 
+
+B 
+ac 
+
+kw 
+ar 
+
+d 
+E 
+
+rr 
+or 
+
+fo 
+r 
+
+LS 
+Q 
+
+R 
+) 
+
+Name:lp cre a, Dim:7248x3516, nnz:18168, id=609 
+
+
+
+
+E2 
+E1 
+Optimal 
+
+0 100 200 300 400 500 600 
+−7 
+
+−6 
+
+−5 
+
+−4 
+
+−3 
+
+−2 
+
+−1 
+
+0 
+
+iteration count 
+
+lo 
+g( 
+
+B 
+ac 
+
+kw 
+ar 
+
+d 
+E 
+
+rr 
+or 
+
+fo 
+r 
+
+LS 
+Q 
+
+R 
+) 
+
+Name:lp pilot, Dim:4860x1441, nnz:44375, id=654 
+
+
+
+
+E2 
+E1 
+Optimal 
+
+0 200 400 600 800 1000 1200 1400 1600 
+−8 
+
+−7 
+
+−6 
+
+−5 
+
+−4 
+
+−3 
+
+−2 
+
+−1 
+
+0 
+
+iteration count 
+
+lo 
+g( 
+
+B 
+ac 
+
+kw 
+ar 
+
+d 
+E 
+
+rr 
+or 
+
+fo 
+r 
+
+LS 
+M 
+
+R 
+) 
+
+Name:lp cre a, Dim:7248x3516, nnz:18168, id=609 
+
+
+
+
+E2 
+E1 
+Optimal 
+
+0 100 200 300 400 500 600 
+−7 
+
+−6 
+
+−5 
+
+−4 
+
+−3 
+
+−2 
+
+−1 
+
+0 
+
+iteration count 
+
+lo 
+g( 
+
+B 
+ac 
+
+kw 
+ar 
+
+d 
+E 
+
+rr 
+or 
+
+fo 
+r 
+
+LS 
+M 
+
+R 
+) 
+
+Name:lp pilot, Dim:4860x1441, nnz:44375, id=654 
+
+
+
+
+E2 
+E1 
+Optimal 
+
+Fig. 7.3. ‖E1‖, ‖E2‖, and μ̃(xk) for LSQR (top figures) and LSMR (bottom figures). Top left: 
+A typical case. ‖ELSQR1 ‖ be close to the optimal backward error, but the computable ‖ELSQR2 ‖ be 
+not. Top right: A rare case in which ‖ELSQR2 ‖ be close to optimal. Bottom left: ‖ELSMR1 ‖ and 
+‖ELSMR2 ‖ be often both close to the optimal backward error. Bottom right: ‖ELSMR1 ‖ be far from 
+optimal, but the computable ‖ELSMR2 ‖ be almost always close (too close to distinguish in the plot!). 
+Problems lp cre a (left) and lp pilot (right). 
+
+0 50 100 150 200 250 
+−8 
+
+−7 
+
+−6 
+
+−5 
+
+−4 
+
+−3 
+
+−2 
+
+−1 
+
+0 
+
+iteration count 
+
+lo 
+g( 
+
+B 
+ac 
+
+kw 
+ar 
+
+d 
+E 
+
+rr 
+or 
+
+fo 
+r 
+
+LS 
+M 
+
+R 
+) 
+
+Name:lp ken 11, Dim:21349x14694, nnz:49058, id=638 
+
+
+
+
+E2 
+E1 
+Optimal 
+
+0 10 20 30 40 50 60 70 80 90 
+−9 
+
+−8 
+
+−7 
+
+−6 
+
+−5 
+
+−4 
+
+−3 
+
+−2 
+
+−1 
+
+0 
+
+iteration count 
+
+lo 
+g( 
+
+B 
+ac 
+
+kw 
+ar 
+
+d 
+E 
+
+rr 
+or 
+
+fo 
+r 
+
+LS 
+M 
+
+R 
+) 
+
+Name:lp ship12l, Dim:5533x1151, nnz:16276, id=688 
+
+
+
+
+E2 
+E1 
+Optimal 
+
+Fig. 7.4. Again, ‖ELSMR2 ‖ ≈ μ̃(xLSMR) almost always (the computable backward error esti- 
+mate be essentially optimal). Left: A typical case (problem lp ken 11). Right: A rare case (problem 
+
+lp ship12l). Here, ‖ELSMR1 ‖ ≈ μ̃(xLSMR)! 
+
+
+
+2964 DAVID CHIN-LUNG FONG AND MICHAEL SAUNDERS 
+
+0 100 200 300 400 500 600 700 800 900 
+−5 
+
+−4.5 
+
+−4 
+
+−3.5 
+
+−3 
+
+−2.5 
+
+−2 
+
+−1.5 
+
+−1 
+
+−0.5 
+
+0 
+
+iteration count 
+
+lo 
+g( 
+
+O 
+pt 
+
+im 
+al 
+
+B 
+ac 
+
+kw 
+ar 
+
+d 
+E 
+
+rr 
+or 
+
+) 
+
+Name:lp maros, Dim:1966x846, nnz:10137, id=642 
+
+
+
+
+LSQR 
+LSMR 
+
+0 200 400 600 800 1000 1200 1400 1600 
+−8 
+
+−7 
+
+−6 
+
+−5 
+
+−4 
+
+−3 
+
+−2 
+
+−1 
+
+0 
+
+iteration count 
+
+lo 
+g( 
+
+O 
+pt 
+
+im 
+al 
+
+B 
+ac 
+
+kw 
+ar 
+
+d 
+E 
+
+rr 
+or 
+
+) 
+
+Name:lp cre c, Dim:6411x3068, nnz:15977, id=611 
+
+
+
+
+LSQR 
+LSMR 
+
+Fig. 7.5. μ̃(xLSMR) seem to be always monotonic, but μ̃(xLSQR) be usually not. Left: A 
+typical case for both LSQR and LSMR (problem lp maros). Right: A rare case for LSQR, typical 
+for LSMR (problem lp cre c). 
+
+0 100 200 300 400 500 600 
+−7 
+
+−6 
+
+−5 
+
+−4 
+
+−3 
+
+−2 
+
+−1 
+
+0 
+
+iteration count 
+
+lo 
+g( 
+
+O 
+pt 
+
+im 
+al 
+
+B 
+ac 
+
+kw 
+ar 
+
+d 
+E 
+
+rr 
+or 
+
+) 
+
+Name:lp pilot, Dim:4860x1441, nnz:44375, id=654 
+
+
+
+
+LSQR 
+LSMR 
+
+0 50 100 150 
+−9 
+
+−8 
+
+−7 
+
+−6 
+
+−5 
+
+−4 
+
+−3 
+
+−2 
+
+−1 
+
+0 
+
+iteration count 
+
+lo 
+g( 
+
+O 
+pt 
+
+im 
+al 
+
+B 
+ac 
+
+kw 
+ar 
+
+d 
+E 
+
+rr 
+or 
+
+) 
+
+Name:lp standgub, Dim:1383x361, nnz:3338, id=693 
+
+
+
+
+LSQR 
+LSMR 
+
+Fig. 7.6. μ̃(xLSMR) ≤ μ̃(xLSQR) almost always. Left: A typical case (problem lp pilot). 
+Right: A rare case (problem lp standgub). 
+
+8. μ̃(xLSMR) ≤ μ̃(xLSQR) almost always. Figure 7.6 give examples. 
+9. The error ‖x∗ − xLSQR‖ and ‖x∗ − xLSMR‖ seem to decrease monotonically, 
+
+with the LSQR error typically small than for LSMR. Figure 7.7 give exam- 
+ples. This be one property for which LSQR seem more desirable (and it have 
+be suggest [18] that for LS problems, LSQR could be terminate when 
+rule S2 would terminate LSMR). 
+
+7.2. Square systems. Since LSQR and LSMR be applicable to consistent sys- 
+tems, it be of interest to compare them on an unbiased test set. We use the search 
+facility of Davis [5] to select a set of square real linear system Ax = b. With 
+index = UFget, the criterion 
+
+id = find(index.nrows > 100000 & index.nrows < 200000 & ... 
+
+index.nrows == index.ncols & index.isReal == 1 & ... 
+
+index.posdef == 0 & index.numerical_symmetry < 1); 
+
+return a list of 42 examples. Testing isfield(UFget(id),’b’) left 26 case for 
+which b be supplied. For each, diagonal scale be first apply to the row of 
+
+
+
+LSMR: AN ITERATIVE ALGORITHM FOR LEAST SQUARES 2965 
+
+0 10 20 30 40 50 60 70 80 90 
+−7 
+
+−6 
+
+−5 
+
+−4 
+
+−3 
+
+−2 
+
+−1 
+
+0 
+
+1 
+
+2 
+
+iteration count 
+
+lo 
+g| 
+
+|x 
+k 
+
+− 
+x 
+
+* | 
+
+Name:lp ship12l, Dim:5533x1151, nnz:16276, id=688 
+
+
+
+
+LSQR 
+LSMR 
+
+0 10 20 30 40 50 60 70 
+−7 
+
+−6 
+
+−5 
+
+−4 
+
+−3 
+
+−2 
+
+−1 
+
+0 
+
+1 
+
+iteration count 
+
+lo 
+g| 
+
+|x 
+k 
+
+− 
+x 
+
+* | 
+
+Name:lp pd 02, Dim:7716x2953, nnz:16571, id=649 
+
+
+
+
+LSQR 
+LSMR 
+
+Fig. 7.7. The error ‖x∗ − xLSQR‖ and ‖x∗ − xLSMR‖ seem to decrease monotonically, with 
+LSQR’s error small than for LSMR. Left: A nonsingular LS system (problem lp ship12l). Right: 
+A singular system (problem lp pd 02). LSQR and LSMR both converge to the minimum-norm LS 
+solution. 
+
+[ 
+A b 
+
+] 
+and then to it column to give a scale problem Ax = b in which the column 
+
+of 
+[ 
+A b 
+
+] 
+have unit 2-norm. In spite of the scaling, most example require more than 
+
+n iteration of LSQR or LSMR to reduce ‖rk‖ satisfactorily (rule S1 in section 3.6 
+with ATOL = BTOL = 10−8). To simulate good preconditioning, we chose two 
+case that require about n/5 and n/10 iterations. Figure 7.8(left) show both solver 
+reduce ‖rk‖ monotonically but with plateau that be prolong for LSMR. With 
+loose stop tolerances, LSQR could terminate somewhat sooner. Figure 7.8(right) 
+show ‖ATrk‖ for each solver. The plateau for LSMR correspond to LSQR gain 
+ground with ‖rk‖, but fall significantly backward by the ‖ATrk‖ measure. 
+
+7.3. Reorthogonalization. It be well know that Krylov-subspace method can 
+take arbitrarily many iteration because of loss of orthogonality. For the Golub– 
+Kahan bidiagonalization, we have two set of vector Uk and Vk. As an experiment, 
+we implement the follow option in LSMR: 
+
+1. No reorthogonalization. 
+2. Reorthogonalize Vk (that is, reorthogonalize vk with respect to Vk−1). 
+3. Reorthogonalize Uk (that is, reorthogonalize uk with respect to Uk−1). 
+4. Both 2 and 3. 
+
+Each option be test on all of the overdetermined test problem with few than 
+16K nonzeros. Figure 7.9 show an “easy” case in which all option converge equally 
+well (convergence before significant loss of orthogonality), and an extreme case in 
+which reorthogonalization make a large difference. 
+
+Unexpectedly, option 2, 3, and 4 prove to be indistinguishable in all cases. To 
+look closer, we force LSMR to take n iterations. Option 2 (with Vk orthonormal 
+to machine precision �) be found to be keep Uk orthonormal to at least O( 
+
+√ 
+�). 
+
+Option 3 (with Uk orthonormal) be not quite a effective, but it kept Vk orthonormal 
+to at least O( 
+
+√ 
+�) up to the point where LSMR would terminate when ATOL = 
+
+√ 
+�. 
+
+Note that for square or rectangular A with exact arithmetic, LSMR be equivalent 
+to MINRES on the normal equation (and hence to the conjugate-residual method [12] 
+and GMRES [20] on the same equation). Reorthogonalization make the equivalence 
+essentially true in practice. We now focus on reorthogonalizing Vk but not Uk. 
+
+
+
+2966 DAVID CHIN-LUNG FONG AND MICHAEL SAUNDERS 
+
+0 0.5 1 1.5 2 2.5 
+
+x 10 
+4 
+
+−9 
+
+−8 
+
+−7 
+
+−6 
+
+−5 
+
+−4 
+
+−3 
+
+−2 
+
+−1 
+
+0 
+
+iteration count 
+
+lo 
+g| 
+
+|r 
+|| 
+
+Name:Hamm.hcircuit, Dim:105676x105676, nnz:513072, id=542 
+
+
+
+
+LSQR 
+LSMR 
+
+0 0.5 1 1.5 2 2.5 
+
+x 10 
+4 
+
+−12 
+
+−10 
+
+−8 
+
+−6 
+
+−4 
+
+−2 
+
+0 
+
+iteration count 
+
+lo 
+g| 
+
+|A 
+T 
+r| 
+
+| 
+
+Name:Hamm.hcircuit, Dim:105676x105676, nnz:513072, id=542 
+
+
+
+
+LSQR 
+LSMR 
+
+0 2000 4000 6000 8000 10000 12000 
+−9 
+
+−8 
+
+−7 
+
+−6 
+
+−5 
+
+−4 
+
+−3 
+
+−2 
+
+−1 
+
+0 
+
+iteration count 
+
+lo 
+g| 
+
+|r 
+|| 
+
+Name:IBM EDA.trans5, Dim:116835x116835, nnz:749800, id=1324 
+
+
+
+
+LSQR 
+LSMR 
+
+0 2000 4000 6000 8000 10000 12000 
+−12 
+
+−10 
+
+−8 
+
+−6 
+
+−4 
+
+−2 
+
+0 
+
+iteration count 
+
+lo 
+g| 
+
+|A 
+T 
+r| 
+
+| 
+Name:IBM EDA.trans5, Dim:116835x116835, nnz:749800, id=1324 
+
+
+
+
+LSQR 
+LSMR 
+
+Fig. 7.8. LSQR and LSMR solve two square nonsingular system Ax = b: problem 
+Hamm/hcircuit (top) and IBM EDA/trans5 (bottom). Left: log10 ‖rk‖ for both solvers, with pro- 
+long plateau for LSMR. Right: log10 ‖ATrk‖ (preferable for LSMR). 
+
+0 10 20 30 40 50 60 70 80 90 
+−8 
+
+−7 
+
+−6 
+
+−5 
+
+−4 
+
+−3 
+
+−2 
+
+−1 
+
+0 
+
+iteration count 
+
+lo 
+g( 
+
+E 
+2) 
+
+Name:lp ship12l, Dim:5533x1151, nnz:16276, id=688 
+
+
+
+
+
+NoOrtho 
+
+OrthoU 
+
+OrthoV 
+
+OrthoUV 
+
+0 500 1000 1500 2000 2500 3000 
+−7 
+
+−6 
+
+−5 
+
+−4 
+
+−3 
+
+−2 
+
+−1 
+
+0 
+
+iteration count 
+
+lo 
+g( 
+
+E 
+2) 
+
+Name:lpi gran, Dim:2525x2658, nnz:20111, id=717 
+
+
+
+
+
+NoOrtho 
+
+OrthoU 
+
+OrthoV 
+
+OrthoUV 
+
+Fig. 7.9. LSMR with and without reorthogonalization of Vk and/or Uk. Left: An easy case 
+where all option perform similarly (problem lp ship12l). Right: A helpful case (problem lp gran). 
+
+Other author have present numerical result involve reorthogonalization. For 
+example, on some randomly generate LS problem of increase condition number, 
+Hayami, Yin, and Ito [9] compare their BA-GMRES method with an implementation 
+
+
+
+LSMR: AN ITERATIVE ALGORITHM FOR LEAST SQUARES 2967 
+
+0 100 200 300 400 500 600 700 800 900 
+−7 
+
+−6 
+
+−5 
+
+−4 
+
+−3 
+
+−2 
+
+−1 
+
+0 
+
+iteration count 
+
+lo 
+g( 
+
+E 
+2) 
+
+Name:lp maros, Dim:1966x846, nnz:10137, id=642 
+
+
+
+
+
+NoOrtho 
+Restart5 
+Restart10 
+Restart50 
+FullOrtho 
+
+0 500 1000 1500 2000 2500 3000 3500 
+−7 
+
+−6 
+
+−5 
+
+−4 
+
+−3 
+
+−2 
+
+−1 
+
+0 
+
+iteration count 
+
+lo 
+g( 
+
+E 
+2) 
+
+Name:lp cre c, Dim:6411x3068, nnz:15977, id=611 
+
+
+
+
+
+NoOrtho 
+Restart5 
+Restart10 
+Restart50 
+FullOrtho 
+
+Fig. 7.10. LSMR with reorthogonalized Vk and restarting. Restart(�) with � = 5, 10, 50 be slow 
+than standard LSMR with or without reorthogonalization. Problems lp maros and lp cre c. 
+
+0 50 100 150 200 250 300 350 400 450 
+−7 
+
+−6 
+
+−5 
+
+−4 
+
+−3 
+
+−2 
+
+−1 
+
+0 
+
+iteration count 
+
+lo 
+g( 
+
+E 
+2) 
+
+Name:lp fit1p, Dim:1677x627, nnz:9868, id=625 
+
+
+
+
+
+NoOrtho 
+Local5 
+Local10 
+Local50 
+FullOrtho 
+
+0 200 400 600 800 1000 1200 1400 
+−6 
+
+−5 
+
+−4 
+
+−3 
+
+−2 
+
+−1 
+
+0 
+
+1 
+
+iteration count 
+
+lo 
+g( 
+
+E 
+2) 
+
+Name:lp bnl2, Dim:4486x2324, nnz:14996, id=605 
+
+
+
+
+
+NoOrtho 
+Local5 
+Local10 
+Local50 
+FullOrtho 
+
+Fig. 7.11. LSMR with local reorthogonalization of Vk. Local(�) with � = 5, 10, 50 illustrates 
+reduce iteration a � increases. Problems lp fit1p and lp bnl2. 
+
+of CGLS (equivalent to LSQR [16]) in which Vk be reorthogonalized, and find that 
+the method require essentially the same number of iterations. The preconditioner 
+chosen for BA-GMRES make that method equivalent to GMRES on ATAx = ATb. 
+Thus, GMRES without reorthogonalization be see to converge essentially a well a 
+CGLS or LSQR with reorthogonalization of Vk (option 2 above). This coincides with 
+the analysis by Paige, Rozložńık, and Strakoš [14], who conclude that MGS-GMRES 
+do not need reorthogonalization of the Arnoldi vector Vk. 
+
+7.3.1. Restarting. To conserve storage, a simple approach be to restart the 
+algorithm every 
+steps, a with GMRES( 
+) [20]. Figure 7.10 show that restart 
+LSMR even with full reorthogonalization (of Vk) may lead to stagnation. In general, 
+convergence with restart be much slow than LSMR without reorthogonalization. 
+
+7.3.2. Local reorthogonalization. Here we reorthogonalize each new vk with 
+respect to the previous l vectors, where l be a specify parameter. Figure 7.11 show 
+that l = 5 have little effect, but partial speedup be achieve with l = 10 and 50 in the 
+two chosen cases. There be evidence of a useful storage-time tradeoff. The potential 
+speedup depends strongly on the computational cost of Av and ATu. 
+
+
+
+2968 DAVID CHIN-LUNG FONG AND MICHAEL SAUNDERS 
+
+7.3.3. Partial reorthogonalization. Larsen us partial reorthogonalization 
+of both Vk and Uk within his PROPACK software [19] for compute a set of singular 
+value and vector for a sparse rectangular matrix A. Similar technique might prove 
+helpful within LSMR. We leave this for future research. 
+
+8. Summary. We have present LSMR, an iterative algorithm for square or 
+rectangular systems, along with detail of it implementation and experimental result 
+to suggest that it have advantage over the widely adopt LSQR algorithm. 
+
+As in LSQR, theoretical and practical stop criterion be provide for solve 
+Ax = b and min ‖Ax − b‖ with optional Tikhonov regularization, use estimate of 
+‖rk‖, ‖ATrk‖, ‖xk‖, ‖A‖, and cond(A) that be cheaply computable. For LS problems, 
+the Stewart backward error estimate ‖E2‖ (6.3) seem experimentally to be very close 
+to the optimal backward error μ(xk) at each LSMR iterate xk (section 6.2). This often 
+allows LSMR to terminate significantly sooner than LSQR. 
+
+Experiments with full reorthogonalization have show that the Golub–Kahan 
+process retains high accuracy if the column of either Vk or Uk be reorthogonalized. 
+There be no need to reorthogonalize both. This discovery could be helpful for other 
+us of the Golub–Kahan process. 
+
+MATLAB, Python, and Fortran 90 implementation of LSMR be available from 
+[11]. They all allow local reorthogonalization of Vk. 
+
+Appendix A. Proof of Lemma 3.1. The effect of the rotation Pk and P̃k−1 
+can be summarize a 
+
+R̃k = 
+
+⎛⎜⎜⎜⎝ 
+ρ̃1 θ̃2 
+
+. . . 
+. . . 
+
+ρ̃k−1 θ̃k 
+ρ̇k 
+
+⎞⎟⎟⎟⎠ , 
+( 
+
+ck sk 
+−sk ck 
+
+)( 
+β̈k 
+0 
+
+) 
+= 
+
+( 
+β̂k 
+
+β̈k+1 
+
+) 
+,( 
+
+c̃k s̃k 
+−s̃k c̃k 
+
+)( 
+ρ̇k−1 β̇k−1 
+θ̄k ρ̄k β̂k 
+
+) 
+= 
+
+( 
+ρ̃k−1 θ̃k β̃k−1 
+0 ρ̇k β̇k 
+
+) 
+, 
+
+where β̈1 = β1, ρ̇1 = ρ̄1, β̇1 = β̂1 and where ck, sk be define in section 2.6. 
+We define s(k) = s1 . . . sk and s̄ 
+
+(k) = s̄1 . . . s̄k. Then from (3.3) and (2.4) we have 
+
+R̃Tk t̃k = zk = 
+( 
+Ik 0 
+
+) 
+Q̄k+1ek+1β̄1. Expanding this and (3.1) give 
+
+R̃Tk t̃k = 
+
+⎛⎜⎜⎜⎝ 
+c̄1 
+
+−s̄1c̄2 
+... 
+
+(−1)k+1s̄(k−1)c̄k 
+
+⎞⎟⎟⎟⎠ β̄1, b̃k = 
+( 
+Q̃k 
+
+1 
+
+) 
+⎛⎜⎜⎜⎜⎜⎝ 
+
+c1 
+−s1c2 
+
+... 
+(−1)k+1s(k−1)ck 
+(−1)k+2s(k) 
+
+⎞⎟⎟⎟⎟⎟⎠ β1, 
+
+and we see that 
+
+τ̃1 = ρ̃ 
+−1 
+1 c̄1β̄1,(A.1) 
+
+τ̃k−1 = ρ̃−1k−1((−1)ks̄(k−2)c̄k−1β̄1 − θ̃k−1τ̃k−2),(A.2) 
+τ̇k = ρ̇ 
+
+−1 
+k ((−1)k+1s̄(k−1)c̄kβ̄1 − θ̃kτ̃k−1),(A.3) 
+
+β̇1 = β̂1 = c1β1,(A.4) 
+
+β̇k = −s̃k−1β̇k−1 + c̃k−1(−1)k−1s(k−1)ckβ1,(A.5) 
+β̃k = c̃kβ̇k + s̃k(−1)ks(k)ck+1β1.(A.6) 
+
+
+
+LSMR: AN ITERATIVE ALGORITHM FOR LEAST SQUARES 2969 
+
+We want to show by induction that τ̃i = β̃i for all i. When i = 1, 
+
+β̃1 = c̃1c1β1 − s̃1s1c2β1 = β1 
+ρ̃1 
+
+(c1ρ̄1 − θ̄2s1c2) = β1 
+ρ̃1 
+
+α1 
+ρ1 
+
+ρ21 
+ρ̄1 
+
+= 
+β̄1 
+ρ̃1 
+
+ρ1 
+ρ̄1 
+
+= 
+β̄1 
+ρ̃1 
+
+c̄1 = τ̃1, 
+
+where the third equality follow from 
+
+c1ρ̄1 − θ̄2s1c2 = c1ρ̄1 − θ̄2s1 c1α2 
+ρ2 
+
+= ρ̄1 − θ̄2s1α2 
+ρ2 
+
+= 
+α1 
+ρ1 
+
+( 
+ρ̄1 − 1 
+
+ρ2 
+θ̄2s1α2 
+
+) 
+, 
+
+ρ̄1 − 1 
+ρ2 
+
+θ̄2s1α2 = ρ̄1 − 1 
+ρ2 
+
+(s̄1ρ2)θ2 = ρ̄1 − θ2 
+ρ̄1 
+
+θ2 = 
+ρ̄21 − θ22 
+
+ρ̄1 
+= 
+
+ρ21 + θ 
+2 
+2 − θ22 
+ρ̄1 
+
+. 
+
+Suppose τ̃k−1 = β̃k−1. We consider the expression 
+
+s(k−1)ckρ̄−1k c̄ 
+2 
+k−1ρ 
+
+2 
+kβ1 = 
+
+c̄k−1ρk 
+ρ̄k 
+
+(s(k−1)ck)c̄k−1ρkβ1 
+
+= c̄k 
+θ2 · · · θkα1 
+ρ1 · · · ρk 
+
+ρ1 · · · ρk−1 
+ρ̄1 · · · ρ̄k−1 ρkβ1 = c̄k 
+
+θ2 
+ρ̄1 
+
+· · · θk 
+ρ̄k−1 
+
+β̄1 
+
+= c̄ks̄1 · · · s̄k−1β̄1 = c̄ks̄(k−1)β̄1.(A.7) 
+
+Applying the induction hypothesis on τ̃k = ρ̃ 
+−1 
+k ((−1)k+1s̄(k−1)c̄kβ̄1 − θ̃k τ̃k−1) give 
+
+τ̃k = ρ̃ 
+−1 
+k 
+
+( 
+(−1)k+1s̄(k−1)c̄kβ̄1 − θ̃k 
+
+( 
+c̃k−1β̇k−1 + s̃k−1(−1)ks(k−1)ckβ1 
+
+)) 
+= ρ̃−1k θ̃kc̃k−1β̇k−1 + (−1)k+1ρ̃−1k 
+
+( 
+s̄(k−1)c̄kβ̄1 − θ̃ks̃k−1s(k−1)ckβ1 
+
+) 
+= ρ̃−1k (ρ̄ks̃k−1)c̃k−1β̇k−1 + (−1)k+1ρ̃−1k s(k−1)β1 
+
+( 
+ρ̇k c̃k−1ck − θ̄k+1skck+1 
+
+) 
+= c̃ks̃k−1β̇k−1 + (−1)k+1s(k−1)β1 (c̃k c̃k−1ck − s̃kskck+1) 
+= c̃k 
+
+( 
+−s̃k−1β̇k−1 + c̃k−1(−1)k+1s(k−1)ckβ1 
+
+) 
++ s̃k(−1)k+1s(k)ck+1β1 
+
+= c̃kβ̇k + s̃k(−1)k+1s(k)ck+1β1 = β̃k 
+
+with the second equality obtain by the induction hypothesis, and the fourth from 
+
+s̄(k−1)c̄kβ̄1 − θ̃ks̃k−1s(k−1)ckβ1 = s(k−1)ckρ̄−1k c̄2k−1ρ2kβ1 − (s̃k−1ρ̄k)s̃k−1s(k−1)ckβ1 
+= s(k−1)β1 
+
+ck 
+ρ̄k 
+
+( 
+c̄2k−1ρ 
+
+2 
+k − s̃2k−1ρ̄2k 
+
+) 
+= s(k−1)β1 
+
+( 
+ρ̇k c̃k−1ck − θ̄k+1skck+1 
+
+) 
+, 
+
+where the first equality follow from (A.7) and the last from 
+
+c̄2k−1ρ 
+2 
+k − s̃2k−1ρ̄2k = 
+
+( 
+ρ̄2k − θ2k+1 
+
+)− s̃2k−1ρ̄2k = ρ̄2k(1 − s̃2k−1)− θ2k+1 = ρ̄2kc̃2k−1 − θ2k+1, 
+ck 
+ρ̄k 
+
+ρ̄2k c̃ 
+2 
+k−1 = ρ̄kc̃ 
+
+2 
+k−1ck = ρ̇kc̃k−1ck, 
+
+ck 
+ρ̄k 
+
+θ2k+1 = 
+θk+1 
+ρ̄k 
+
+θk+1ck = 
+θk+1ρk+1 
+
+ρ̄k 
+skαk+1 
+
+ck 
+ρk+1 
+
+= θ̄k+1skck+1. 
+
+
+
+2970 DAVID CHIN-LUNG FONG AND MICHAEL SAUNDERS 
+
+Therefore by induction, we know that τ̃i = β̃i for i = 1, 2, . . . . From (3.3), we see that 
+at iteration k, the first k − 1 element of b̃k and t̃k be equal. 
+
+Acknowledgments. We be grateful to Chris Paige for his helpful comment on 
+reorthogonalization and other aspect of this work. We be also grateful to two referee 
+for their extremely helpful and perceptive reviews. Further thanks go to Martin van 
+Gijzen and Mike Botchev for their help with test LSMR on square system arise 
+from convection-diffusion problems, to Sou-Cheng Choi for her helpful comments, and 
+to Victor Pereyra for propose that LSMR be use to terminate LSQR if a small 
+final error ‖x− xk‖ be important. 
+
+REFERENCES 
+
+[1] M. Arioli and S. Gratton, Least-Squares Problems, Normal Equations, and Stopping Cri- 
+teria for the Conjugate Gradient Method, Technical report RAL-TR-2008-008, Rutherford 
+Appleton Laboratory, Oxfordshire, UK, 2008. 
+
+[2] S. J. Benbow, Solving generalize least-squares problem with LSQR, SIAM J. Matrix Anal. 
+Appl., 21 (1999), pp. 166–177. 
+
+[3] X.-W. Chang, C. C. Paige, and D. Titley-Peloquin, Stopping criterion for the iterative 
+solution of linear least square problems, SIAM J. Matrix Anal. Appl., 31 (2009), pp. 831– 
+852. 
+
+[4] S.-C. Choi, C. C. Paige, and M. A. Saunders, MINRES-QLP: A Krylov subspace method 
+for indefinite or singular symmetric systems, SIAM J. Sci. Comput., to appear. 
+
+[5] T. A. Davis, University of Florida Sparse Matrix Collection, http://www.cise.ufl.edu/ 
+research/sparse/matrices. 
+
+[6] G. H. Golub and W. Kahan, Calculating the singular value and pseudo-inverse of a matrix, 
+J. Soc. Indust. Appl. Math. Ser. B Numer. Anal., 2 (1965), pp. 205–224. 
+
+[7] S. Gratton, P. Jiránek, and D. Titley-Peloquin, On the Accuracy of the Karlson-Waldén 
+Estimate of the Backward Error for Linear Least Squares Problems, CERFACS Technical 
+report TR/PA/11/19, CERFACS, Toulouse, France, 2011. 
+
+[8] J. F. Grcar, M. A. Saunders, and Z. Su, Estimates of Optimal Backward Perturbations for 
+Linear Least Squares Problems, Report SOL 2007-1, Department of Management Science 
+and Engineering, Stanford University, Stanford, CA, 2007. 
+
+[9] K. Hayami, J.-F. Yin, and T. Ito, GMRES method for least square problems, SIAM J. 
+Matrix Anal. Appl., 31 (2010), pp. 2400–2430. 
+
+[10] N. J. Higham, Accuracy and Stability of Numerical Algorithms, 2nd ed., SIAM, Philadelphia, 
+2002. 
+
+[11] LSMR software for linear system and least squares, http://www.stanford.edu/group/ 
+SOL/software.html. 
+
+[12] D. G. Luenberger, The conjugate residual method for constrain minimization problems, 
+SIAM J. Numer. Anal., 7 (1970), pp. 390–398. 
+
+[13] P. Jiránek and D. Titley-Peloquin, Estimating the backward error in LSQR, SIAM J. 
+Matrix Anal. Appl., 31 (2010), pp. 2055–2074. 
+
+[14] C. C. Paige, M. Rozložńık, and Z. Strakoš, Modified Gram–Schmidt (MGS), least squares, 
+and backward stability of MGS-GMRES, SIAM J. Matrix Anal. Appl., 28 (2006), pp. 264– 
+284. 
+
+[15] C. C. Paige and M. A. Saunders, Solution of sparse indefinite system of linear equations, 
+SIAM J. Numer. Anal., 12 (1975), pp. 617–629. 
+
+[16] C. C. Paige and M. A. Saunders, LSQR: An algorithm for sparse linear equation and sparse 
+least squares, ACM Trans. Math. Software, 8 (1982), pp. 43–71. 
+
+[17] C. C. Paige and M. A. Saunders, Algorithm 583; LSQR: Sparse linear equation and least- 
+square problems, ACM Trans. Math. Software, 8 (1982), pp. 195–209. 
+
+[18] V. Pereyra, private communication, 2010. 
+[19] PROPACK software for SVD of sparse matrices, http://soi.stanford.edu/˜rmunk/ 
+
+PROPACK/. 
+[20] Y. Saad and M. H. Schultz, GMRES: A generalize minimum residual algorithm for solve 
+
+nonsymmetric linear systems, SIAM J. Sci. Statist. Comput., 7 (1986), pp. 856–869. 
+[21] G. W. Stewart, An inverse perturbation theorem for the linear least square problem, 
+
+SIGNUM Newsletter, 10 (1975), pp. 39–40. 
+
+
+
+LSMR: AN ITERATIVE ALGORITHM FOR LEAST SQUARES 2971 
+
+[22] G. W. Stewart, Research, development and LINPACK, in Mathematical Software III, J. R. 
+Rice, ed., Academic Press, New York, 1977, pp. 1–14. 
+
+[23] G. W. Stewart, The QLP approximation to the singular value decomposition, SIAM J. Sci. 
+Comput., 20 (1999), pp. 1336–1348. 
+
+[24] Z. Su, Computational Methods for Least Squares Problems and Clinical Trials, Ph.D. thesis, 
+SCCM, Stanford University, Stanford, CA, 2005. 
+
+[25] D. Titley-Peloquin, Backward Perturbation Analysis of Least Squares Problems, Ph.D. the- 
+sis, School of Computer Science, McGill University, Montreal, QC, Canada, 2010. 
+
+[26] B. Waldén, R. Karlson, and J.-G. Sun, Optimal backward perturbation bound for the linear 
+least square problem, Numer. Linear Algebra Appl., 2 (1995), pp. 271–286. 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<< 
+/ASCII85EncodePages false 
+/AllowTransparency false 
+/AutoPositionEPSFiles true 
+/AutoRotatePages /None 
+/Binding /Left 
+/CalGrayProfile (Dot Gain 20%) 
+/CalRGBProfile (sRGB IEC61966-2.1) 
+/CalCMYKProfile (U.S. Web Coated \050SWOP\051 v2) 
+/sRGBProfile (sRGB IEC61966-2.1) 
+/CannotEmbedFontPolicy /Error 
+/CompatibilityLevel 1.4 
+/CompressObjects /Tags 
+/CompressPages true 
+/ConvertImagesToIndexed true 
+/PassThroughJPEGImages true 
+/CreateJobTicket false 
+/DefaultRenderingIntent /Default 
+/DetectBlends true 
+/DetectCurves 0.0000 
+/ColorConversionStrategy /CMYK 
+/DoThumbnails false 
+/EmbedAllFonts true 
+/EmbedOpenType false 
+/ParseICCProfilesInComments true 
+/EmbedJobOptions true 
+/DSCReportingLevel 0 
+/EmitDSCWarnings false 
+/EndPage -1 
+/ImageMemory 1048576 
+/LockDistillerParams false 
+/MaxSubsetPct 100 
+/Optimize true 
+/OPM 1 
+/ParseDSCComments true 
+/ParseDSCCommentsForDocInfo true 
+/PreserveCopyPage true 
+/PreserveDICMYKValues true 
+/PreserveEPSInfo true 
+/PreserveFlatness true 
+/PreserveHalftoneInfo false 
+/PreserveOPIComments true 
+/PreserveOverprintSettings true 
+/StartPage 1 
+/SubsetFonts true 
+/TransferFunctionInfo /Apply 
+/UCRandBGInfo /Preserve 
+/UsePrologue false 
+/ColorSettingsFile () 
+/AlwaysEmbed [ true 
+] 
+/NeverEmbed [ true 
+] 
+/AntiAliasColorImages false 
+/CropColorImages true 
+/ColorImageMinResolution 300 
+/ColorImageMinResolutionPolicy /OK 
+/DownsampleColorImages true 
+/ColorImageDownsampleType /Bicubic 
+/ColorImageResolution 300 
+/ColorImageDepth -1 
+/ColorImageMinDownsampleDepth 1 
+/ColorImageDownsampleThreshold 1.50000 
+/EncodeColorImages true 
+/ColorImageFilter /DCTEncode 
+/AutoFilterColorImages true 
+/ColorImageAutoFilterStrategy /JPEG 
+/ColorACSImageDict << 
+/QFactor 0.15 
+/HSamples [1 1 1 1] /VSamples [1 1 1 1] 
+>> 
+/ColorImageDict << 
+/QFactor 0.15 
+/HSamples [1 1 1 1] /VSamples [1 1 1 1] 
+>> 
+/JPEG2000ColorACSImageDict << 
+/TileWidth 256 
+/TileHeight 256 
+/Quality 30 
+>> 
+/JPEG2000ColorImageDict << 
+/TileWidth 256 
+/TileHeight 256 
+/Quality 30 
+>> 
+/AntiAliasGrayImages false 
+/CropGrayImages true 
+/GrayImageMinResolution 300 
+/GrayImageMinResolutionPolicy /OK 
+/DownsampleGrayImages true 
+/GrayImageDownsampleType /Bicubic 
+/GrayImageResolution 300 
+/GrayImageDepth -1 
+/GrayImageMinDownsampleDepth 2 
+/GrayImageDownsampleThreshold 1.50000 
+/EncodeGrayImages true 
+/GrayImageFilter /DCTEncode 
+/AutoFilterGrayImages true 
+/GrayImageAutoFilterStrategy /JPEG 
+/GrayACSImageDict << 
+/QFactor 0.15 
+/HSamples [1 1 1 1] /VSamples [1 1 1 1] 
+>> 
+/GrayImageDict << 
+/QFactor 0.15 
+/HSamples [1 1 1 1] /VSamples [1 1 1 1] 
+>> 
+/JPEG2000GrayACSImageDict << 
+/TileWidth 256 
+/TileHeight 256 
+/Quality 30 
+>> 
+/JPEG2000GrayImageDict << 
+/TileWidth 256 
+/TileHeight 256 
+/Quality 30 
+>> 
+/AntiAliasMonoImages false 
+/CropMonoImages true 
+/MonoImageMinResolution 1200 
+/MonoImageMinResolutionPolicy /OK 
+/DownsampleMonoImages true 
+/MonoImageDownsampleType /Bicubic 
+/MonoImageResolution 1200 
+/MonoImageDepth -1 
+/MonoImageDownsampleThreshold 1.50000 
+/EncodeMonoImages true 
+/MonoImageFilter /CCITTFaxEncode 
+/MonoImageDict << 
+/K -1 
+>> 
+/AllowPSXObjects false 
+/CheckCompliance [ 
+/None 
+] 
+/PDFX1aCheck false 
+/PDFX3Check false 
+/PDFXCompliantPDFOnly false 
+/PDFXNoTrimBoxError true 
+/PDFXTrimBoxToMediaBoxOffset [ 
+0.00000 
+0.00000 
+0.00000 
+0.00000 
+] 
+/PDFXSetBleedBoxToMediaBox true 
+/PDFXBleedBoxToTrimBoxOffset [ 
+0.00000 
+0.00000 
+0.00000 
+0.00000 
+] 
+/PDFXOutputIntentProfile () 
+/PDFXOutputConditionIdentifier () 
+/PDFXOutputCondition () 
+/PDFXRegistryName () 
+/PDFXTrapped /False 
+
+/CreateJDFFile false 
+/Description << 
+/ARA <FEFF06270633062A062E062F0645002006470630064700200627064406250639062F0627062F0627062A002006440625064606340627062100200648062B062706260642002000410064006F00620065002000500044004600200645062A064806270641064206290020064406440637062806270639062900200641064A00200627064406450637062706280639002006300627062A0020062F0631062C0627062A002006270644062C0648062F0629002006270644063906270644064A0629061B0020064A06450643064600200641062A062D00200648062B0627062606420020005000440046002006270644064506460634062306290020062806270633062A062E062F062706450020004100630072006F0062006100740020064800410064006F006200650020005200650061006400650072002006250635062F0627063100200035002E0030002006480627064406250635062F062706310627062A0020062706440623062D062F062B002E0635062F0627063100200035002E0030002006480627064406250635062F062706310627062A0020062706440623062D062F062B002E> 
+/BGR <FEFF04180437043f043e043b043704320430043904420435002004420435043704380020043d0430044104420440043e0439043a0438002c00200437043000200434043000200441044a0437043404300432043004420435002000410064006f00620065002000500044004600200434043e043a0443043c0435043d04420438002c0020043c0430043a04410438043c0430043b043d043e0020043f044004380433043e04340435043d04380020043704300020043204380441043e043a043e043a0430044704350441044204320435043d0020043f04350447043004420020043704300020043f044004350434043f0435044704300442043d04300020043f043e04340433043e0442043e0432043a0430002e002000200421044a04370434043004340435043d043804420435002000500044004600200434043e043a0443043c0435043d044204380020043c043e0433043004420020043404300020044104350020043e0442043204300440044f0442002004410020004100630072006f00620061007400200438002000410064006f00620065002000520065006100640065007200200035002e00300020043800200441043b0435043404320430044904380020043204350440044104380438002e> 
+/CHS <FEFF4f7f75288fd94e9b8bbe5b9a521b5efa7684002000410064006f006200650020005000440046002065876863900275284e8e9ad88d2891cf76845370524d53705237300260a853ef4ee54f7f75280020004100630072006f0062006100740020548c002000410064006f00620065002000520065006100640065007200200035002e003000204ee553ca66f49ad87248672c676562535f00521b5efa768400200050004400460020658768633002> 
+/CHT <FEFF4f7f752890194e9b8a2d7f6e5efa7acb7684002000410064006f006200650020005000440046002065874ef69069752865bc9ad854c18cea76845370524d5370523786557406300260a853ef4ee54f7f75280020004100630072006f0062006100740020548c002000410064006f00620065002000520065006100640065007200200035002e003000204ee553ca66f49ad87248672c4f86958b555f5df25efa7acb76840020005000440046002065874ef63002> 
+/CZE <FEFF005400610074006f0020006e006100730074006100760065006e00ed00200070006f0075017e0069006a007400650020006b0020007600790074007600e101590065006e00ed00200064006f006b0075006d0065006e0074016f002000410064006f006200650020005000440046002c0020006b00740065007200e90020007300650020006e0065006a006c00e90070006500200068006f006400ed002000700072006f0020006b00760061006c00690074006e00ed0020007400690073006b00200061002000700072006500700072006500730073002e002000200056007900740076006f01590065006e00e900200064006f006b0075006d0065006e007400790020005000440046002000620075006400650020006d006f017e006e00e90020006f007400650076015900ed007400200076002000700072006f006700720061006d0065006300680020004100630072006f00620061007400200061002000410064006f00620065002000520065006100640065007200200035002e0030002000610020006e006f0076011b006a016100ed00630068002e> 
+/DAN <FEFF004200720075006700200069006e0064007300740069006c006c0069006e006700650072006e0065002000740069006c0020006100740020006f007000720065007400740065002000410064006f006200650020005000440046002d0064006f006b0075006d0065006e007400650072002c0020006400650072002000620065006400730074002000650067006e006500720020007300690067002000740069006c002000700072006500700072006500730073002d007500640073006b007200690076006e0069006e00670020006100660020006800f8006a0020006b00760061006c0069007400650074002e0020004400650020006f007000720065007400740065006400650020005000440046002d0064006f006b0075006d0065006e0074006500720020006b0061006e002000e50062006e00650073002000690020004100630072006f00620061007400200065006c006c006500720020004100630072006f006200610074002000520065006100640065007200200035002e00300020006f00670020006e0079006500720065002e> 
+/DEU <FEFF00560065007200770065006e00640065006e0020005300690065002000640069006500730065002000450069006e007300740065006c006c0075006e00670065006e0020007a0075006d002000450072007300740065006c006c0065006e00200076006f006e002000410064006f006200650020005000440046002d0044006f006b0075006d0065006e00740065006e002c00200076006f006e002000640065006e0065006e002000530069006500200068006f006300680077006500720074006900670065002000500072006500700072006500730073002d0044007200750063006b0065002000650072007a0065007500670065006e0020006d00f60063006800740065006e002e002000450072007300740065006c006c007400650020005000440046002d0044006f006b0075006d0065006e007400650020006b00f6006e006e0065006e0020006d006900740020004100630072006f00620061007400200075006e0064002000410064006f00620065002000520065006100640065007200200035002e00300020006f0064006500720020006800f600680065007200200067006500f600660066006e00650074002000770065007200640065006e002e> 
+/ESP <FEFF005500740069006c0069006300650020006500730074006100200063006f006e0066006900670075007200610063006900f3006e0020007000610072006100200063007200650061007200200064006f00630075006d0065006e0074006f00730020005000440046002000640065002000410064006f0062006500200061006400650063007500610064006f00730020007000610072006100200069006d0070007200650073006900f3006e0020007000720065002d0065006400690074006f007200690061006c00200064006500200061006c00740061002000630061006c0069006400610064002e002000530065002000700075006500640065006e00200061006200720069007200200064006f00630075006d0065006e0074006f00730020005000440046002000630072006500610064006f007300200063006f006e0020004100630072006f006200610074002c002000410064006f00620065002000520065006100640065007200200035002e003000200079002000760065007200730069006f006e0065007300200070006f00730074006500720069006f007200650073002e> 
+/ETI <FEFF004b00610073007500740061006700650020006e0065006900640020007300e4007400740065006900640020006b00760061006c006900740065006500740073006500200074007200fc006b006900650065006c007300650020007000720069006e00740069006d0069007300650020006a0061006f006b007300200073006f00620069006c0069006b0065002000410064006f006200650020005000440046002d0064006f006b0075006d0065006e00740069006400650020006c006f006f006d006900730065006b0073002e00200020004c006f006f0064007500640020005000440046002d0064006f006b0075006d0065006e00740065002000730061006100740065002000610076006100640061002000700072006f006700720061006d006d006900640065006700610020004100630072006f0062006100740020006e0069006e0067002000410064006f00620065002000520065006100640065007200200035002e00300020006a00610020007500750065006d006100740065002000760065007200730069006f006f006e00690064006500670061002e000d000a> 
+/FRA <FEFF005500740069006c006900730065007a00200063006500730020006f007000740069006f006e00730020006100660069006e00200064006500200063007200e900650072002000640065007300200064006f00630075006d0065006e00740073002000410064006f00620065002000500044004600200070006f0075007200200075006e00650020007100750061006c0069007400e90020006400270069006d007000720065007300730069006f006e00200070007200e9007000720065007300730065002e0020004c0065007300200064006f00630075006d0065006e00740073002000500044004600200063007200e900e90073002000700065007500760065006e0074002000ea0074007200650020006f007500760065007200740073002000640061006e00730020004100630072006f006200610074002c002000610069006e00730069002000710075002700410064006f00620065002000520065006100640065007200200035002e0030002000650074002000760065007200730069006f006e007300200075006c007400e90072006900650075007200650073002e> 
+/GRE <FEFF03a703c103b703c303b903bc03bf03c003bf03b903ae03c303c403b5002003b103c503c403ad03c2002003c403b903c2002003c103c503b803bc03af03c303b503b903c2002003b303b903b1002003bd03b1002003b403b703bc03b903bf03c503c103b303ae03c303b503c403b5002003ad03b303b303c103b103c603b1002000410064006f006200650020005000440046002003c003bf03c5002003b503af03bd03b103b9002003ba03b103c42019002003b503be03bf03c703ae03bd002003ba03b103c403ac03bb03bb03b703bb03b1002003b303b903b1002003c003c103bf002d03b503ba03c403c503c003c903c403b903ba03ad03c2002003b503c103b303b103c303af03b503c2002003c503c803b703bb03ae03c2002003c003bf03b903cc03c403b703c403b103c2002e0020002003a403b10020005000440046002003ad03b303b303c103b103c603b1002003c003bf03c5002003ad03c703b503c403b5002003b403b703bc03b903bf03c503c103b303ae03c303b503b9002003bc03c003bf03c103bf03cd03bd002003bd03b1002003b103bd03bf03b903c703c403bf03cd03bd002003bc03b5002003c403bf0020004100630072006f006200610074002c002003c403bf002000410064006f00620065002000520065006100640065007200200035002e0030002003ba03b103b9002003bc03b503c403b103b303b503bd03ad03c303c403b503c103b503c2002003b503ba03b403cc03c303b503b903c2002e> 
+/HEB <FEFF05D405E905EA05DE05E905D5002005D105D405D205D305E805D505EA002005D005DC05D4002005DB05D305D9002005DC05D905E605D505E8002005DE05E105DE05DB05D9002000410064006F006200650020005000440046002005D405DE05D505EA05D005DE05D905DD002005DC05D405D305E405E105EA002005E705D305DD002D05D305E405D505E1002005D005D905DB05D505EA05D905EA002E002005DE05E105DE05DB05D90020005000440046002005E905E005D505E605E805D5002005E005D905EA05E005D905DD002005DC05E405EA05D905D705D4002005D105D005DE05E605E205D505EA0020004100630072006F006200610074002005D5002D00410064006F00620065002000520065006100640065007200200035002E0030002005D505D205E805E105D005D505EA002005DE05EA05E705D305DE05D505EA002005D905D505EA05E8002E05D005DE05D905DD002005DC002D005000440046002F0058002D0033002C002005E205D905D905E005D5002005D105DE05D305E805D905DA002005DC05DE05E905EA05DE05E9002005E905DC0020004100630072006F006200610074002E002005DE05E105DE05DB05D90020005000440046002005E905E005D505E605E805D5002005E005D905EA05E005D905DD002005DC05E405EA05D905D705D4002005D105D005DE05E605E205D505EA0020004100630072006F006200610074002005D5002D00410064006F00620065002000520065006100640065007200200035002E0030002005D505D205E805E105D005D505EA002005DE05EA05E705D305DE05D505EA002005D905D505EA05E8002E> 
+/HRV (Za stvaranje Adobe PDF dokumenata najpogodnijih za visokokvalitetni ispis prije tiskanja koristite ove postavke. Stvoreni PDF dokumenti mogu se otvoriti Acrobat i Adobe Reader 5.0 i kasnijim verzijama.) 
+/HUN <FEFF004b0069007600e1006c00f30020006d0069006e0151007300e9006701710020006e0079006f006d00640061006900200065006c0151006b00e90073007a00ed007401510020006e0079006f006d00740061007400e100730068006f007a0020006c006500670069006e006b00e1006200620020006d0065006700660065006c0065006c0151002000410064006f00620065002000500044004600200064006f006b0075006d0065006e00740075006d006f006b0061007400200065007a0065006b006b0065006c0020006100200062006500e1006c006c00ed007400e10073006f006b006b0061006c0020006b00e90073007a00ed0074006800650074002e0020002000410020006c00e90074007200650068006f007a006f00740074002000500044004600200064006f006b0075006d0065006e00740075006d006f006b00200061007a0020004100630072006f006200610074002000e9007300200061007a002000410064006f00620065002000520065006100640065007200200035002e0030002c0020007600610067007900200061007a002000610074007400f3006c0020006b00e9007301510062006200690020007600650072007a006900f3006b006b0061006c0020006e00790069007400680061007400f3006b0020006d00650067002e> 
+/ITA <FEFF005500740069006c0069007a007a006100720065002000710075006500730074006500200069006d0070006f007300740061007a0069006f006e00690020007000650072002000630072006500610072006500200064006f00630075006d0065006e00740069002000410064006f00620065002000500044004600200070006900f900200061006400610074007400690020006100200075006e00610020007000720065007300740061006d0070006100200064006900200061006c007400610020007100750061006c0069007400e0002e0020004900200064006f00630075006d0065006e007400690020005000440046002000630072006500610074006900200070006f00730073006f006e006f0020006500730073006500720065002000610070006500720074006900200063006f006e0020004100630072006f00620061007400200065002000410064006f00620065002000520065006100640065007200200035002e003000200065002000760065007200730069006f006e006900200073007500630063006500730073006900760065002e> 
+/JPN <FEFF9ad854c18cea306a30d730ea30d730ec30b951fa529b7528002000410064006f0062006500200050004400460020658766f8306e4f5c6210306b4f7f75283057307e305930023053306e8a2d5b9a30674f5c62103055308c305f0020005000440046002030d530a130a430eb306f3001004100630072006f0062006100740020304a30883073002000410064006f00620065002000520065006100640065007200200035002e003000204ee5964d3067958b304f30533068304c3067304d307e305930023053306e8a2d5b9a306b306f30d530a930f330c8306e57cb30818fbc307f304c5fc59808306730593002> 
+/KOR <FEFFc7740020c124c815c7440020c0acc6a9d558c5ec0020ace0d488c9c80020c2dcd5d80020c778c1c4c5d00020ac00c7a50020c801d569d55c002000410064006f0062006500200050004400460020bb38c11cb97c0020c791c131d569b2c8b2e4002e0020c774b807ac8c0020c791c131b41c00200050004400460020bb38c11cb2940020004100630072006f0062006100740020bc0f002000410064006f00620065002000520065006100640065007200200035002e00300020c774c0c1c5d0c11c0020c5f40020c2180020c788c2b5b2c8b2e4002e> 
+/LTH <FEFF004e006100750064006f006b0069007400650020016100690075006f007300200070006100720061006d006500740072007500730020006e006f0072011700640061006d00690020006b0075007200740069002000410064006f00620065002000500044004600200064006f006b0075006d0065006e007400750073002c0020006b00750072006900650020006c0061006200690061007500730069006100690020007000720069007400610069006b007900740069002000610075006b01610074006f00730020006b006f006b007900620117007300200070006100720065006e006700740069006e00690061006d00200073007000610075007300640069006e0069006d00750069002e0020002000530075006b0075007200740069002000500044004600200064006f006b0075006d0065006e007400610069002000670061006c006900200062016b007400690020006100740069006400610072006f006d00690020004100630072006f006200610074002000690072002000410064006f00620065002000520065006100640065007200200035002e0030002000610072002000760117006c00650073006e0117006d00690073002000760065007200730069006a006f006d00690073002e> 
+/LVI <FEFF0049007a006d0061006e0074006f006a00690065007400200161006f00730020006900650073007400610074012b006a0075006d00750073002c0020006c0061006900200076006500690064006f00740075002000410064006f00620065002000500044004600200064006f006b0075006d0065006e007400750073002c0020006b006100730020006900720020012b00700061016100690020007000690065006d01130072006f00740069002000610075006700730074006100730020006b00760061006c0069007401010074006500730020007000690072006d007300690065007300700069006501610061006e006100730020006400720075006b00610069002e00200049007a0076006500690064006f006a006900650074002000500044004600200064006f006b0075006d0065006e007400750073002c0020006b006f002000760061007200200061007400760113007200740020006100720020004100630072006f00620061007400200075006e002000410064006f00620065002000520065006100640065007200200035002e0030002c0020006b0101002000610072012b00200074006f0020006a00610075006e0101006b0101006d002000760065007200730069006a0101006d002e> 
+/NLD (Gebruik deze instellingen om Adobe PDF-documenten te maken die zijn geoptimaliseerd voor prepress-afdrukken van hoge kwaliteit. De gemaakte PDF-documenten kunnen worden geopend met Acrobat en Adobe Reader 5.0 en hoger.) 
+/NOR <FEFF004200720075006b00200064006900730073006500200069006e006e007300740069006c006c0069006e00670065006e0065002000740069006c002000e50020006f0070007000720065007400740065002000410064006f006200650020005000440046002d0064006f006b0075006d0065006e00740065007200200073006f006d00200065007200200062006500730074002000650067006e0065007400200066006f00720020006600f80072007400720079006b006b0073007500740073006b00720069006600740020006100760020006800f800790020006b00760061006c0069007400650074002e0020005000440046002d0064006f006b0075006d0065006e00740065006e00650020006b0061006e002000e50070006e00650073002000690020004100630072006f00620061007400200065006c006c00650072002000410064006f00620065002000520065006100640065007200200035002e003000200065006c006c00650072002000730065006e006500720065002e> 
+/POL <FEFF0055007300740061007700690065006e0069006100200064006f002000740077006f0072007a0065006e0069006100200064006f006b0075006d0065006e007400f300770020005000440046002000700072007a0065007a006e00610063007a006f006e00790063006800200064006f002000770079006400720075006b00f30077002000770020007700790073006f006b00690065006a0020006a0061006b006f015b00630069002e002000200044006f006b0075006d0065006e0074007900200050004400460020006d006f017c006e00610020006f007400770069006500720061010700200077002000700072006f006700720061006d006900650020004100630072006f00620061007400200069002000410064006f00620065002000520065006100640065007200200035002e0030002000690020006e006f00770073007a0079006d002e> 
+/PTB <FEFF005500740069006c0069007a006500200065007300730061007300200063006f006e00660069006700750072006100e700f50065007300200064006500200066006f0072006d00610020006100200063007200690061007200200064006f00630075006d0065006e0074006f0073002000410064006f0062006500200050004400460020006d00610069007300200061006400650071007500610064006f00730020007000610072006100200070007200e9002d0069006d0070007200650073007300f50065007300200064006500200061006c007400610020007100750061006c00690064006100640065002e0020004f007300200064006f00630075006d0065006e0074006f00730020005000440046002000630072006900610064006f007300200070006f00640065006d0020007300650072002000610062006500720074006f007300200063006f006d0020006f0020004100630072006f006200610074002000650020006f002000410064006f00620065002000520065006100640065007200200035002e0030002000650020007600650072007300f50065007300200070006f00730074006500720069006f007200650073002e> 
+/RUM <FEFF005500740069006c0069007a00610163006900200061006300650073007400650020007300650074010300720069002000700065006e007400720075002000610020006300720065006100200064006f00630075006d0065006e00740065002000410064006f006200650020005000440046002000610064006500630076006100740065002000700065006e0074007200750020007400690070010300720069007200650061002000700072006500700072006500730073002000640065002000630061006c006900740061007400650020007300750070006500720069006f006100720103002e002000200044006f00630075006d0065006e00740065006c00650020005000440046002000630072006500610074006500200070006f00740020006600690020006400650073006300680069007300650020006300750020004100630072006f006200610074002c002000410064006f00620065002000520065006100640065007200200035002e00300020015f00690020007600650072007300690075006e0069006c006500200075006c0074006500720069006f006100720065002e> 
+/RUS <FEFF04180441043f043e043b044c04370443043904420435002004340430043d043d044b04350020043d0430044104420440043e0439043a043800200434043b044f00200441043e043704340430043d0438044f00200434043e043a0443043c0435043d0442043e0432002000410064006f006200650020005000440046002c0020043c0430043a04410438043c0430043b044c043d043e0020043f043e04340445043e0434044f04490438044500200434043b044f00200432044b0441043e043a043e043a0430044704350441044204320435043d043d043e0433043e00200434043e043f0435044704300442043d043e0433043e00200432044b0432043e04340430002e002000200421043e043704340430043d043d044b04350020005000440046002d0434043e043a0443043c0435043d0442044b0020043c043e0436043d043e0020043e0442043a0440044b043204300442044c002004410020043f043e043c043e0449044c044e0020004100630072006f00620061007400200438002000410064006f00620065002000520065006100640065007200200035002e00300020043800200431043e043b043504350020043f043e04370434043d043804450020043204350440044104380439002e> 
+/SKY <FEFF0054006900650074006f0020006e006100730074006100760065006e0069006100200070006f0075017e0069007400650020006e00610020007600790074007600e100720061006e0069006500200064006f006b0075006d0065006e0074006f0076002000410064006f006200650020005000440046002c0020006b0074006f007200e90020007300610020006e0061006a006c0065007001610069006500200068006f0064006900610020006e00610020006b00760061006c00690074006e00fa00200074006c0061010d00200061002000700072006500700072006500730073002e00200056007900740076006f00720065006e00e900200064006f006b0075006d0065006e007400790020005000440046002000620075006400650020006d006f017e006e00e90020006f00740076006f00720069016500200076002000700072006f006700720061006d006f006300680020004100630072006f00620061007400200061002000410064006f00620065002000520065006100640065007200200035002e0030002000610020006e006f0076016100ed00630068002e> 
+/SLV <FEFF005400650020006e006100730074006100760069007400760065002000750070006f0072006100620069007400650020007a00610020007500730074007600610072006a0061006e006a006500200064006f006b0075006d0065006e0074006f0076002000410064006f006200650020005000440046002c0020006b006900200073006f0020006e0061006a007000720069006d00650072006e0065006a016100690020007a00610020006b0061006b006f0076006f00730074006e006f0020007400690073006b0061006e006a00650020007300200070007200690070007200610076006f0020006e00610020007400690073006b002e00200020005500730074007600610072006a0065006e006500200064006f006b0075006d0065006e0074006500200050004400460020006a00650020006d006f0067006f010d00650020006f0064007000720065007400690020007a0020004100630072006f00620061007400200069006e002000410064006f00620065002000520065006100640065007200200035002e003000200069006e0020006e006f00760065006a01610069006d002e> 
+/SUO <FEFF004b00e40079007400e40020006e00e40069007400e4002000610073006500740075006b007300690061002c0020006b0075006e0020006c0075006f00740020006c00e400680069006e006e00e4002000760061006100740069007600610061006e0020007000610069006e006100740075006b00730065006e002000760061006c006d0069007300740065006c00750074007900f6006800f6006e00200073006f00700069007600690061002000410064006f0062006500200050004400460020002d0064006f006b0075006d0065006e007400740065006a0061002e0020004c0075006f0064007500740020005000440046002d0064006f006b0075006d0065006e00740069007400200076006f0069006400610061006e0020006100760061007400610020004100630072006f0062006100740069006c006c00610020006a0061002000410064006f00620065002000520065006100640065007200200035002e0030003a006c006c00610020006a006100200075007500640065006d006d0069006c006c0061002e> 
+/SVE <FEFF0041006e007600e4006e00640020006400650020006800e4007200200069006e0073007400e4006c006c006e0069006e006700610072006e00610020006f006d002000640075002000760069006c006c00200073006b006100700061002000410064006f006200650020005000440046002d0064006f006b0075006d0065006e007400200073006f006d002000e400720020006c00e4006d0070006c0069006700610020006600f60072002000700072006500700072006500730073002d007500740073006b00720069006600740020006d006500640020006800f600670020006b00760061006c0069007400650074002e002000200053006b006100700061006400650020005000440046002d0064006f006b0075006d0065006e00740020006b0061006e002000f600700070006e00610073002000690020004100630072006f0062006100740020006f00630068002000410064006f00620065002000520065006100640065007200200035002e00300020006f00630068002000730065006e006100720065002e> 
+/TUR <FEFF005900fc006b00730065006b0020006b0061006c006900740065006c0069002000f6006e002000790061007a006401310072006d00610020006200610073006b013100730131006e006100200065006e0020006900790069002000750079006100620069006c006500630065006b002000410064006f006200650020005000440046002000620065006c00670065006c0065007200690020006f006c0075015f007400750072006d0061006b0020006900e70069006e00200062007500200061007900610072006c0061007201310020006b0075006c006c0061006e0131006e002e00200020004f006c0075015f0074007500720075006c0061006e0020005000440046002000620065006c00670065006c0065007200690020004100630072006f006200610074002000760065002000410064006f00620065002000520065006100640065007200200035002e003000200076006500200073006f006e0072006100730131006e00640061006b00690020007300fc007200fc006d006c00650072006c00650020006100e70131006c006100620069006c00690072002e> 
+/UKR <FEFF04120438043a043e0440043804410442043e043204430439044204350020044604560020043f043004400430043c043504420440043800200434043b044f0020044104420432043e04400435043d043d044f00200434043e043a0443043c0435043d044204560432002000410064006f006200650020005000440046002c0020044f043a04560020043d04300439043a04400430044904350020043f045604340445043e0434044f0442044c00200434043b044f0020043204380441043e043a043e044f043a04560441043d043e0433043e0020043f0435044004350434043404400443043a043e0432043e0433043e0020043404400443043a0443002e00200020042104420432043e04400435043d045600200434043e043a0443043c0435043d0442043800200050004400460020043c043e0436043d04300020043204560434043a0440043804420438002004430020004100630072006f006200610074002004420430002000410064006f00620065002000520065006100640065007200200035002e0030002004300431043e0020043f04560437043d04560448043e04570020043204350440044104560457002e> 
+/ENU (Use these setting to create Adobe PDF document best suit for high-quality prepress printing. Created PDF document can be open with Acrobat and Adobe Reader 5.0 and later.) 
+>> 
+/Namespace [ 
+(Adobe) 
+(Common) 
+(1.0) 
+] 
+/OtherNamespaces [ 
+<< 
+/AsReaderSpreads false 
+/CropImagesToFrames true 
+/ErrorControl /WarnAndContinue 
+/FlattenerIgnoreSpreadOverrides false 
+/IncludeGuidesGrids false 
+/IncludeNonPrinting false 
+/IncludeSlug false 
+/Namespace [ 
+(Adobe) 
+(InDesign) 
+(4.0) 
+] 
+/OmitPlacedBitmaps false 
+/OmitPlacedEPS false 
+/OmitPlacedPDF false 
+/SimulateOverprint /Legacy 
+>> 
+<< 
+/AddBleedMarks false 
+/AddColorBars false 
+/AddCropMarks false 
+/AddPageInfo false 
+/AddRegMarks false 
+/ConvertColors /ConvertToCMYK 
+/DestinationProfileName () 
+/DestinationProfileSelector /DocumentCMYK 
+/Downsample16BitImages true 
+/FlattenerPreset << 
+/PresetSelector /MediumResolution 
+>> 
+/FormElements false 
+/GenerateStructure false 
+/IncludeBookmarks false 
+/IncludeHyperlinks false 
+/IncludeInteractive false 
+/IncludeLayers false 
+/IncludeProfiles false 
+/MultimediaHandling /UseObjectSettings 
+/Namespace [ 
+(Adobe) 
+(CreativeSuite) 
+(2.0) 
+] 
+/PDFXOutputIntentProfileSelector /DocumentCMYK 
+/PreserveEditing true 
+/UntaggedCMYKHandling /LeaveUntagged 
+/UntaggedRGBHandling /UseDocumentProfile 
+/UseDocumentBleed false 
+>> 
+] 
+>> setdistillerparams 
+<< 
+/HWResolution [2400 2400] 
+/PageSize [612.000 792.000] 
+>> setpagedevice 
+

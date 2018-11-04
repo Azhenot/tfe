@@ -1,0 +1,1860 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Under review a a conference paper at ICLR 2017 
+
+DESIGNING NEURAL NETWORK ARCHITECTURES 
+USING REINFORCEMENT LEARNING 
+
+Bowen Baker, Otkrist Gupta, Nikhil Naik & Ramesh Raskar 
+Media Laboratory 
+Massachusetts Institute of Technology 
+Cambridge MA 02139, USA 
+{bowen, otkrist, naik, raskar}@mit.edu 
+
+ABSTRACT 
+
+At present, design convolutional neural network (CNN) architecture require 
+both human expertise and labor. New architecture be handcraft by careful 
+experimentation or modify from a handful of exist networks. We propose a 
+meta-modeling approach base on reinforcement learn to automatically gen- 
+erate high-performing CNN architecture for a give learn task. The learn 
+agent be train to sequentially choose CNN layer use Q-learning with an �- 
+greedy exploration strategy and experience replay. The agent explores a large 
+but finite space of possible architecture and iteratively discovers design with im- 
+prove performance on the learn task. On image classification benchmarks, the 
+agent-designed network (consisting of only standard convolution, pooling, and 
+fully-connected layers) beat exist network design with the same layer type 
+and be competitive against the state-of-the-art method that use more complex 
+layer types. We also outperform exist meta-modeling approach for network 
+design on image classification tasks. 
+
+1 INTRODUCTION 
+
+Deep convolutional neural network (CNNs) have see great success in the past few year on a 
+variety of machine learn problem (LeCun et al., 2015). A typical CNN architecture consists 
+of several convolution, pooling, and fully connect layers. While construct a CNN, a network 
+designer have to make numerous design choices: the number of layer of each type, the order of 
+layers, and the design parameter for each type of layer, e.g., the receptive field size, stride, and 
+number of receptive field for a convolution layer. The number of possible choice make the design 
+space of CNN architecture extremely large and hence, infeasible for an exhaustive manual search. 
+While there have be some work (Pinto et al., 2009; Bergstra et al., 2013; Domhan et al., 2015) on 
+automate or computer-aided neural network design, new CNN architecture or network design ele- 
+ments be still primarily developed by researcher use new theoretical insight or intuition gain 
+from experimentation. 
+
+In this paper, we seek to automate the process of CNN architecture selection through a meta- 
+model procedure base on reinforcement learning. We construct a novel Q-learning agent whose 
+goal be to discover CNN architecture that performs well on a give machine learn task with no 
+human intervention. The learn agent be give the task of sequentially pick layer of a CNN 
+model. By discretizing and limit the layer parameter to choose from, the agent be left with 
+a finite but large space of model architecture to search from. The agent learns through random 
+exploration and slowly begin to exploit it finding to select high perform model use the �- 
+greedy strategy (Mnih et al., 2015). The agent receives the validation accuracy on the give machine 
+learn task a the reward for select an architecture. We expedite the learn process through 
+repeat memory sample use experience replay (Lin, 1993). We refer to this Q-learning base 
+meta-modeling method a MetaQNN, which be summarize in Figure 1. 
+
+We conduct experiment with a space of model architecture consist of only standard convolution, 
+pooling, and fully connect layer use three standard image classification datasets: CIFAR-10, 
+SVHN, and MNIST. The learn agent discovers CNN architecture that beat all exist network 
+
+1 
+
+ar 
+X 
+
+iv 
+:1 
+
+61 
+1. 
+
+02 
+16 
+
+7v 
+2 
+
+[ 
+c 
+
+.L 
+G 
+
+] 
+3 
+
+0 
+N 
+
+ov 
+2 
+
+01 
+6 
+
+
+
+Under review a a conference paper at ICLR 2017 
+
+Agent Samples 
+
+Network Topology 
+
+Agent Learns 
+
+From Memory 
+Train Network 
+
+Store in 
+
+Replay Memory 
+
+R 
+Q 
+
+Sample 
+
+Memory 
+Update 
+
+Q-Values 
+
+Conv 
+
+Conv 
+
+Pool 
+
+Softmax 
+
+Topology: 
+C(64,5,1) 
+
+C(128,3,1) 
+
+P(2,2) 
+
+SM(10) 
+
+Performance: 
+93.3% 
+
+R 
+
+Figure 1: Designing CNN Architectures with Q-learning: The agent begin by sample a Con- 
+volutional Neural Network (CNN) topology condition on a predefined behavior distribution and 
+the agent’s prior experience (left block). That CNN topology be then train on a specific task; the 
+topology description and performance, e.g. validation accuracy, be then store in the agent’s mem- 
+ory (middle block). Finally, the agent us it memory to learn about the space of CNN topology 
+through Q-learning (right block). 
+
+design only with the same layer type (e.g., Springenberg et al. (2014); Srivastava et al. (2015)). 
+In addition, their performance be competitive against network design that include complex layer 
+type and training procedure (e.g., Clevert et al. (2015); Lee et al. (2016)). Finally, the MetaQNN 
+select model comfortably outperform previous automate network design method (Stanley & 
+Miikkulainen, 2002; Bergstra et al., 2013). The top network design discover by the agent on 
+one dataset be also competitive when train on other datasets, indicate that they be suit for 
+transfer learn tasks. Moreover, we can generate not just one, but several varied, well-performing 
+network designs, which can be ensembled to further boost the prediction performance. 
+
+2 RELATED WORK 
+
+Designing neural network architectures: Research on automate neural network design go 
+back to the 1980s when genetic algorithm-based approach be propose to find both architec- 
+tures and weight (Schaffer et al., 1992). However, to the best of our knowledge, network design 
+with genetic algorithms, such a those generate with the NEAT algorithm (Stanley & Miikkulainen, 
+2002), have be unable to match the performance of hand-crafted network on standard bench- 
+mark (Verbancsics & Harguess, 2013). Other biologically inspire idea have also be explored; 
+motivate by screen method in genetics, Pinto et al. (2009) propose a high-throughput network 
+selection approach where they randomly sample thousand of architecture and choose promising 
+one for further training. 
+
+Bayesian optimization have also be use (Shahriari et al., 2016) for automatic selection of network 
+architecture (Bergstra et al., 2013; Domhan et al., 2015) and hyperparameters (Snoek et al., 2012; 
+Swersky et al., 2013). Notably, Bergstra et al. (2013) propose a meta-modeling approach base 
+on Tree of Parzen Estimators (TPE) (Bergstra et al., 2011) to choose both the type of layer and 
+hyperparameters of feed-forward networks; however, they fail to match the performance of hand- 
+craft networks. 
+
+Reinforcement Learning: Recently there have be much work at the intersection of reinforcement 
+learn and deep learning. For instance, method use CNNs to approximate theQ-learning utility 
+function (Watkins, 1989) have be successful in game-playing agent (Mnih et al., 2015; Silver 
+et al., 2016) and robotic control (Lillicrap et al., 2015; Levine et al., 2016). These method rely on 
+phase of exploration, where the agent try to learn about it environment through sampling, and 
+exploitation, where the agent us what it learn about the environment to find good paths. In 
+traditional reinforcement learn settings, over-exploration can lead to slow convergence times, yet 
+over-exploitation can lead to convergence to local minimum (Kaelbling et al., 1996). However, in the 
+case of large or continuous state spaces, the �-greedy strategy of learn have be empirically show 
+to converge (Vermorel & Mohri, 2005). Finally, when the state space be large or exploration be costly, 
+the experience replay technique (Lin, 1993) have prove useful in experimental setting (Adam et al., 
+2012; Mnih et al., 2015). We incorporate these techniques—Q-learning, the �-greedy strategy and 
+experience replay—in our algorithm design. 
+
+2 
+
+
+
+Under review a a conference paper at ICLR 2017 
+
+3 BACKGROUND 
+
+Our method relies on Q-learning, a type of reinforcement learning. We now summarize the theoret- 
+ical formulation of Q-learning, a adopt to our problem. Consider the task of teach an agent 
+to find optimal path a a Markov Decision Process (MDP) in a finite-horizon environment. Con- 
+strain the environment to be finite-horizon ensures that the agent will deterministically terminate 
+in a finite number of time steps. In addition, we restrict the environment to have a discrete and 
+finite state space S a well a action space U . For any state si ∈ S , there be a finite set of actions, 
+U(si) ⊆ U , that the agent can choose from. In an environment with stochastic transitions, an agent 
+in state si take some action u ∈ U(si) will transition to state sj with probability ps′|s,u(sj |si, u), 
+which may be unknown to the agent. At each time step t, the agent be give a reward rt, dependent 
+on the transition from state s to s′ and action u. rt may also be stochastic accord to a distribution 
+pr|s′,s,u. The agent’s goal be to maximize the total expect reward over all possible trajectories, i.e., 
+maxTi∈T RTi , where the total expect reward for a trajectory Ti be 
+
+RTi = 
+∑ 
+
+(s,u,s′)∈Ti Er|s,u,s′ [r|s, u, s 
+′]. (1) 
+
+Though we limit the agent to a finite state and action space, there be still a combinatorially large 
+number of trajectories, which motivates the use of reinforcement learning. We define the maximiza- 
+tion problem recursively in term of subproblems a follows. For any state si ∈ S and subsequent 
+action u ∈ U(si), we define the maximum total expect reward to be Q∗(si, u). Q∗(·) be know a 
+the action-value function and individual Q∗(si, u) be know a Q-values. The recursive maximiza- 
+tion equation, which be know a Bellman’s Equation, can be write a 
+
+Q∗(si, u) = Esj |si,u 
+[ 
+Er|si,u,sj [r|si, u, sj ] + γmaxu′∈U(sj)Q∗(sj , u′) 
+
+] 
+. (2) 
+
+In many cases, it be impossible to analytically solve Bellman’s Equation (Bertsekas, 2015), but it can 
+be formulate a an iterative update 
+
+Qt+1(si, u) = (1− α)Qt(si, u) + α 
+[ 
+rt + γmaxu′∈U(sj)Qt(sj , u 
+
+′) 
+] 
+. (3) 
+
+Equation 3 be the simplest form of Q-learning propose by Watkins (1989). For well formulate 
+problems, limt→∞Qt(s, u) = Q∗(s, u), a long a each transition be sample infinitely many 
+time (Bertsekas, 2015). The update equation have two parameters: (i) α be a Q-learning rate which 
+determines the weight give to new information over old information, and (ii) γ be the discount fac- 
+tor which determines the weight give to short-term reward over future rewards. The Q-learning 
+algorithm be model-free, in that the learn agent can solve the task without ever explicitly con- 
+structing an estimate of environmental dynamics. In addition, Q-learning be off policy, meaning it 
+can learn about optimal policy while explore via a non-optimal behavioral distribution, i.e. the 
+distribution by which the agent explores it environment. 
+
+We choose the behavior distribution use an �-greedy strategy (Mnih et al., 2015). With this strat- 
+egy, a random action be take with probability � and the greedy action, maxu∈U(si)Qt(si, u), be 
+chosen with probability 1− �. We anneal � from 1→ 0 such that the agent begin in an exploration 
+phase and slowly start move towards the exploitation phase. In addition, when the exploration 
+cost be large (which be true for our problem setting), it be beneficial to use the experience replay 
+technique for faster convergence (Lin, 1992). In experience replay, the learn agent be provide 
+with a memory of it past explore path and rewards. At a give interval, the agent sample from 
+the memory and update it Q-values via Equation 3. 
+
+4 DESIGNING NEURAL NETWORK ARCHITECTURES WITH Q-LEARNING 
+
+We consider the task of training a learn agent to sequentially choose neural network layers. 
+Figure 2 show feasible state and action space (a) and a potential trajectory the agent may take along 
+with the CNN architecture define by this trajectory (b). We model the layer selection process a a 
+Markov Decision Process with the assumption that a well-performing layer in one network should 
+also perform well in another network. We make this assumption base on the hierarchical nature of 
+the feature representation learn by neural network with many hidden layer (LeCun et al., 2015). 
+The agent sequentially selects layer via the �-greedy strategy until it reach a termination state. 
+The CNN architecture define by the agent’s path be train on the chosen learn problem, and the 
+agent be give a reward equal to the validation accuracy. The validation accuracy and architecture 
+
+3 
+
+
+
+Under review a a conference paper at ICLR 2017 
+
+Layer 1 Layer 2 
+
+w 
+11 
+
+(1) 
+
+w 
+12 
+
+(1) 
+
+w 
+13 
+
+(1) 
+
+w 
+21 
+
+(1) 
+
+w 
+22 
+
+(1) 
+
+w 
+23 
+
+(1) 
+
+w 
+31 
+
+(1) 
+
+w 
+32 
+
+(1) 
+
+w 
+33 
+
+(1) 
+
+Input 
+
+Convolution 
+64 Filters 
+3x3 Receptive Field 
+
+1x1 Strides 
+
+Max Pooling 
+
+Softmax 
+
+Input 
+
+C(64,3,1) 
+
+P(2,2) 
+
+C(64,3,1) 
+
+G 
+
+G G 
+
+G 
+
+P(2,2) 
+
+State 
+
+Action 
+
+Input 
+
+C(64,3,1) 
+
+P(2,2) 
+
+C(64,3,1) 
+
+G 
+
+G G 
+
+G 
+
+Layer 1 Layer 2 
+
+C(64,3,1) C(64,3,1) 
+
+G 
+
+G G 
+
+G 
+
+Layer N-1 Layer N 
+
+P(2,2) P(2,2) P(2,2) 
+
+(a) (b) 
+
+Figure 2: Markov Decision Process for CNN Architecture Generation: Figure 2(a) show the 
+full state and action space. In this illustration, action be show to be deterministic for clarity, but 
+they be stochastic in experiments. C(n, f, l) denotes a convolutional layer with n filters, receptive 
+field size f , and stride l. P (f, l) denotes a pool layer with receptive field size f and stride l. G 
+denotes a termination state (Softmax/Global Average Pooling). Figure 2(b) show a path the agent 
+may choose, highlight in green, and the correspond CNN topology. 
+
+description be store in a replay memory. Experiences be sample periodically from the replay 
+memory to update Q-values via Equation 3. The agent follow an � schedule which determines it 
+shift from exploration to exploitation. 
+
+Our method require three main design choices: (i) reduce CNN layer definition to simple state 
+tuples, (ii) define a set of action the agent may take, i.e., the set of layer the agent may pick next 
+give it current state, and (iii) balance the size of the state-action space—and correspondingly, the 
+model capacity—with the amount of exploration need by the agent to converge. We now describe 
+the design choice and the learn process in detail. 
+
+4.1 THE STATE SPACE 
+
+Each state be define a a tuple of all relevant layer parameters. We allow five different type of lay- 
+ers: convolution (C), pool (P), fully connect (FC), global average pool (GAP), and softmax 
+(SM), though the general method be not limited to this set. Table 1 show the relevant parameter for 
+each layer type and also the discretization we chose for each parameter. Each layer have a parameter 
+layer depth (shown a Layer 1, 2, ... in Figure 2). Adding layer depth to the state space allows u 
+to constrict the action space such that the state-action graph be direct and acyclic (DAG) and also 
+allows u to specify a maximum number of layer the agent may select before terminating. 
+
+Each layer type also have a parameter call representation size (R-size). Convolutional net pro- 
+gressively compress the representation of the original signal through pool and convolution. The 
+presence of these layer in our state space may lead the agent on a trajectory where the intermediate 
+signal representation get reduce to a size that be too small for further processing. For example, five 
+2× 2 pool layer each with stride 2 will reduce an image of initial size 32× 32 to size 1× 1. At 
+this stage, further pooling, or convolution with receptive field size great than 1, would be mean- 
+ingless and degenerate. To avoid such scenarios, we add the R-size parameter to the state tuple s, 
+which allows u to restrict action from state with R-size n to those that have a receptive field size 
+less than or equal to n. To further constrict the state space, we chose to bin the representation size 
+into three discrete buckets. However, binning add uncertainty to the state transitions: depend on 
+the true underlie representation size, a pool layer may or may not change the R-size bin. As a 
+result, the action of pool can lead to two different states, which we model a stochasticity in state 
+transitions. Please see Figure A1 in appendix for an illustrate example. 
+
+4.2 THE ACTION SPACE 
+
+We restrict the agent from take certain action to both limit the state-action space and make learn- 
+ing tractable. First, we allow the agent to terminate a path at any point, i.e. it may choose a termi- 
+nation state from any non-termination state. In addition, we only allow transition for a state with 
+layer depth i to a state with layer depth i + 1, which ensures that there be no loop in the graph. 
+This constraint ensures that the state-action graph be always a DAG. Any state at the maximum layer 
+depth, a prescribed in Table 1, may only transition to a termination layer. 
+
+4 
+
+
+
+Under review a a conference paper at ICLR 2017 
+
+Layer Type Layer Parameters Parameter Values 
+
+Convolution (C) 
+
+i ∼ Layer depth 
+f ∼ Receptive field size 
+` ∼ Stride 
+d ∼ # receptive field 
+n ∼ Representation size 
+
+< 12 
+Square. ∈ {1, 3, 5} 
+Square. Always equal to 1 
+∈ {64, 128, 256, 512} 
+∈ {(∞, 8], (8, 4], (4, 1]} 
+
+Pooling (P) 
+i ∼ Layer depth 
+(f, `) ∼ (Receptive field size, Strides) 
+n ∼ Representation size 
+
+< 12 
+Square. ∈ 
+
+{ 
+(5, 3), (3, 2), (2, 2) 
+
+} 
+∈ {(∞, 8], (8, 4] and (4, 1]} 
+
+Fully Connected (FC) 
+i ∼ Layer depth 
+n ∼ # consecutive FC layer 
+d ∼ # neuron 
+
+< 12 
+< 3 
+∈ {512, 256, 128} 
+
+Termination State s ∼ Previous State 
+t ∼ Type Global Avg. Pooling/Softmax 
+
+Table 1: Experimental State Space. For each layer type, we list the relevant parameter and the 
+value each parameter be allow to take. 
+
+Next, we limit the number of fully connect (FC) layer to be at maximum two, because a large 
+number of FC layer can lead to too may learnable parameters. The agent at a state with type FC 
+may transition to another state with type FC if and only if the number of consecutive FC state be 
+less than the maximum allowed. Furthermore, a state s of type FC with number of neuron d may 
+only transition to either a termination state or a state s′ of type FC with number of neuron d′ ≤ d. 
+An agent at a state of type convolution (C) may transition to a state with any other layer type. An 
+agent at a state with layer type pool (P) may transition to a state with any other layer type other 
+than another P state because consecutive pool layer be equivalent to a single, large pool 
+layer which could lie outside of our chosen state space. Furthermore, only state with representation 
+size in bin (8, 4] and (4, 1] may transition to an FC layer, which ensures that the number of weight 
+do not become unreasonably huge. Note that a majority of these constraint be in place to enable 
+faster convergence on our limited hardware (see Section 5) and not a limitation of the method in 
+itself. 
+
+4.3 Q-LEARNING TRAINING PROCEDURE 
+
+For the iterativeQ-learning update (Equation 3), we set theQ-learning rate (α) to 0.01. In addition, 
+we set the discount factor (γ) to 1 to not over-prioritize short-term rewards. We decrease � from 1.0 
+to 0.1 in steps, where the step-size be define by the number of unique model train (Table 2). 
+At � = 1.0, the agent sample CNN architecture with a random walk along a uniformly weight 
+Markov chain. Every topology sample by the agent be train use the procedure described in 
+Section 5, and the prediction performance of this network topology on the validation set be recorded. 
+We train a large number of model at � = 1.0 a compare to other value of � to ensure that the 
+agent have adequate time to explore before it begin to exploit. We stop the agent at � = 0.1 (and not 
+at � = 0) to obtain a stochastic final policy, which generates perturbation of the global minimum.1 
+Ideally, we want to identify several well-performing model topologies, which can then be ensembled 
+to improve prediction performance. 
+
+During the entire training process (starting at � = 1.0), we maintain a replay dictionary which store 
+(i) the network topology and (ii) prediction performance on a validation set, for all of the sample 
+models. If a model that have already be train be re-sampled, it be not re-trained, but instead the 
+previously found validation accuracy be present to the agent. After each model be sample and 
+trained, the agent randomly sample 100 model from the replay dictionary and applies the Q-value 
+update define in Equation 3 for all transition in each sample sequence. The Q-value update be 
+apply to the transition in temporally reverse order, which have be show to speed up Q-values 
+convergence (Lin, 1993). 
+
+1� = 0 indicates a completely deterministic policy. Because we would like to generate several good model 
+for ensembling and analysis, we stop at � = 0.1, which represent a stochastic final policy. 
+
+5 
+
+
+
+Under review a a conference paper at ICLR 2017 
+
+� 1.0 0.9 0.8 0.7 0.6 0.5 0.4 0.3 0.2 0.1 
+# Models Trained 1500 100 100 100 150 150 150 150 150 150 
+
+Table 2: � Schedule. The learn agent train the specify number of unique model at each �. 
+
+5 EXPERIMENT DETAILS 
+
+During the model exploration phase, we train each network topology with a quick and aggressive 
+training scheme. For each experiment, we create a validation set by randomly take 5,000 sample 
+from the training set such that the result class distribution be unchanged. For every network, 
+a dropout layer be add after every two layers. The ith dropout layer, out of a total n dropout 
+layers, have a dropout probability of i2n . Each model be train for a total of 20 epoch with the 
+Adam optimizer (Kingma & Ba, 2014) with β1 = 0.9, β2 = 0.999, ε = 10−8. The batch size be 
+set to 128, and the initial learn rate be set to 0.001. If the model fail to perform good than a 
+random predictor after the first epoch, we reduce the learn rate by a factor of 0.4 and restart 
+training, for a maximum of 5 restarts. For model that start learn (i.e., perform good than a 
+random predictor), we reduce the learn rate by a factor of 0.2 every 5 epochs. All weight be 
+initialize with Xavier initialization (Glorot & Bengio, 2010). Our experiment use Caffe (Jia 
+et al., 2014) take 8-10 day to complete for each dataset with a hardware setup consist of 10 
+NVIDIA GPUs. 
+
+After the agent complete the � schedule (Table 2), we select the top ten model that be found 
+over the course of exploration. These model be then finetuned use a much longer training 
+schedule, and only the top five be use for ensembling. We now provide detail of the datasets 
+and the finetuning process. 
+
+The Street View House Numbers (SVHN) dataset have 10 class with a total of 73,257 sample 
+in the original training set, 26,032 sample in the test set, and 531,131 additional sample in the 
+extend training set. During the exploration phase, we only train with the original training set, 
+use 5,000 random sample a validation. We finetuned the top ten model with the original plus 
+extend training set, by create preprocessed training and validation set a described by Lee et al. 
+(2016). Our final learn rate schedule after tune on validation set be 0.025 for 5 epochs, 0.0125 
+for 5 epochs, 0.0001 for 20 epochs, and 0.00001 for 10 epochs. 
+
+CIFAR-10, the 10 class tiny image dataset, have 50,000 training sample and 10,000 test samples. 
+During the exploration phase, we take 5,000 random sample from the training set for validation. 
+The maximum layer depth be increase to 18. After the experiment completed, we use the same 
+validation set to tune hyperparameters, result in a final training scheme which we ran on the 
+entire training set. In the final training scheme, we set a learn rate of 0.025 for 40 epochs, 
+0.0125 for 40 epochs, 0.0001 for 160 epochs, and 0.00001 for 60 epochs, with all other parameter 
+unchanged. During this phase, we preprocess use global contrast normalization and use moderate 
+data augmentation, which consists of random mirror and random translation by up to 5 pixels. 
+
+MNIST, the 10 class handwritten digit dataset, have 60,000 training sample and 10,000 test 
+samples. We preprocessed each image with global mean subtraction. In the final training scheme, 
+we train each model for 40 epoch and decrease learn rate every 5 epoch by a factor of 0.2. 
+For further tune detail please see Appendix C. 
+
+6 RESULTS 
+
+Model Selection Analysis: From Q-learning principles, we expect the learn agent to improve 
+in it ability to pick network topology a � reduces and the agent enters the exploitation phase. In 
+Figure 3, we plot the roll mean of prediction accuracy over 100 model and the mean accuracy 
+of model sample at different � values, for the CIFAR-10 and SVHN experiments. The plot show 
+that, while the prediction accuracy remains flat during the exploration phase (� = 1) a expected, 
+the agent consistently improves in it ability to pick better-performing model a � reduces from 1 to 
+0.1. For example, the mean accuracy of model in the SVHN experiment increase from 52.25% at 
+� = 1 to 88.02% at � = 0.1. Further Q-learning analysis can be found in Section D.1 of Appendix. 
+
+6 
+
+
+
+Under review a a conference paper at ICLR 2017 
+
+0 500 1000 1500 2000 2500 3000 
+Iterations 
+
+0.00 
+
+0.10 
+
+0.20 
+
+0.30 
+
+0.40 
+
+0.50 
+
+0.60 
+
+0.70 
+
+0.80 
+
+0.90 
+
+1.00 
+
+A 
+cc 
+
+u 
+ra 
+
+cy 
+
+Epsilon = 1.0 .9 .8 .7 .6 .5 .4 .3 .2 .1 
+
+SVHN Q-Learning Performance 
+
+Average Accuracy Per Epsilon 
+
+Rolling Mean Model Accuracy 
+
+0 500 1000 1500 2000 2500 3000 3500 
+Iterations 
+
+0.00 
+
+0.10 
+
+0.20 
+
+0.30 
+
+0.40 
+
+0.50 
+
+0.60 
+
+0.70 
+
+0.80 
+
+0.90 
+
+1.00 
+
+A 
+cc 
+
+u 
+ra 
+
+cy 
+
+Epsilon = 1.0 .9 .8.7 .6 .5 .4 .3 .2 .1 
+
+CIFAR10 Q-Learning Performance 
+
+Average Accuracy Per Epsilon 
+
+Rolling Mean Model Accuracy 
+
+Figure 3: Q-Learning Performance. In the plots, the blue line show a roll mean of model 
+accuracy versus iteration, where in each iteration of the algorithm the agent be sample a model. 
+Each bar (in light blue) mark the average accuracy over all model that be sample during the 
+exploration phase with the label �. As � decreases, the average accuracy go up, demonstrate 
+that the agent learns to select better-performing CNN architectures. 
+
+Method CIFAR-10 SVHN MNIST CIFAR-100 
+Maxout (Goodfellow et al., 2013) 9.38 2.47 0.45 38.57 
+NIN (Lin et al., 2013) 8.81 2.35 0.47 35.68 
+FitNet (Romero et al., 2014) 8.39 2.42 0.51 35.04 
+HighWay (Srivastava et al., 2015) 7.72 - - - 
+VGGnet (Simonyan & Zisserman, 2014) 7.25 - - - 
+All-CNN (Springenberg et al., 2014) 7.25 - - 33.71 
+MetaQNN (ensemble) 7.32 2.06 0.32 - 
+MetaQNN (top model) 6.92 2.28 0.44 27.14∗ 
+
+Table 3: Error Rate Comparison with CNNs that use convolution, pooling, and fully connect 
+layer alone. We report result for CIFAR-10 and CIFAR-100 with moderate data augmentation and 
+result for MNIST and SVHN without any data augmentation. 
+
+The top model select by the Q-learning agent vary in the number of parameter but all demon- 
+strate high performance (see Appendix Tables 1-3). For example, the number of parameter for the 
+top five CIFAR-10 model range from 11.26 million to 1.10 million, with only a 2.32% decrease 
+in test error. We find design motif common to the top hand-crafted network architecture a well. 
+For example, the agent often chooses a layer of type C(N, 1, 1) a the first layer in the network. 
+These layer generate N learnable linear transformation of the input data, which be similar in spirit 
+to preprocessing of input data from RGB to a different color space such a YUV, a found in prior 
+work (Sermanet et al., 2012; 2013). 
+
+Prediction Performance: We compare the prediction performance of the MetaQNN network dis- 
+cover by theQ-learning agent with state-of-the-art method on three datasets. We report the accu- 
+racy of our best model, along with an ensemble of top five models. First, we compare MetaQNN with 
+six exist architecture that be design with standard convolution, pooling, and fully-connected 
+layer alone, similar to our designs. As see in Table 3, our top model alone, a well a the com- 
+mittee ensemble of five models, outperforms all similar models. Next, we compare our result with 
+six top network overall, which contain complex layer type and design ideas, include generalize 
+pool functions, residual connections, and recurrent modules. Our result be competitive with 
+these method a well (Table 4). Finally, our method outperforms exist automate network de- 
+sign methods. MetaQNN obtains an error of 6.92% a compare to 21.2% report by Bergstra et al. 
+(2011) on CIFAR-10; and it obtains an error of 0.32% a compare to 7.9% report by Verbancsics 
+& Harguess (2013) on MNIST. 
+
+The difference in validation error between the top 10 model for MNIST be very small, so we also 
+create an ensemble with all 10 models. This ensemble achieve a test error of 0.28%—which beat 
+the current state-of-the-art on MNIST without data augmentation. 
+
+The best CIFAR-10 model performs 1-2% good than the four next best models, which be why the 
+ensemble accuracy be low than the best model’s accuracy. We posit that the CIFAR-10 MetaQNN 
+
+7 
+
+
+
+Under review a a conference paper at ICLR 2017 
+
+Method CIFAR-10 SVHN MNIST CIFAR-100 
+DropConnect (Wan et al., 2013) 9.32 1.94 0.57 - 
+DSN (Lee et al., 2015) 8.22 1.92 0.39 34.57 
+R-CNN (Liang & Hu, 2015) 7.72 1.77 0.31 31.75 
+MetaQNN (ensemble) 7.32 2.06 0.32 - 
+MetaQNN (top model) 6.92 2.28 0.44 27.14∗ 
+Resnet(110) (He et al., 2015) 6.61 - - - 
+ELU (Clevert et al., 2015) 6.55 - - 24.28 
+Tree+Max-Avg (Lee et al., 2016) 6.05 1.69 0.31 32.37 
+
+Table 4: Error Rate Comparison with state-of-the-art method with complex layer types. We re- 
+port result for CIFAR-10 and CIFAR-100 with moderate data augmentation and result for MNIST 
+and SVHN without any data augmentation. 
+
+Dataset CIFAR-100 SVHN MNIST 
+Training from scratch 27.14 2.48 0.80 
+Finetuning 34.93 4.00 0.81 
+State-of-the-art 24.28 (Clevert et al., 2015) 1.69 (Lee et al., 2016) 0.31 (Lee et al., 2016) 
+
+Table 5: Prediction Error for the top MetaQNN (CIFAR-10) model train for other tasks. Fine- 
+tune refers to initialize training with the weight found for the optimal CIFAR-10 model. 
+
+do not have adequate exploration time give the large state space compare to that of the SVHN 
+experiment, cause it to not find more model with performance similar to the best model. Fur- 
+thermore, the coarse training scheme could have be not a well suit for CIFAR-10 a it be for 
+SVHN, cause some model to under perform. 
+
+Transfer Learning Ability: Network design such a VGGnet (Simonyan & Zisserman, 2014) can 
+be adopt to solve a variety of computer vision problems. To check if the MetaQNN network 
+provide similar transfer learn ability, we use the best MetaQNN model on the CIFAR-10 dataset 
+for training other computer vision tasks. The model performs well (Table 5) both when training 
+from random initializations, and finetuning from exist weights. 
+
+7 CONCLUDING REMARKS 
+
+Neural network be be use in an increasingly wide variety of domains, which call for scalable 
+solution to produce problem-specific model architectures. We take a step towards this goal and 
+show that a meta-modeling approach use reinforcement learn be able to generate tailor CNN 
+design for different image classification tasks. Our MetaQNN network outperform previous meta- 
+model method a well a hand-crafted network which use the same type of layers. 
+
+While we report result for image classification problems, our method could be apply to differ- 
+ent problem settings, include supervise (e.g., classification, regression) and unsupervised (e.g., 
+autoencoders). The MetaQNN method could also aid constraint-based network design, by optimiz- 
+ing parameter such a size, speed, and accuracy. For instance, one could add a threshold in the 
+state-action space bar the agent from create model large than the desire limit. In addition, 
+one could modify the reward function to penalize large model for constrain memory or penalize 
+slow forward pass to incentive quick inference. 
+
+There be several future avenue for research in reinforcement learning-driven network design a 
+well. In our current implementation, we use the same set of hyperparameters to train all network 
+topology during the Q-learning phase and further finetune the hyperparameters for top model 
+select by the MetaQNN agent. However, our approach could be combine with hyperparameter 
+optimization method to further automate the network design process. Moreover, we constrict the 
+state-action space use coarse, discrete bin to accelerate convergence. It would be possible to 
+move to large state-action space use method for Q-function approximation (Bertsekas, 2015; 
+Mnih et al., 2015). 
+
+∗Results in this column obtain with the top MetaQNN architecture for CIFAR-10, train from random 
+initialization with CIFAR-100 data. 
+
+8 
+
+
+
+Under review a a conference paper at ICLR 2017 
+
+ACKNOWLEDGMENTS 
+
+We thank Peter Downs for create the project website and contribute to illustrations. We ac- 
+knowledge Center for Bits and Atoms at MIT for their help with compute resources. Finally, we 
+thank member of Camera Culture group at MIT Media Lab for their help and support. 
+
+REFERENCES 
+Sander Adam, Lucian Busoniu, and Robert Babuska. Experience replay for real-time reinforcement 
+
+learn control. IEEE Transactions on Systems, Man, and Cybernetics, Part C (Applications and 
+Reviews), 42(2):201–212, 2012. 
+
+James Bergstra, Daniel Yamins, and David D Cox. Making a science of model search: Hyperpa- 
+rameter optimization in hundred of dimension for vision architectures. ICML (1), 28:115–123, 
+2013. 
+
+James S Bergstra, Rémi Bardenet, Yoshua Bengio, and Balázs Kégl. Algorithms for hyper-parameter 
+optimization. NIPS, pp. 2546–2554, 2011. 
+
+Dimitri P Bertsekas. Convex optimization algorithms. Athena Scientific Belmont, 2015. 
+
+Djork-Arné Clevert, Thomas Unterthiner, and Sepp Hochreiter. Fast and accurate deep network 
+learn by exponential linear unit (ELUs). arXiv preprint arXiv:1511.07289, 2015. 
+
+Tobias Domhan, Jost Tobias Springenberg, and Frank Hutter. Speeding up automatic hyperparame- 
+ter optimization of deep neural network by extrapolation of learn curves. IJCAI, 2015. 
+
+Xavier Glorot and Yoshua Bengio. Understanding the difficulty of training deep feedforward neural 
+networks. AISTATS, 9:249–256, 2010. 
+
+Ian J Goodfellow, David Warde-Farley, Mehdi Mirza, Aaron C Courville, and Yoshua Bengio. Max- 
+out networks. ICML (3), 28:1319–1327, 2013. 
+
+Kaiming He, Xiangyu Zhang, Shaoqing Ren, and Jian Sun. Deep residual learn for image recog- 
+nition. arXiv preprint arXiv:1512.03385, 2015. 
+
+Yangqing Jia, Evan Shelhamer, Jeff Donahue, Sergey Karayev, Jonathan Long, Ross Girshick, Ser- 
+gio Guadarrama, and Trevor Darrell. Caffe: Convolutional architecture for fast feature embed- 
+ding. arXiv preprint arXiv:1408.5093, 2014. 
+
+Leslie Pack Kaelbling, Michael L Littman, and Andrew W Moore. Reinforcement learning: A 
+survey. Journal of Artificial Intelligence Research, 4:237–285, 1996. 
+
+Diederik Kingma and Jimmy Ba. Adam: A method for stochastic optimization. arXiv preprint 
+arXiv:1412.6980, 2014. 
+
+Yann LeCun, Yoshua Bengio, and Geoffrey Hinton. Deep learning. Nature, 521(7553):436–444, 
+2015. 
+
+Chen-Yu Lee, Saining Xie, Patrick Gallagher, Zhengyou Zhang, and Zhuowen Tu. Deeply- 
+supervise nets. AISTATS, 2(3):6, 2015. 
+
+Chen-Yu Lee, Patrick W Gallagher, and Zhuowen Tu. Generalizing pool function in convolu- 
+tional neural networks: Mixed, gated, and tree. International Conference on Artificial Intelligence 
+and Statistics, 2016. 
+
+Sergey Levine, Chelsea Finn, Trevor Darrell, and Pieter Abbeel. End-to-end training of deep visuo- 
+motor policies. JMLR, 17(39):1–40, 2016. 
+
+Ming Liang and Xiaolin Hu. Recurrent convolutional neural network for object recognition. CVPR, 
+pp. 3367–3375, 2015. 
+
+Timothy P Lillicrap, Jonathan J Hunt, Alexander Pritzel, Nicolas Heess, Tom Erez, Yuval Tassa, 
+David Silver, and Daan Wierstra. Continuous control with deep reinforcement learning. arXiv 
+preprint arXiv:1509.02971, 2015. 
+
+9 
+
+
+
+Under review a a conference paper at ICLR 2017 
+
+Long-Ji Lin. Self-improving reactive agent base on reinforcement learning, planning and teaching. 
+Machine Learning, 8(3-4):293–321, 1992. 
+
+Long-Ji Lin. Reinforcement learn for robot use neural networks. Technical report, DTIC 
+Document, 1993. 
+
+Min Lin, Qiang Chen, and Shuicheng Yan. Network in network. arXiv preprint arXiv:1312.4400, 
+2013. 
+
+Volodymyr Mnih, Koray Kavukcuoglu, David Silver, Andrei A Rusu, Joel Veness, Marc G Belle- 
+mare, Alex Graves, Martin Riedmiller, Andreas K Fidjeland, Georg Ostrovski, et al. Human-level 
+control through deep reinforcement learning. Nature, 518(7540):529–533, 2015. 
+
+Nicolas Pinto, David Doukhan, James J DiCarlo, and David D Cox. A high-throughput screen 
+approach to discover good form of biologically inspire visual representation. PLoS Compu- 
+tational Biology, 5(11):e1000579, 2009. 
+
+Adriana Romero, Nicolas Ballas, Samira Ebrahimi Kahou, Antoine Chassang, Carlo Gatta, and 
+Yoshua Bengio. Fitnets: Hints for thin deep nets. arXiv preprint arXiv:1412.6550, 2014. 
+
+J David Schaffer, Darrell Whitley, and Larry J Eshelman. Combinations of genetic algorithm and 
+neural networks: A survey of the state of the art. International Workshop on Combinations of 
+Genetic Algorithms and Neural Networks, pp. 1–37, 1992. 
+
+Pierre Sermanet, Soumith Chintala, and Yann LeCun. Convolutional neural network apply to 
+house number digit classification. ICPR, pp. 3288–3291, 2012. 
+
+Pierre Sermanet, Koray Kavukcuoglu, Soumith Chintala, and Yann LeCun. Pedestrian detection 
+with unsupervised multi-stage feature learning. CVPR, pp. 3626–3633, 2013. 
+
+Bobak Shahriari, Kevin Swersky, Ziyu Wang, Ryan P Adams, and Nando de Freitas. Taking the 
+human out of the loop: A review of bayesian optimization. Proceedings of the IEEE, 104(1): 
+148–175, 2016. 
+
+David Silver, Aja Huang, Chris J Maddison, Arthur Guez, Laurent Sifre, George Van Den Driessche, 
+Julian Schrittwieser, Ioannis Antonoglou, Veda Panneershelvam, Marc Lanctot, et al. Mastering 
+the game of go with deep neural network and tree search. Nature, 529(7587):484–489, 2016. 
+
+Karen Simonyan and Andrew Zisserman. Very deep convolutional network for large-scale image 
+recognition. arXiv preprint arXiv:1409.1556, 2014. 
+
+Jasper Snoek, Hugo Larochelle, and Ryan P Adams. Practical bayesian optimization of machine 
+learn algorithms. NIPS, pp. 2951–2959, 2012. 
+
+Jost Tobias Springenberg, Alexey Dosovitskiy, Thomas Brox, and Martin Riedmiller. Striving for 
+simplicity: The all convolutional net. arXiv preprint arXiv:1412.6806, 2014. 
+
+Rupesh Kumar Srivastava, Klaus Greff, and Jürgen Schmidhuber. Highway networks. arXiv preprint 
+arXiv:1505.00387, 2015. 
+
+Kenneth O Stanley and Risto Miikkulainen. Evolving neural network through augment topolo- 
+gies. Evolutionary Computation, 10(2):99–127, 2002. 
+
+Kevin Swersky, Jasper Snoek, and Ryan P Adams. Multi-task bayesian optimization. NIPS, pp. 
+2004–2012, 2013. 
+
+Phillip Verbancsics and Josh Harguess. Generative neuroevolution for deep learning. arXiv preprint 
+arXiv:1312.5355, 2013. 
+
+Joannes Vermorel and Mehryar Mohri. Multi-armed bandit algorithm and empirical evaluation. 
+European Conference on Machine Learning, pp. 437–448, 2005. 
+
+Li Wan, Matthew Zeiler, Sixin Zhang, Yann L Cun, and Rob Fergus. Regularization of neural 
+network use dropconnect. ICML, pp. 1058–1066, 2013. 
+
+Christopher John Cornish Hellaby Watkins. Learning from delayed rewards. PhD thesis, University 
+of Cambridge, England, 1989. 
+
+10 
+
+
+
+Under review a a conference paper at ICLR 2017 
+
+APPENDIX 
+
+A ALGORITHM 
+
+We first describe the main component of the MetaQNN algorithm. Algorithm 1 show the main 
+loop, where the parameter M would determine how many model to run for a give � and the 
+parameter K would determine how many time to sample the replay database to update Q-values on 
+each iteration. The function TRAIN refers to training the specify network and return a validation 
+accuracy. Algorithm 2 detail the method for sample a new network use the �-greedy strategy, 
+where we assume we have a function TRANSITION that return the next state give a state and 
+action. Finally, Algorithm 3 implement theQ-value update detailed in Equation 3, with discounting 
+factor set to 1, for an entire state sequence in temporally reverse order. 
+
+Algorithm 1 Q-learning For CNN Topologies 
+Initialize: 
+
+replay memory← [ ] 
+Q← {(s, u) ∀s ∈ S, u ∈ U(s) : 0.5} 
+
+for episode = 1 to M do 
+S, U ← SAMPLE NEW NETWORK(�, Q) 
+accuracy← TRAIN(S) 
+replay memory.append((S, U, accuracy)) 
+for memory = 1 to K do 
+
+SSAMPLE , USAMPLE , accuracySAMPLE ← Uniform{replay memory} 
+Q← UPDATE Q VALUES(Q, SSAMPLE , USAMPLE , accuracySAMPLE) 
+
+end for 
+end for 
+
+Algorithm 2 SAMPLE NEW NETWORK(�, Q) 
+Initialize: 
+
+state sequence S = [sSTART] 
+action sequence U = [ ] 
+
+while U [−1] 6= terminate do 
+α ∼ Uniform[0, 1) 
+if α > � then 
+
+u = argmaxu∈U(S[−1])Q[(S[−1], u)] 
+s′ = TRANSITION(S[−1], u) 
+
+else 
+u ∼ Uniform{U(S[−1])} 
+s′ = TRANSITION(S[−1], u) 
+
+end if 
+U.append(u) 
+if u != terminate then 
+
+S.append(s′) 
+end if 
+
+end while 
+return S, U 
+
+Algorithm 3 UPDATE Q VALUES(Q, S, U , accuracy) 
+Q[S[−1], U [−1]] = (1− α)Q[S[−1], U [−1]] + α · accuracy 
+for i = length(S)− 2 to 0 do 
+
+Q[S[i], U [i]] = (1− α)Q[S[i], U [i]] + αmaxu∈U(S[i+1])Q[S[i+ 1], u] 
+end for 
+return Q 
+
+11 
+
+
+
+Under review a a conference paper at ICLR 2017 
+
+B REPRESENTATION SIZE BINNING 
+
+As mention in Section 4.1 of the main text, we introduce a parameter call representation size 
+to prohibit the agent from take action that can reduce the intermediate signal representation to 
+a size that be too small for further processing. However, this process lead to uncertainty in state 
+transitions, a illustrate in Figure A1, which be handle by the standard Q-learning formulation. 
+
+P(2,2) 
+
+R-size: 18 
+R-size bin: 1 
+
+R-size: 9 
+R-size bin: 1 
+
+(a) 
+
+P(2,2) 
+
+R-size: 9 
+R-size bin: 1 
+
+R-size: 14 
+R-size bin: 1 
+
+(b) 
+
+States 
+Actions 
+
+p 
+1 2 
+
+p 
+
+R-size bin: 1 
+
+R-size bin: 1 R-size bin: 2 
+
+P(2,2) 
+
+(c) 
+
+Figure A1: Representation size binning: In this figure, we show three example state transitions. 
+The true representation size (R-size) parameter be include in the figure to show the true underlie 
+state. Assuming there be two R-size bins, R-size Bin1: [8,∞) and R-size Bin2: (0, 7], Figure A1a 
+show the case where the initial state be in R-size Bin1 and true representation size be 18. After the 
+agent chooses to pool with a 2×2 filter with stride 2, the true representation size reduces to 9 but the 
+R-size bin do not change. In Figure A1b, the same 2 × 2 pool layer with stride 2 reduces the 
+actual representation size of 14 to 7, but the bin change to R-size Bin2. Therefore, in figure A1a 
+and A1b, the agent end up in different final states, despite originate in the same initial state and 
+choose the same action. Figure A1c show that in our state-action space, when the agent take an 
+action that reduces the representation size, it will have uncertainty in which state it will transition to. 
+
+C MNIST EXPERIMENT 
+
+We notice that the final MNIST model be prone to overfitting, so we increase dropout and 
+do a small grid search for the weight regularization parameter. For both tune and final training, 
+we warm the model with the learn weight from after the first epoch of initial training. The 
+final model and solver can be found on our project website https://bowenbaker.github.io/metaqnn/ . 
+Figure A2 show the Q-Learning performance for the MNIST experiment. 
+
+D FURTHER ANALYSIS OF Q-LEARNING 
+
+Figure 3 of the main text and Figure A2 show that a the agent begin to exploit, it improves in 
+architecture selection. It be also informative to look at the distribution of model chosen at each �. 
+Figure A3 give further insight into the performance achieve at each � for both experiments. 
+
+D.1 Q-VALUE ANALYSIS 
+
+We now analyze the actualQ-values generate by the agent during the training process. The learn 
+agent iteratively update the Q-values of each path during the �-greedy exploration. Each Q-value 
+be initialize at 0.5. After the �-schedule be complete, we can analyze the final Q-value associate 
+with each path to gain insight into the layer selection process. In left column of Figure A4, we 
+plot the average Q-value for each layer type at different layer depth (for both SVHN and CIFAR- 
+10) datasets. Roughly speaking, a high Q-value associate with a layer type indicates a high 
+probability that the agent will pick that layer type. In Figure A4, we observe that, while the average 
+Q-value be high for convolution and pool layer at low layer depths, the Q-values for fully- 
+connect and termination layer (softmax and global average pooling) increase a we go deeper 
+into the network. This observation match with traditional network designs. 
+
+12 
+
+https://bowenbaker.github.io/metaqnn/ 
+
+
+Under review a a conference paper at ICLR 2017 
+
+0 500 1000 1500 2000 2500 3000 3500 
+Iterations 
+
+0.00 
+
+0.10 
+
+0.20 
+
+0.30 
+
+0.40 
+
+0.50 
+
+0.60 
+
+0.70 
+
+0.80 
+
+0.90 
+
+1.00 
+
+A 
+cc 
+
+u 
+ra 
+
+cy 
+
+Epsilon = 1.0 .9.8.7 .6 .5 .4 .3 .2 .1 
+
+MNIST Q-Learning Performance 
+
+Average Accuracy Per Epsilon 
+
+Rolling Mean Model Accuracy 
+
+Figure A2: MNIST Q-Learning Performance. The blue line show a roll mean of model 
+accuracy versus iteration, where in each iteration of the algorithm the agent be sample a model. 
+Each bar (in light blue) mark the average accuracy over all model that be sample during the 
+exploration phase with the label �. As � decreases, the average accuracy go up, demonstrate 
+that the agent learns to select better-performing CNN architectures. 
+
+We can also plot the averageQ-values associate with different layer parameter for further analysis. 
+In the right column of Figure A4, we plot the averageQ-values for convolution layer with receptive 
+field size 1, 3, and 5 at different layer depths. The plot show that layer with receptive field size 
+of 5 have a high Q-value a compare to size 1 and 3 a we go deeper into the networks. This 
+indicates that it might be beneficial to use large receptive field size in deeper networks. 
+
+In summary, the Q-learning method enables u to perform analysis on relative benefit of different 
+design parameter of our state space, and possibly gain insight for new CNN designs. 
+
+E TOP TOPOLOGIES SELECTED BY ALGORITHM 
+
+In Tables A1 through A3, we present the top five model architecture select with Q-learning 
+for each dataset, along with their prediction error report on the test set, and their to- 
+tal number of parameters. To download the Caffe solver and prototext files, please visit 
+https://bowenbaker.github.io/metaqnn/ . 
+
+Model Architecture Test Error (%) # Params (106) 
+[C(512,5,1), C(256,3,1), C(256,5,1), C(256,3,1), P(5,3), C(512,3,1), 
+C(512,5,1), P(2,2), SM(10)] 
+
+6.92 11.18 
+
+[C(128,1,1), C(512,3,1), C(64,1,1), C(128,3,1), P(2,2), C(256,3,1), 
+P(2,2), C(512,3,1), P(3,2), SM(10)] 
+
+8.78 2.17 
+
+[C(128,3,1), C(128,1,1), C(512,5,1), P(2,2), C(128,3,1), P(2,2), 
+C(64,3,1), C(64,5,1), SM(10)] 
+
+8.88 2.42 
+
+[C(256,3,1), C(256,3,1), P(5,3), C(256,1,1), C(128,3,1), P(2,2), 
+C(128,3,1), SM(10)] 
+
+9.24 1.10 
+
+[C(128,5,1), C(512,3,1), P(2,2), C(128,1,1), C(128,5,1), P(3,2), 
+C(512,3,1), SM(10)] 
+
+11.63 1.66 
+
+Table A1: Top 5 model architectures: CIFAR-10. 
+
+13 
+
+https://bowenbaker.github.io/metaqnn/ 
+
+
+Under review a a conference paper at ICLR 2017 
+
+Model Architecture Test Error (%) # Params (106) 
+[C(128,3,1), P(2,2), C(64,5,1), C(512,5,1), C(256,3,1), C(512,3,1), 
+P(2,2), C(512,3,1), C(256,5,1), C(256,3,1), C(128,5,1), C(64,3,1), 
+SM(10)] 
+
+2.24 9.81 
+
+[C(128,1,1), C(256,5,1), C(128,5,1), P(2,2), C(256,5,1), C(256,1,1), 
+C(256,3,1), C(256,3,1), C(256,5,1), C(512,5,1), C(256,3,1), 
+C(128,3,1), SM(10)] 
+
+2.28 10.38 
+
+[C(128,5,1), C(128,3,1), C(64,5,1), P(5,3), C(128,3,1), C(512,5,1), 
+C(256,5,1), C(128,5,1), C(128,5,1), C(128,3,1), SM(10)] 
+
+2.32 6.83 
+
+[C(128,1,1), C(256,5,1), C(128,5,1), C(256,3,1), C(256,5,1), P(2,2), 
+C(128,1,1), C(512,3,1), C(256,5,1), P(2,2), C(64,5,1), C(64,1,1), 
+SM(10)] 
+
+2.35 6.99 
+
+[C(128,1,1), C(256,5,1), C(128,5,1), C(256,5,1), C(256,5,1), 
+C(256,1,1), P(3,2), C(128,1,1), C(256,5,1), C(512,5,1), C(256,3,1), 
+C(128,3,1), SM(10)] 
+
+2.36 10.05 
+
+Table A2: Top 5 model architectures: SVHN. Note that we do not report the best accuracy on test 
+set from the above model in Tables 3 and 4 from the main text. This be because the model that 
+achieve 2.28% on the test set perform the best on the validation set. 
+
+Model Architecture Test Error (%) # Params (106) 
+[C(64,1,1), C(256,3,1), P(2,2), C(512,3,1), C(256,1,1), P(5,3), 
+C(256,3,1), C(512,3,1), FC(512), SM(10)] 
+
+0.35 5.59 
+
+[C(128,3,1), C(64,1,1), C(64,3,1), C(64,5,1), P(2,2), C(128,3,1), P(3,2), 
+C(512,3,1), FC(512), FC(128), SM(10)] 
+
+0.38 7.43 
+
+[C(512,1,1), C(128,3,1), C(128,5,1), C(64,1,1), C(256,5,1), C(64,1,1), 
+P(5,3), C(512,1,1), C(512,3,1), C(256,3,1), C(256,5,1), C(256,5,1), 
+SM(10)] 
+
+0.40 8.28 
+
+[C(64,3,1), C(128,3,1), C(512,1,1), C(256,1,1), C(256,5,1), C(128,3,1), 
+P(5,3), C(512,1,1), C(512,3,1), C(128,5,1), SM(10)] 
+
+0.41 6.27 
+
+[C(64,3,1), C(128,1,1), P(2,2), C(256,3,1), C(128,5,1), C(64,1,1), 
+C(512,5,1), C(128,5,1), C(64,1,1), C(512,5,1), C(256,5,1), C(64,5,1), 
+SM(10)] 
+
+0.43 8.10 
+
+[C(64,1,1), C(256,5,1), C(256,5,1), C(512,1,1), C(64,3,1), P(5,3), 
+C(256,5,1), C(256,5,1), C(512,5,1), C(64,1,1), C(128,5,1), C(512,5,1), 
+SM(10)] 
+
+0.44 9.67 
+
+[C(128,3,1), C(512,3,1), P(2,2), C(256,3,1), C(128,5,1), C(64,1,1), 
+C(64,5,1), C(512,5,1), GAP(10), SM(10)] 
+
+0.44 3.52 
+
+[C(256,3,1), C(256,5,1), C(512,3,1), C(256,5,1), C(512,1,1), P(5,3), 
+C(256,3,1), C(64,3,1), C(256,5,1), C(512,3,1), C(128,5,1), C(512,5,1), 
+SM(10)] 
+
+0.46 12.42 
+
+[C(512,5,1), C(128,5,1), C(128,5,1), C(128,3,1), C(256,3,1), 
+C(512,5,1), C(256,3,1), C(128,3,1), SM(10)] 
+
+0.55 7.25 
+
+[C(64,5,1), C(512,5,1), P(3,2), C(256,5,1), C(256,3,1), C(256,3,1), 
+C(128,1,1), C(256,3,1), C(256,5,1), C(64,1,1), C(256,3,1), C(64,3,1), 
+SM(10)] 
+
+0.56 7.55 
+
+Table A3: Top 10 model architectures: MNIST. We report the top 10 model for MNIST because 
+we include all 10 in our final ensemble. Note that we do not report the best accuracy on test set 
+from the above model in Tables 3 and 4 from the main text. This be because the model that achieve 
+0.44% on the test set perform the best on the validation set. 
+
+14 
+
+
+
+Under review a a conference paper at ICLR 2017 
+
+0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9 1.0 
+
+Validation Accuracy 
+
+0 
+
+10 
+
+20 
+
+30 
+
+40 
+
+50 
+
+60 
+
+% 
+M 
+
+o 
+d 
+e 
+l 
+
+Model Accuracy Distribution 
+(SVHN) 
+
+epsilon 
+
+0.1 
+
+0.2 
+
+0.3 
+
+0.4 
+
+0.5 
+
+0.6 
+
+0.7 
+
+0.8 
+
+0.9 
+
+1.0 
+
+(a) 
+
+0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9 1.0 
+
+Validation Accuracy 
+
+0 
+
+10 
+
+20 
+
+30 
+
+40 
+
+50 
+
+60 
+
+% 
+M 
+
+o 
+d 
+e 
+l 
+
+Model Accuracy Distribution 
+(SVHN) 
+
+epsilon 
+
+0.1 1.0 
+
+(b) 
+
+0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9 
+
+Validation Accuracy 
+
+0 
+
+5 
+
+10 
+
+15 
+
+20 
+
+% 
+M 
+
+o 
+d 
+e 
+l 
+
+Model Accuracy Distribution 
+(CIFAR-10) 
+
+epsilon 
+
+0.1 
+
+0.2 
+
+0.3 
+
+0.4 
+
+0.5 
+
+0.6 
+
+0.7 
+
+0.8 
+
+0.9 
+
+1.0 
+
+(c) 
+
+0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9 
+
+Validation Accuracy 
+
+0 
+
+5 
+
+10 
+
+15 
+
+20 
+% 
+
+M 
+o 
+d 
+e 
+l 
+
+Model Accuracy Distribution 
+(CIFAR-10) 
+
+epsilon 
+
+0.1 1.0 
+
+(d) 
+
+0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9 1.0 
+Validation Accuracy 
+
+0 
+
+20 
+
+40 
+
+60 
+
+80 
+
+100 
+
+% 
+M 
+
+od 
+el 
+
+s 
+
+Model Accuracy Distribution 
+(MNIST) 
+
+epsilon 
+0.1 
+0.2 
+0.3 
+0.4 
+0.5 
+
+0.6 
+0.7 
+0.8 
+0.9 
+1.0 
+
+(e) 
+
+0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9 1.0 
+Validation Accuracy 
+
+0 
+
+20 
+
+40 
+
+60 
+
+80 
+
+100 
+
+% 
+M 
+
+od 
+el 
+
+s 
+
+Model Accuracy Distribution 
+(MNIST) 
+
+epsilon 
+0.1 1.0 
+
+(f) 
+
+Figure A3: Accuracy Distribution versus �: Figures A3a, A3c, and A3e show the accuracy dis- 
+tribution for each � for the SVHN, CIFAR-10, and MNIST experiments, respectively. Figures A3b, 
+A3d, and A3f show the accuracy distribution for the initial � = 1 and the final � = 0.1. One can 
+see that the accuracy distribution becomes much more peaked in the high accuracy range at small � 
+for each experiment. 
+
+15 
+
+
+
+Under review a a conference paper at ICLR 2017 
+
+0 2 4 6 8 10 12 14 
+Layer Depth 
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+A 
+ve 
+
+ra 
+ge 
+
+Q 
+-V 
+
+al 
+ue 
+
+Average Q-Value vs. Layer Depth 
+(SVHN) 
+
+Convolution 
+Fully Connected 
+Pooling 
+Global Average Pooling 
+Softmax 
+
+(a) 
+
+0 2 4 6 8 10 12 
+Layer Depth 
+
+0.5 
+
+0.6 
+
+0.7 
+
+0.8 
+
+0.9 
+
+1.0 
+
+A 
+ve 
+
+ra 
+ge 
+
+Q 
+-V 
+
+al 
+ue 
+
+Average Q-Value vs. Layer Depth 
+for Convolution Layers (SVHN) 
+
+Receptive Field Size 1 
+Receptive Field Size 3 
+Receptive Field Size 5 
+
+(b) 
+
+0 5 10 15 20 
+Layer Depth 
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+A 
+ve 
+
+ra 
+ge 
+
+Q 
+-V 
+
+al 
+ue 
+
+Average Q-Value vs. Layer Depth 
+(CIFAR10) 
+
+Convolution 
+Fully Connected 
+Pooling 
+Global Average Pooling 
+Softmax 
+
+(c) 
+
+0 2 4 6 8 10 12 14 16 18 
+Layer Depth 
+
+0.5 
+
+0.6 
+
+0.7 
+
+0.8 
+
+0.9 
+
+1.0 
+A 
+
+ve 
+ra 
+
+ge 
+Q 
+
+-V 
+al 
+
+ue 
+
+Average Q-Value vs. Layer Depth 
+for Convolution Layers (CIFAR10) 
+
+Receptive Field Size 1 
+Receptive Field Size 3 
+Receptive Field Size 5 
+
+(d) 
+
+0 2 4 6 8 10 12 14 
+Layer Depth 
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+A 
+ve 
+
+ra 
+ge 
+
+Q 
+-V 
+
+al 
+ue 
+
+Average Q-Value vs. Layer Depth 
+(MNIST) 
+
+Convolution 
+Fully Connected 
+Pooling 
+Global Average Pooling 
+Softmax 
+
+(e) 
+
+0 2 4 6 8 10 12 
+Layer Depth 
+
+0.5 
+
+0.6 
+
+0.7 
+
+0.8 
+
+0.9 
+
+1.0 
+
+A 
+ve 
+
+ra 
+ge 
+
+Q 
+-V 
+
+al 
+ue 
+
+Average Q-Value vs. Layer Depth 
+for Convolution Layers (MNIST) 
+
+Receptive Field Size 1 
+Receptive Field Size 3 
+Receptive Field Size 5 
+
+(f) 
+
+Figure A4: Average Q-Value versus Layer Depth for different layer type be show in the left 
+column. Average Q-Value versus Layer Depth for different receptive field size of the convolution 
+layer be show in the right column. 
+
+16 
+
+
+1 Introduction 
+2 Related Work 
+3 Background 
+4 Designing Neural Network Architectures with Q-learning 
+4.1 The State Space 
+4.2 The Action Space 
+4.3 Q-learning Training Procedure 
+
+5 Experiment Details 
+6 Results 
+7 Concluding Remarks 
+A Algorithm 
+B Representation Size Binning 
+C MNIST Experiment 
+D Further Analysis of Q-Learning 
+D.1 Q-Value Analysis 
+
+E Top topology select by algorithm 
+

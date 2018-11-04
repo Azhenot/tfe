@@ -1,0 +1,4093 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+learn certifi optim rule list for categor data 
+
+elain angelino elaine@eecs.berkeley.edu 
+depart of electr engin and comput scienc 
+univers of california, berkeley, berkeley, CA 94720 
+
+nichola larus-ston nlarusstone@college.harvard.edu 
+daniel alabi alabid@g.harvard.edu 
+margo seltzer margo@eecs.harvard.edu 
+school of engin and appli scienc 
+harvard university, cambridge, MA 02138 
+
+cynthia rudin cynthia@cs.duke.edu 
+depart of comput scienc and depart of electr and comput engin 
+
+duke university, durham, NC 27708 
+
+abstract 
+
+We present the design and implement of a custom discret optim techniqu 
+for build rule list over a categor featur space. our algorithm provid the optim 
+solution, with a certif of optimality. By leverag algorithm bounds, effici data 
+structures, and comput reuse, we achiev sever order of magnitud speedup in 
+time and a massiv reduct of memori consumption. We demonstr that our approach 
+produc optim rule list on practic problem in seconds. thi framework be a novel 
+altern to cart and other decis tree methods. 
+
+keywords: rule lists, decis trees, optimization, interpret model 
+
+1. introduct 
+
+As machin learn continu to gain promin in socially-import decision-making, 
+the interpret of predict model remain a crucial problem. our goal be to build 
+model that be both highli predict and easili understood by humans. We use rule lists, 
+also know a decis lists, to achiev thi goal. rule list be list compos of if-then 
+statements, which be easili interpreted; the rule give a reason for each predict (fig- 
+ure 1). 
+
+construct rule lists, or more generally, decis trees, have be a challeng for more 
+than 30 years; most approach use greedi split techniqu (rivest, 1987; breiman 
+et al., 1984; quinlan, 1993). recent approach use bayesian analysis, either to find a local 
+optim solut (chipman et al., 1998) or to explor the search space (letham et al., 2015; 
+yang et al., 2016). these approach achiev high accuraci while also manag to run 
+reason quickly. however, despit the appar accuraci of the rule list gener by 
+these algorithms, there be no way to determin either if the gener rule list be optim or 
+how close it be to optimal. 
+
+optim be important, becaus there be societ implic for a lack of optimality. 
+consid the recent propublica articl on the compa recidiv predict tool (larson 
+et al., 2016). It highlight a case where a black-box, proprietari predict model be be 
+use for recidiv prediction. the author show that the compa score be racial 
+
+ar 
+X 
+
+iv 
+:1 
+
+70 
+4. 
+
+01 
+70 
+
+1v 
+1 
+
+[ 
+st 
+
+at 
+.M 
+
+L 
+] 
+
+6 
+A 
+
+pr 
+2 
+
+01 
+7 
+
+
+
+angelino, larus-stone, alabi, seltzer, and rudin 
+
+if (age = 23− 25) ∧ (prior = 2− 3) then predict ye 
+els if (age = 18− 20) then predict ye 
+els if (sex = male) ∧ (age = 21− 22) then predict ye 
+els if (prior > 3) then predict ye 
+els predict no 
+
+figur 1: An exampl rule list that predict two-year recidiv for the propublica dataset, 
+found by corels. 
+
+biased, but sinc the model be not transparent, no one (outsid of the creator of com- 
+pas) can determin the reason or extent of the bia (larson et al., 2016), nor can anyon 
+determin the reason for ani particular prediction. By use compas, user implicitli 
+assum that a transpar model would not be suffici accur for recidiv predic- 
+tion, i.e., they assum that a black box model would provid good accuracy. We wonder 
+whether there be inde no transpar and suffici accur model. answer thi 
+question requir solv a comput hard problem. namely, we would like to both 
+find a transpar model that be optim within a particular pre-determin class of model 
+and produc a certif of it optimality. thi would enabl one to say, for thi problem 
+and model class, with certainti and befor resort to black box methods, whether there 
+exist a transpar model. 
+
+To that end, we consid the class of rule list assembl from pre-min frequent item- 
+set and search for an optim rule list that minim a regular risk function, R. thi 
+be a hard discret optim problem. brute forc solut that minim R be compu- 
+tation prohibit due to the exponenti number of possibl rule lists. however, thi be 
+a bad case bound that be not realiz in practic settings. for realist cases, it be possibl 
+to solv fairli larg case of thi problem to optimality, with the care use of algorithms, 
+data structures, and implement techniques. 
+
+We develop special tool from the field of discret optim and artifici intel- 
+ligence. specifically, we introduc a special branch-and-bound algorithm, call certifi 
+optim rule list (corels), that provid (1) the optim solution, (2) a certif 
+of optimality, and (3) optionally, a collect of near-optim solut and the distanc 
+between each such solut and the optim one. the certif of optim mean that 
+we can investig how close other model (e.g., model provid by greedi algorithms) be 
+to optimal. In particular, we can investig if the rule list from probabilist approach 
+be nearli optim or whether those approach sacrific too much accuraci in the interest 
+of speed. 
+
+within it branch-and-bound procedure, corel maintain a low bound on the 
+minimum valu of R that each incomplet rule list can achieve. thi allow corel to 
+prune an incomplet rule list (and everi possibl extension) if the bound be larg than 
+the error of the best rule list that it have alreadi evaluated. the use of care bound 
+techniqu lead to massiv prune of the search space of potenti rule lists. It continu 
+to consid incomplet and complet rule list until it have either examin or elimin 
+everi rule list from consideration. thus, corel termin with the optim rule list and 
+a certif of optimality. 
+
+2 
+
+
+
+learn certifi optim rule list for categor data 
+
+the efficaci of corel depend on how much of the search space our bound allow u 
+to prune; we seek a tight low bound on R. the bound we maintain throughout execut be 
+a maximum of sever bounds, that come in three categories. the first categori of bound be 
+those intrins to the rule themselves. thi categori includ bound state that each rule 
+must captur suffici data; if not, the rule list be provabl non-optimal. the second type 
+of bound compar a low bound on the valu of R to that of the current best solution. 
+thi allow u to exclud part of the search space that could never be good than our 
+current solution. finally, our last type of bound be base on compar incomplet rule list 
+that captur the same data and allow u to pursu onli the most accur option. thi last 
+class of bound be especi import – without our use of a novel symmetry-awar map, 
+we be unabl to solv most problem of reason scale. thi symmetry-awar map keep 
+track of the best accuraci over all observ permut of a give incomplet rule list. 
+
+We keep track of these bound use a modifi prefix tree, a data structur also know 
+a a trie. each node in the prefix tree repres an individu rule; thus, each path in the 
+tree repres a rule list such that the final node in the path contain metric about that 
+rule list. thi tree structure, togeth with a search polici and sometim a queue, enabl a 
+varieti of strategies, includ breadth-first, best-first, and stochast search. In particular, 
+we can design differ best-first strategi by custom how we order element in a 
+prioriti queue. In addition, we be abl to limit the number of node in the tree and therebi 
+enabl tune of space-tim tradeoff in a robust manner. thi tree structur be a use way 
+of organ the gener and evalu of rule lists, and be parallelizable. 
+
+We evalu corel on a number of publicli avail datasets. our metric of success 
+be 10-fold cross-valid predict accuraci on a subset of the data. these dataset 
+involv hundr of rule and thousand of observations. corel be gener abl to 
+find an optim rule list in a matter of second and certifi it optim within about 10 
+minutes. We show that we be abl to achiev good or similar out-of-sampl accuraci on 
+these dataset compar to the popular greedi algorithms, cart and c4.5. 
+
+corel target larg (not massive) problems, where interpret and certifi op- 
+timal be important. We illustr the efficaci of our approach use (1) the propublica 
+compa dataset (larson et al., 2016), for the problem of two-year recidiv prediction, 
+and (2) the nyclu 2014 stop-and-frisk dataset (new york civil liberti union, 2014), to 
+predict whether a weapon will be found on a stop individu who be frisk or searched. 
+We produc certifi optimal, interpret rule list that achiev the same accuraci a 
+approach such a random forests. thi call into question the need for use of a proprietary, 
+black box algorithm for recidiv prediction. 
+
+our implement of corel be at https://github.com/nlarusstone/corels. 1 
+
+2. relat work 
+
+We discu relat literatur in sever subfields, and highlight two recent work that thi 
+paper build on. 
+
+interpret models: there be a grow interest in interpret (transparent, compre- 
+hensible) model becaus of their societ import (see rüping, 2006; bratko, 1997; 
+
+1. our work overlap with the thesi present by larus-ston (2017). 
+
+3 
+
+https://github.com/nlarusstone/corel 
+
+
+angelino, larus-stone, alabi, seltzer, and rudin 
+
+dawes, 1979; vellido et al., 2012; giraud-carrier, 1998; holte, 1993; shmueli, 2010; huys- 
+man et al., 2011; freitas, 2014). there be now regul on algorithm decision-mak 
+in the european union on the “right to an explanation” (goodman and flaxman, 2016) 
+that would legal requir interpret in predictions. 
+
+optim decis tree model : the bodi of work closest to our be possibl that of 
+optim decis tree modeling. sinc the late 1990’s, there have be research on build 
+optim decis tree use optim techniqu (bennett and blue, 1996; dobkin et al., 
+1996), continu until the present (farhangfar et al., 2008). A particularli interest paper 
+along these line be that of nijssen and fromont (2010), who creat a “bottom-up” way 
+to form optim decis trees. their method perform an expens search step, mine 
+all possibl leaf (rather than all possibl rules), and us those leaf to form trees. 
+their method can lead to memori problems, but it be possibl that these memori issu 
+can be mitig use the theorem in thi paper. 2 anoth work close to our be that 
+of garofalaki et al. (2000), who introduc an algorithm to gener more interpret 
+decis tree by allow constraint to be place on the size of the decis tree. dure 
+tree construction, they bound the possibl minimum descript length (mdl) cost of 
+everi differ split at a give node. If everi split at that node be more expens than the 
+actual cost of the current subtree, then that node can be pruned. In thi way, they be abl 
+to prune the tree while construct it instead of just construct the tree and then prune 
+at the end. they do not aim for optim trees; they build tree that obey constraints, and 
+find optim subtre within the tree that be built dure the build phase. 
+
+greedi split and pruning: unlik optim decis tree methods, method like cart 
+(breiman et al., 1984) and c4.5 (quinlan, 1993) do not perform explor of the search 
+space beyond greedi splitting. there be a huge number of algorithm in thi class. 
+
+bayesian tree and rule list methods: some of these approach that aim to explor the 
+space of tree (dension et al., 1998; chipman et al., 2002, 2010) use mont carlo methods. 
+however, the space of tree of a give depth be much larg than the space of rule list of 
+that same level of depth, and the tree within these algorithm be grown in a top-down 
+greedi way. becaus of this, the author note that their mcmc chain tend to reach onli 
+local optim solutions. thi explain whi bayesian rule-bas method (letham et al., 
+2015; yang et al., 2016) have tend to be more success in escap local minima. our 
+work build specif on that of yang et al. (2016). In particular, we use their librari for 
+effici repres and oper on bit vectors, and build on their bounds. note that 
+the ripper algorithm (cohen, 1995) be similar to the bayesian tree method in that it 
+grows, prunes, and then local optimizes. 
+
+rule learn methods: most rule learn method be not design for optim or 
+interpretability, but for comput speed and/or accuracy. In associ classif 
+(vanhoof and depaire, 2010; liu et al., 1998; Li et al., 2001; yin and han, 2003), classifi 
+be often form greedili from the top down a rule lists, or they be form by take the 
+simpl union of pre-min rules, wherebi ani observ that fit into ani of the rule 
+be classifi a positive. In induct logic program (muggleton and De raedt, 1994), 
+algorithm construct disjunct normal form pattern via a set of oper (rather than 
+use optimization). these approach be not appropri for obtain a guarante of 
+
+2. there be no public version of their code for distribut a of thi writing. 
+
+4 
+
+
+
+learn certifi optim rule list for categor data 
+
+optimality. method for decis list learn construct rule list iter in a greedi 
+way (rivest, 1987; sokolova et al., 2003; marchand and sokolova, 2005; rudin et al., 2013; 
+goessl and kang, 2015); these too have no guarante of optimality, and tend not to 
+produc optim rule list in general. some method allow for interpret of singl rules, 
+without construct rule list (mccormick et al., 2012). 
+
+there be a tremend amount of relat work in other subfield that be too numer 
+to discu at length here. We have not discuss rule mine algorithm sinc they be part 
+of an interchang preprocess step for our algorithm and be determinist fast 
+(i.e., they will not gener slow our algorithm down). We also do not discu method that 
+creat disjunct normal form models, e.g., logic analysi of data, and mani associ 
+classif methods. 
+
+relat problem with interpret list of rules: beyond tree that be optim for 
+accuraci and sparsity, rule list have be develop for variou applications, and with 
+exot type of constraints. for example, fall rule list (wang and rudin, 2015) be 
+constrain to have decreas probabl down the list a be rule list for dynam treat- 
+ment regim (zhang et al., 2015) and cost-sensit dynam treatment regim (lakkaraju 
+and rudin, 2017). both wang and rudin (2015) and lakkaraju and rudin (2017) use mont 
+carlo search to explor the space of rule lists. the method propos in thi paper could po- 
+tential be adapt to handl these kind of interest problems. We be current work 
+on bound for fall rule list (chen and rudin, 2017) similar to those present here. 
+
+two work that thi paper build on be those of yang et al. (2016), and rudin and 
+ertekin (2015). the work of yang et al. provid the bit vector librari and sever idea 
+that be use here, and we use their code a a start point. their scalabl bayesian 
+rule list (sbrl) method have us beyond those of corel becaus sbrl model be 
+probabilistic, produc an estim of p(i = 1 |x) for ani X, rather than a yes/no clas- 
+sification. On the other hand, becaus the model be probabilistic, the bound depend on 
+approxim involv gamma functions. bound for corel have no such approxima- 
+tion and be substanti tighter. yang et al. aim to find the optim solut but do not 
+aim to prove optimality. 
+
+both yang et al. (2016) and rudin and ertekin (2015) contribut bound that we 
+start from in thi work, and in particular, the latter us the same object a we do and 
+have some of the same bounds, includ the minimum support bound (§3.7, theorem 10). 
+however, ertekin and rudin’ work be for a differ purpose, name it be for build 
+rule list that can be customized; sinc the author use mix integ program (mip), 
+user can easili add constraint to the mip and creat rule list that obey these arbitrari 
+constraints. As in our framework, their rule list be certifi optimal. however, sinc 
+gener mip softwar be use without effici bound and data structur like the one 
+introduc here, much more time can be requir to prove optim and to find the 
+optim solution. 
+
+3. learn optim rule list 
+
+In thi section, we present our framework for learn certifi optim rule lists. first, 
+we defin our set and use notat (§3.1), follow by the object function we 
+seek to minim (§3.2). next, we describ the princip structur of our optim algo- 
+
+5 
+
+
+
+angelino, larus-stone, alabi, seltzer, and rudin 
+
+if (age = 23− 25)∧ (prior = 2− 3) then predict ye 
+els if (age = 18− 20) then predict ye 
+els if (sex = male)∧(ag = 21−22) then predict ye 
+els if (prior > 3) then predict ye 
+els predict no 
+
+if p1 then predict q1 
+els if p2 then predict q2 
+els if p3 then predict q3 
+els if p4 then predict q4 
+els predict q0 
+
+figur 2: the same 4-rule list d = (r1, r2, r3, r4, r0), a in figur 1, that predict two- 
+year recidiv for the propublica dataset. each rule be of the form rk = pk → qk, for 
+all k = 0, . . . , 4. We also equival write d = (dp, δp, q0,k), where dp = (p1, p2, p3, p4), 
+δp = (1, 1, 1, 1), q0 = 0, and K = 4. 
+
+rithm (§3.3), which depend on a hierarch structur object low bound (§3.4). We 
+then deriv a seri of addit bound that we incorpor into our algorithm becaus 
+they enabl aggress prune of our state space. 
+
+3.1 rule list for binari classif 
+
+We restrict our set to binari classification, where rule list be boolean functions; thi 
+framework be straightforward to gener to multi-class classification. let {(xn, yn)}nn=1 
+denot train data, where xn ∈ {0, 1}j be binari featur and yn ∈ {0, 1} be labels. 
+let x = {xn}nn=1 and y = {yn}nn=1, and let xn,j denot the j-th featur of xn. 
+
+A rule list d = (r1, r2, . . . , rK , r0) of length K ≥ 0 be a (K + 1)-tupl consist of K 
+distinct associ rules, rk = pk → qk, for k = 1, . . . ,k, follow by a default rule r0. 
+figur 2 illustr a rule list, which for clarity, we sometim call a k-rule list. An asso- 
+ciation rule r = p→ q be an implic correspond to the condit statement, “if p, 
+then q.” In our setting, an anteced p be a boolean assert that evalu to either 
+true or fals for each datum xn, and a consequ q be a label prediction. for example, 
+(xn,1 = 0) ∧ (xn,3 = 1)→ (yn = 1) be an associ rule. the final default rule r0 in a rule 
+list can be thought of a a special associ rule p0 → q0 whose anteced p0 simpli 
+assert true. 
+
+let d = (r1, r2, . . . , rK , r0) be a k-rule list, where rk = pk → qk for each k = 0, . . . ,k. 
+We introduc a use altern rule list representation: d = (dp, δp, q0,k), where we de- 
+fine dp = (p1, . . . , pk) to be d’ prefix, δp = (q1, . . . , qk) ∈ {0, 1}k give the label predic- 
+tion associ with dp, and q0 ∈ {0, 1} be the default label prediction. In figur 1, d = 
+(r1, r2, r3, r4, r0), and each rule be of the form rk = pk → qk, for all k = 0, . . . , 4; equivalently, 
+d = (dp, δp, q0,k), where dp = (p1, p2, p3, p4), δp = (1, 1, 1, 1), q0 = 0, and K = 4. 
+
+let dp = (p1, . . . , pk, . . . , pk) be an anteced list, then for ani k ≤ K, we defin dkp = 
+(p1, . . . , pk) to be the k-prefix of dp. for ani such k-prefix d 
+
+k 
+p, we say that dp start with d 
+
+k 
+p. 
+
+for ani give space of rule lists, we defin σ(dp) to be the set of all rule list whose prefix 
+start with dp: 
+
+σ(dp) = {(d′p, δ′p, q′0,k ′) : d′p start with dp}. (1) 
+
+If dp = (p1, . . . , pk) and d 
+′ 
+p = (p1, . . . , pK , pk+1) be two prefix such that d 
+
+′ 
+p start with dp 
+
+and extend it by a singl antecedent, we say that dp be the parent of d 
+′ 
+p and that d 
+
+′ 
+p be a 
+
+child of dp. 
+
+6 
+
+
+
+learn certifi optim rule list for categor data 
+
+A rule list d classifi datum xn by provid the label predict qk of the first rule rk 
+whose anteced pk be true for xn. We say that an anteced pk of anteced list dp 
+captur xn in the context of dp if pk be the first anteced in dp that evalu to true 
+for xn. We also say that a prefix captur those data captur by it antecedents; for a rule 
+list d = (dp, δp, q0,k), data not captur by the prefix dp be classifi accord to the 
+default label predict q0. 
+
+let β be a set of antecedents. We defin cap(xn, β) = 1 if an anteced in β captur 
+datum xn, and 0 otherwise. for example, let dp and d 
+
+′ 
+p be prefix such that d 
+
+′ 
+p start 
+
+with dp, then d 
+′ 
+p captur all the data that dp captures: 
+
+{xn : cap(xn, dp)} ⊆ {xn : cap(xn, d′p)}. (2) 
+
+now let dp be an order list of antecedents, and let β be a subset of anteced in dp. 
+let u defin cap(xn, β | dp) = 1 if β captur datum xn in the context of dp, i.e., if the first 
+anteced in dp that evalu to true for xn be an anteced in β, and 0 otherwise. thus, 
+cap(xn, β | dp) = 1 onli if cap(xn, β) = 1; cap(xn, β | dp) = 0 either if cap(xn, β) = 0, or if 
+cap(xn, β) = 1 but there be an anteced α in dp, preced all anteced in β, such that 
+cap(xn, α) = 1. for example, if dp = (p1, . . . , pk, . . . , pk) be a prefix, then 
+
+cap(xn, pk | dp) = 
+
+( 
+k−1∧ 
+k′=1 
+
+¬ cap(xn, pk′) 
+
+) 
+∧ cap(xn, pk) (3) 
+
+indic whether anteced pk captur datum xn in the context of dp. now, defin 
+supp(β,x) to be the normal support of β, 
+
+supp(β,x) = 
+1 
+
+N 
+
+N∑ 
+n=1 
+
+cap(xn, β), (4) 
+
+and similarli defin supp(β,x | dp) to be the normal support of β in the context of dp, 
+
+supp(β,x | dp) = 
+1 
+
+N 
+
+N∑ 
+n=1 
+
+cap(xn, β | dp), (5) 
+
+next, we address how empir data constrain rule lists. given train data (x,y), an 
+anteced list dp = (p1, . . . , pk) impli a rule list d = (dp, δp, q0,k) with prefix dp, where 
+the label predict δp = (q1, . . . , qk) and q0 be empir set to minim the number 
+of misclassif error make by the rule list on the train data. thu for 1 ≤ k ≤ K, 
+label predict qk correspond to the major label of data captur by anteced pk in 
+the context of dp, and the default q0 correspond to the major label of data not captur 
+by dp. In the remaind of our presentation, whenev we refer to a rule list with a particular 
+prefix, we implicitli assum these empir determin label predictions. 
+
+finally, we note that our approach leverag pre-min rules, follow the methodolog 
+take by letham et al. (2015) and yang et al. (2016). one of the result we late prove 
+impli a constraint that can be use a a filter dure rule mine – anteced must have 
+at least some minimum support give by the low bound in theorem 10. 
+
+7 
+
+
+
+angelino, larus-stone, alabi, seltzer, and rudin 
+
+3.2 object function 
+
+We defin a simpl object function for a rule list d = (dp, δp, q0,k): 
+
+r(d,x,y) = `(d,x,y) + λk. (6) 
+
+thi object function be a regular empir risk; it consist of a loss `(d,x,y), mea- 
+sure misclassif error, and a regular term that penal longer rule lists. 
+`(d,x,y) be the fraction of train data whose label be incorrectli predict by d. In 
+our setting, the regular paramet λ ≥ 0 be a small constant; e.g., λ = 0.01 can be 
+thought of a add a penalti equival to misclassifi 1% of data when increas a 
+rule list’ length by one associ rule. 
+
+3.3 optim framework 
+
+our object have structur amen to global optim via a branch-and-bound frame- 
+work. In particular, we make a seri of import observ that each translat into a 
+use bound, and that togeth interact to elimin larg part of the search space. We 
+will discu these in depth throughout the follow sections: 
+
+• lower bound on a prefix also hold for everi extens of that prefix. (§3.4, theorem 1) 
+
+• We can sometim prune all rule list that be longer than a give prefix, even without 
+know anyth about what rule will be place below that prefix. (§3.4, lemma 2) 
+
+• We can calcul a priori an upper bound on the maximum length of an optim rule 
+list. (§3.5, theorem 6) 
+
+• each rule in an optim rule list must have support that be suffici large. thi allow 
+u to construct rule list from frequent itemsets, while preserv the guarante that 
+we can find a global optim rule list from pre-min rules. (§3.7, theorem 10) 
+
+• each rule in an optim rule list must predict accurately. In particular, the number of 
+observ predict correctli by each rule in an optim rule list must be abov a 
+threshold. (§3.7, theorem 11) 
+
+• We need onli consid the optim permut of anteced in a prefix; we can 
+omit all other permutations. (§3.10, theorem 17 and corollari 18) 
+
+• If multipl observ have ident featur and opposit labels, we know that ani 
+model will make mistakes. In particular, the number of mistak on these observ 
+will be at least the number of observ with the minor label. (§3.14, theorem 22) 
+
+3.4 hierarch object low bound 
+
+We can decompos the misclassif error into two contribut correspond to the 
+prefix and the default rule: 
+
+`(d,x,y) ≡ `p(dp, δp,x,y) + `0(dp, q0,x,y), (7) 
+
+8 
+
+
+
+learn certifi optim rule list for categor data 
+
+where dp = (p1, . . . , pk) and δp = (q1, . . . , qk); 
+
+`p(dp, δp,x,y) = 
+1 
+
+N 
+
+N∑ 
+n=1 
+
+K∑ 
+k=1 
+
+cap(xn, pk | dp) ∧ 1[qk 6= yn] (8) 
+
+be the fraction of data captur and misclassifi by the prefix, and 
+
+`0(dp, q0,x,y) = 
+1 
+
+N 
+
+N∑ 
+n=1 
+
+¬ cap(xn, dp) ∧ 1[q0 6= yn] (9) 
+
+be the fraction of data not captur by the prefix and misclassifi by the default rule. 
+elimin the latter error term give a low bound b(dp,x,y) on the objective, 
+
+b(dp,x,y) ≡ `p(dp, δp,x,y) + λK ≤ r(d,x,y), (10) 
+
+where we have suppress the low bound’ depend on label predict δp becaus 
+they be fulli determined, give (dp,x,y). furthermore, a we state next in theorem 1, 
+b(dp,x,y) give a low bound on the object of ani rule list whose prefix start with dp. 
+
+theorem 1 (hierarch object low bound) defin b(dp,x,y) a in (10). also, 
+defin σ(dp) to be the set of all rule list whose prefix start with dp, a in (1). let d = 
+(dp, δp, q0,k) be a rule list with prefix dp, and let d 
+
+′ = (d′p, δ 
+′ 
+p, q 
+′ 
+0,k 
+
+′) ∈ σ(dp) be ani rule 
+list such that it prefix d′p start with dp and K 
+
+′ ≥ K, then b(dp,x,y) ≤ r(d′,x,y). 
+
+proof let dp = (p1, . . . , pk) and δp = (q1, . . . , qk); let d 
+′ 
+p = (p1, . . . , pK , pk+1, . . . , pk′) and 
+
+δ′p = (q1, . . . , qK , qk+1, . . . , qk′). notic that d 
+′ 
+p yield the same mistak a dp, and possibl 
+
+addit mistakes: 
+
+`p(d 
+′ 
+p, δ 
+′ 
+p,x,y) = 
+
+1 
+
+N 
+
+N∑ 
+n=1 
+
+k′∑ 
+k=1 
+
+cap(xn, pk | d′p) ∧ 1[qk 6= yn] 
+
+= 
+1 
+
+N 
+
+N∑ 
+n=1 
+
+( 
+K∑ 
+k=1 
+
+cap(xn, pk | dp) ∧ 1[qk 6= yn] + 
+k′∑ 
+
+k=k+1 
+
+cap(xn, pk | d′p) ∧ 1[qk 6= yn] 
+
+) 
+≥ `p(dp, δp,x,y), (11) 
+
+where we have use the fact that cap(xn, pk | d′p) = cap(xn, pk | dp) for 1 ≤ k ≤ K. It follow 
+that 
+
+b(dp,x,y) = `p(dp, δp,x,y) + λK 
+
+≤ `p(d′p, δ′p,x,y) + λK ′ = b(d′p,x,y) ≤ r(d′,x,y). (12) 
+
+To generalize, consid a sequenc of prefix such that each prefix start with all previ- 
+ou prefix in the sequence. It follow that the correspond sequenc of object low 
+
+9 
+
+
+
+angelino, larus-stone, alabi, seltzer, and rudin 
+
+algorithm 1 branch-and-bound for learn rule lists. 
+
+input: object function r(d,x,y), object low bound b(dp,x,y), set of anteced 
+S = {sm}mm=1, train data (x,y) = {(xn, yn)}nn=1, initi best know rule list d0 with 
+object R0 = r(d0,x,y) 
+output: provabl optim rule list d∗ with minimum object R∗ 
+
+(dc, rc)← (d0, r0) . initi best rule list and object 
+Q← queue( [ ( ) ] ) . initi queue with empti prefix 
+while Q not empti do . stop when queue be empti 
+
+dp ← q.pop( ) . remov prefix dp from the queue 
+if b(dp,x,y) < R 
+
+c then . bound: appli theorem 1 
+R← r(d,x,y) . comput object of dp’ rule list d 
+if R < Rc then . updat best rule list and object 
+
+(dc, rc)← (d,r) 
+end if 
+for s in S do . branch: enqueu dp’ child 
+
+if s not in dp then 
+q.push( (dp, s) ) 
+
+end if 
+end for 
+
+end if 
+end while 
+(d∗, r∗)← (dc, rc) . identifi provabl optim solut 
+
+bound increas monotonically. thi be precis the structur requir and exploit by 
+branch-and-bound, illustr in algorithm 1. 
+
+specifically, the object low bound in theorem 1 enabl u to prune the state 
+space hierarchically. while execut branch-and-bound, we keep track of the current best 
+(smallest) object rc, thu it be a dynamic, monoton decreas quantity. If we 
+encount a prefix dp with low bound b(dp,x,y) ≥ rc, then by theorem 1, we needn’t 
+consid ani rule list d′ ∈ σ(dp) whose prefix d′p start with dp. for the object of such a 
+rule list, the current best object provid a low bound, i.e., r(d′,x,y) ≥ b(d′p,x,y) ≥ 
+b(dp,x,y) ≥ rc, and thu d′ cannot be optimal. 
+
+next, we state an immedi consequ of theorem 1. 
+
+lemma 2 (object low bound with one-step lookahead) let dp be a k-prefix 
+and let Rc be the current best objective. If b(dp,x,y) + λ ≥ rc, then for ani K ′-rule list 
+d′ ∈ σ(dp) whose prefix d′p start with dp and K ′ > K, it follow that r(d′,x,y) ≥ rc. 
+
+proof By the definit of the low bound (10), which includ the penalti for longer 
+prefixes, 
+
+r(d′p,x, y) ≥ b(d′p,x,y) = `p(d′p,x,y) + λK ′ 
+
+= `p(d 
+′ 
+p,x,y) + λK + λ(k 
+
+′ −k) 
+= b(dp,x,y) + λ(k 
+
+′ −k) ≥ b(dp,x,y) + λ ≥ rc. (13) 
+
+10 
+
+
+
+learn certifi optim rule list for categor data 
+
+therefore, even if we encount a prefix dp with low bound b(dp,x,y) ≤ rc, a long 
+a b(dp,x,y) + λ ≥ rc, then we can prune all prefix d′p that start with and be longer 
+than dp. 
+
+3.5 upper bound on prefix length 
+
+the simplest upper bound on prefix length be give by the total number of avail an- 
+tecedents. 
+
+proposit 3 (trivial upper bound on prefix length) consid a state space of all 
+rule list form from a set of M antecedents, and let l(d) be the length of rule list d. 
+M provid an upper bound on the length of ani optim rule list d∗ ∈ argmindr(d,x,y), 
+i.e., l(d) ≤M . 
+
+proof rule list consist of distinct rule by definition. 
+
+At ani point dure branch-and-bound execution, the current best object Rc impli 
+an upper bound on the maximum prefix length we might still have to consider. 
+
+theorem 4 (upper bound on prefix length) consid a state space of all rule list 
+form from a set of M antecedents. let l(d) be the length of rule list d and let Rc be the 
+current best objective. for all optim rule list d∗ ∈ argmindr(d,x,y) 
+
+l(d∗) ≤ min 
+(⌊ 
+
+Rc 
+
+λ 
+
+⌋ 
+,M 
+
+) 
+, (14) 
+
+where λ be the regular parameter. furthermore, if dc be a rule list with object 
+r(dc,x,y) = rc, length K, and zero misclassif error, then for everi optim rule 
+list d∗ ∈ argmindr(d,x,y), if dc ∈ argmindr(d,x,y), then l(d∗) ≤ K, or otherwis if 
+dc /∈ argmindr(d,x,y), then l(d∗) ≤ K − 1. 
+
+proof for an optim rule list d∗ with object r∗, 
+
+λl(d∗) ≤ R∗ = r(d∗,x,y) = `(d∗,x,y) + λl(d∗) ≤ rc. (15) 
+
+the maximum possibl length for d∗ occur when `(d∗,x,y) be minimized; combin with 
+proposit 3 give bound (14). 
+
+for the rest of the proof, let K∗ = l(d∗) be the length of d∗. If the current best rule 
+list dc have zero misclassif error, then 
+
+λk∗ ≤ `(d∗,x,y) + λk∗ = r(d∗,x,y) ≤ Rc = r(dc,x,y) = λk, (16) 
+
+and thu K∗ ≤ K. If the current best rule list be suboptimal, i.e., dc /∈ argmindr(d,x,y), 
+then 
+
+λk∗ ≤ `(d∗,x,y) + λk∗ = r(d∗,x,y) < Rc = r(dc,x,y) = λk, (17) 
+
+11 
+
+
+
+angelino, larus-stone, alabi, seltzer, and rudin 
+
+in which case K∗ < K, i.e., K∗ ≤ K − 1, sinc K be an integer. 
+
+the latter part of theorem 4 tell u that if we onli need to identifi a singl instanc of 
+an optim rule list d∗ ∈ argmindr(d,x,y), and we encount a perfect k-prefix with zero 
+misclassif error, then we can prune all prefix of length K or greater. 
+
+corollari 5 (simpl upper bound on prefix length) let l(d) be the length of rule 
+list d. for all optim rule list d∗ ∈ argmindr(d,x,y), 
+
+l(d∗) ≤ min 
+(⌊ 
+
+1 
+
+2λ 
+
+⌋ 
+,M 
+
+) 
+. (18) 
+
+proof let d = ((), (), q0, 0) be the empti rule list; it have object r(d,x,y) = `(d,x,y) ≤ 
+1/2, which give an upper bound on rc. combin with (14) and proposit 3 give (18). 
+
+for ani particular prefix dp, we can obtain potenti tighter upper bound on prefix 
+length for the famili of all prefix that start with dp. 
+
+theorem 6 (prefix-specif upper bound on prefix length) let d = (dp, δp, q0,k) be 
+a rule list, let d′ = (d′p, δ 
+
+′ 
+p, q 
+′ 
+0,k 
+
+′) ∈ σ(dp) be ani rule list such that d′p start with dp, and 
+let Rc be the current best objective. If d′p have low bound b(d 
+
+′ 
+p,x,y) < R 
+
+c, then 
+
+K ′ < min 
+
+( 
+K + 
+
+⌊ 
+Rc − b(dp,x,y) 
+
+λ 
+
+⌋ 
+,M 
+
+) 
+. (19) 
+
+proof first, note that K ′ ≥ K, sinc d′p start with dp. now recal from (12) that 
+
+b(dp,x,y) = `(d, δp,x,y) + λK ≤ `(d′, δ′p,x,y) + λK ′ = b(d′p,x,y), (20) 
+
+and from (11) that `(d, δp,x,y) ≤ `(d′, δ′p,x,y). combin these bound and rearrang 
+give 
+
+b(dp,x,y) + λ(k 
+′ −k) ≤ b(d′p,x,y). (21) 
+
+combin (21) with b(d′p,x,y) < R 
+c and proposit 3 give (19). 
+
+We can view theorem 6 a a gener of our one-step lookahead bound (lemma 2), 
+a (19) be equival a bound on K ′ −k, an upper bound on the number of remain 
+‘steps’ correspond to an iter sequenc of single-rul extens of a prefix dp. no- 
+tice that when d = ((), (), q0, 0) be the empti rule list, thi bound replic (14), sinc 
+b(dp,x,y) = 0. 
+
+3.6 upper bound on the number of prefix evalu 
+
+In thi section, we use our upper bound on prefix length from §3.5 to deriv correspond 
+upper bound on the number of prefix evalu make by algorithm 1. first, we present 
+theorem 7, in which we use inform about the state of algorithm 1’ execut to 
+
+12 
+
+
+
+learn certifi optim rule list for categor data 
+
+calculate, for ani give execut state, upper bound on the number of addit prefix 
+evalu that might be requir for the execut to complete. thi number of remain 
+evalu be equal to the number of prefix that be current in or will be insert into 
+the queue. the relev execut state depend on the current best object Rc and 
+inform about prefix we be plan to evaluate, i.e., prefix in the queue Q of 
+algorithm 1. after theorem 7, we present two weaker proposit that provid use 
+intuition. 
+
+theorem 7 (fine-grain upper bound on remain prefix evaluations) consid 
+the state space of all rule list form from a set of M antecedents, and consid algorithm 1 
+at a particular instant dure execution. let Rc be the current best objective, let Q be the 
+queue, and let l(dp) be the length of prefix dp. defin γ(r 
+
+c, Q) to be the number of remain 
+prefix evaluations, then 
+
+γ(rc, Q) ≤ 
+∑ 
+dp∈q 
+
+f(dp)∑ 
+k=0 
+
+(M − l(dp))! 
+(M − l(dp)− k)! 
+
+, (22) 
+
+where 
+
+f(dp) = min 
+
+(⌊ 
+Rc − b(dp,x,y) 
+
+λ 
+
+⌋ 
+,M − l(dp) 
+
+) 
+. (23) 
+
+proof the number of remain prefix evalu be equal to the number of prefix that 
+be current in or will be insert into queue Q. for ani such prefix dp, theorem 6 give 
+an upper bound on the length of ani prefix d′p that start with dp: 
+
+l(d′p) ≤ min 
+( 
+l(dp) + 
+
+⌊ 
+Rc − b(dp,x,y) 
+
+λ 
+
+⌋ 
+,M 
+
+) 
+≡ u(dp). (24) 
+
+thi give an upper bound on the number of remain prefix evaluations: 
+
+γ(rc, Q) ≤ 
+∑ 
+dp∈q 
+
+u(dp)−l(dp)∑ 
+k=0 
+
+P (M − l(dp), k) = 
+∑ 
+dp∈q 
+
+f(dp)∑ 
+k=0 
+
+(M − l(dp))! 
+(M − l(dp)− k)! 
+
+. (25) 
+
+our first proposit below be a näıv upper bound on the total number of prefix evalua- 
+tion over the cours of algorithm 1’ execution. It onli depend on the number of rule and 
+the regular paramet λ; i.e., unlik theorem 7, it do not use algorithm execut 
+state to bound the size of the search space. 
+
+proposit 8 (upper bound on the total number of prefix evaluations) defin 
+γtot(s) to be the total number of prefix evalu by algorithm 1, give the state space of 
+all rule list form from a set S of M rules. for ani set S of M rules, 
+
+γtot(s) ≤ 
+K∑ 
+k=0 
+
+M ! 
+
+(M − k)! 
+, (26) 
+
+where K = min(b1/2λc,m). 
+
+13 
+
+
+
+angelino, larus-stone, alabi, seltzer, and rudin 
+
+proof By corollari 5, K ≡ min(b1/2λc,m) give an upper bound on the length of ani 
+optim rule list. sinc we can think of our problem a find the optim select and 
+permut of k out of M rules, over all k ≤ K, 
+
+γtot(s) ≤ 1 + 
+K∑ 
+k=1 
+
+P (m,k) = 
+
+K∑ 
+k=0 
+
+M ! 
+
+(M − k)! 
+. (27) 
+
+our next upper bound be strictli tighter than the bound in proposit 8. like theo- 
+rem 7, it us the current best object and inform about the length of prefix in the 
+queue to constrain the length of prefix in the remain search space. however, propo- 
+sition 9 be weaker than theorem 7 becaus it leverag onli coarse-grain inform from 
+the queue. specifically, theorem 7 be strictli tighter becaus it addit incorpor 
+prefix-specif object low bound inform from prefix in the queue, which further 
+constrain the length of prefix in the remain search space. 
+
+proposit 9 (coarse-grain upper bound on remain prefix evaluations) 
+consid a state space of all rule list form from a set of M antecedents, and consid 
+algorithm 1 at a particular instant dure execution. let Rc be the current best objective, 
+let Q be the queue, and let l(dp) be the length of prefix dp. let Qj be the number of prefix 
+of length j in Q, 
+
+Qj = 
+∣∣{dp : l(dp) = j, dp ∈ q}∣∣ (28) 
+
+and let J = argmaxdp∈q l(dp) be the length of the long prefix in Q. defin γ(r 
+c, Q) to 
+
+be the number of remain prefix evaluations, then 
+
+γ(rc, Q) ≤ 
+J∑ 
+j=1 
+
+Qj 
+
+( 
+k−j∑ 
+k=0 
+
+(M − j)! 
+(M − j − k)! 
+
+) 
+, (29) 
+
+where K = min(brc/λc,m). 
+
+proof the number of remain prefix evalu be equal to the number of prefix that 
+be current in or will be insert into queueq. for ani such remain prefix dp, theorem 4 
+give an upper bound on it length; definek to be thi bound: l(dp) ≤ min(brc/λc,m) ≡ K. 
+for ani prefix dp in queue Q with length l(dp) = j, the maximum number of prefix that 
+start with dp and remain to be evalu is: 
+
+k−j∑ 
+k=0 
+
+P (M − j, k) = 
+k−j∑ 
+k=0 
+
+(M − j)! 
+(M − j − k)! 
+
+, (30) 
+
+where P (t, k) denot the number of k-permut of T . thi give an upper bound on 
+the number of remain prefix evaluations: 
+
+γ(rc, Q) ≤ 
+J∑ 
+j=0 
+
+Qj 
+
+( 
+k−j∑ 
+k=0 
+
+P (M − j, k) 
+
+) 
+= 
+
+J∑ 
+j=0 
+
+Qj 
+
+( 
+k−j∑ 
+k=0 
+
+(M − j)! 
+(M − j − k)! 
+
+) 
+. (31) 
+
+14 
+
+
+
+learn certifi optim rule list for categor data 
+
+3.7 lower bound on anteced support 
+
+In thi section, we give two low bound on the normal support of each anteced in 
+ani optim rule list; both be relat to the regular paramet λ. 
+
+theorem 10 (lower bound on anteced support) let d∗ = (dp, δp, q0,k) be ani 
+optim rule list with object r∗, i.e., d∗ ∈ argmindr(d,x,y). for each anteced pk 
+in prefix dp = (p1, . . . , pk), the regular paramet λ provid a low bound on the 
+normal support of pk, 
+
+λ < supp(pk,x | dp). (32) 
+
+proof let d∗ = (dp, δp, q0,k) be an optim rule list with prefix dp = (p1, . . . , pk) and 
+label δp = (q1, . . . , qk). consid the rule list d = (d 
+
+′ 
+p, δ 
+′ 
+p, q 
+′ 
+0,k − 1) deriv from d∗ by 
+
+delet a rule pi → qi, therefor d′p = (p1, . . . , pi−1, pi+1, . . . , pk) and δ′p = (q1, . . . , qi−1, 
+q′i+1, . . . , q 
+
+′ 
+k), where q 
+
+′ 
+k need not be the same a qk, for k > i and k = 0. 
+
+the larg possibl discrep between d∗ and d would occur if d∗ correctli classifi 
+all the data captur by pi, while d misclassifi these data. thi give an upper bound: 
+
+r(d,x,y) = `(d,x,y) + λ(k − 1) ≤ `(d∗,x,y) + supp(pi,x | dp) + λ(k − 1) 
+= r(d∗,x,y) + supp(pi,x | dp)− λ 
+= R∗ + supp(pi,x | dp)− λ (33) 
+
+where supp(pi,x | dp) be the normal support of pi in the context of dp, defin in (5), 
+and the regular ‘bonus’ come from the fact that d be one rule shorter than d∗. 
+
+At the same time, we must have R∗ < r(d,x,y) for d∗ to be optimal. combin thi 
+with (33) and rearrang give (32), therefor the regular paramet λ provid a 
+low bound on the support of an anteced pi in an optim rule list d 
+
+∗. 
+
+thus, we can prune a prefix dp if ani of it anteced do not captur more than a 
+fraction λ of data, even if b(dp,x,y) < R 
+
+∗. notic that the bound in theorem 10 depend on 
+the antecedents, but not the label predictions, and thu doesn’t account for misclassif 
+error. theorem 11 give a tighter bound by leverag thi addit information, which 
+specif tighten the upper bound on r(d,x,y) in (33). 
+
+theorem 11 (lower bound on accur anteced support) let d∗ be ani opti- 
+mal rule list with object r∗, i.e., d∗ = (dp, δp, q0,k) ∈ argmindr(d,x,y). let d∗ have 
+prefix dp = (p1, . . . , pk) and label δp = (q1, . . . , qk). for each rule pk → qk in d∗, defin ak 
+to be the fraction of data that be captur by pk and correctli classified: 
+
+ak ≡ 
+1 
+
+N 
+
+N∑ 
+n=1 
+
+cap(xn, pk | dp) ∧ 1[qk = yn]. (34) 
+
+15 
+
+
+
+angelino, larus-stone, alabi, seltzer, and rudin 
+
+the regular paramet λ provid a low bound on ak: 
+
+λ < ak. (35) 
+
+proof As in theorem 10, let d = (d′p, δ 
+′ 
+p, q 
+′ 
+0,k − 1) be the rule list deriv from d∗ by 
+
+delet a rule pi → qi. now, let u defin `i to be the portion of R∗ due to thi rule’ 
+misclassif error, 
+
+`i ≡ 
+1 
+
+N 
+
+N∑ 
+n=1 
+
+cap(xn, pi | dp) ∧ 1[qi 6= yn]. (36) 
+
+the larg discrep between d∗ and d would occur if d misclassifi all the data captur 
+by pi. thi give an upper bound on the differ between the misclassif error of d 
+and d∗: 
+
+`(d,x,y)− `(d∗,x,y) ≤ supp(pi,x | dp)− `i 
+
+= 
+1 
+
+N 
+
+N∑ 
+n=1 
+
+cap(xn, pi | dp)− 
+1 
+
+N 
+
+N∑ 
+n=1 
+
+cap(xn, pi | dp) ∧ 1[qi 6= yn] 
+
+= 
+1 
+
+N 
+
+N∑ 
+n=1 
+
+cap(xn, pi | dp) ∧ 1[qi = yn] = ai, (37) 
+
+where we defin ai in (34). relat thi bound to the object of d and d 
+∗ give 
+
+r(d,x,y) = `(d,x,y) + λ(k − 1) ≤ `(d∗,x,y) + ai + λ(k − 1) 
+= r(d∗,x,y) + ai − λ 
+= R∗ + ai − λ (38) 
+
+combin (38) with the requir R∗ < r(d,x,y) give the bound λ < ai. 
+
+thus, we can prune a prefix if ani of it rule do not captur and correctli classifi 
+at least a fraction λ of data. while the low bound in theorem 10 be a sub-condit of 
+the low bound in theorem 11, we can still leverag both – sinc the sub-condit be 
+easi to check, check it first can acceler pruning. In addit to appli theorem 10 
+in the context of construct rule lists, we can furthermor appli it in the context of 
+rule mine (§3.1). specifically, it impli that we should onli mine rule with normal 
+support great than λ; we need not mine rule with a small fraction of observations. In 
+contrast, we can onli appli theorem 11 in the context of construct rule lists; it depend 
+on the misclassif error associ with each rule in a rule list, thu it provid a low 
+bound on the number of observ that each such rule must correctli classify. 
+
+3.8 upper bound on anteced support 
+
+In the previou section (§3.7), we prove low bound on anteced support; in thi section, 
+we give an upper bound on anteced support. specifically, theorem 12 show that an 
+antecedent’ support in a rule list cannot be too similar to the set of data not captur by 
+preced anteced in the rule list. 
+
+16 
+
+
+
+learn certifi optim rule list for categor data 
+
+theorem 12 (upper bound on anteced support) let d∗ = (dp, δp, q0,k) be ani 
+optim rule list with object r∗, i.e., d∗ ∈ argmindr(d,x,y), and let dp = (p1, . . . , pj−1, 
+pj , . . . , pk−1, pk) be it prefix. the last anteced pK in dp have support 
+
+supp(pk ,x | dp) ≤ 1− supp(dk−1p ,x)− λ, (39) 
+
+where dk−1p = (p1, . . . , pk−1), with equal impli that there also exist a shorter optim 
+
+rule list d′ = (dk−1p , δ 
+′ 
+p, q 
+′ 
+0,k − 1) ∈ argmindr(d,x,y) with prefix dk−1p . for all k ≤ K − 1, 
+
+everi anteced pk in dp have support less than the fraction of all data not captur by 
+preced antecedents, by an amount great than the regular paramet λ: 
+
+supp(pk,x | dp) < 1− supp(dk−1p ,x)− λ, (40) 
+
+where dk−1p = (p1, . . . , pk−1). 
+
+proof We begin by focu on the last anteced in a rule list. let d = (dp, δp, q0,k) 
+be a rule list with prefix dp = (p1, . . . , pk) and object r(d,x,y) ≤ r∗, where R∗ ≡ 
+mind r(d,x,y) be the optim objective. also let d 
+
+′ = (d′p, δ 
+′ 
+p, q 
+′ 
+0,k + 1) be a rule list whose 
+
+prefix d′p = (p1, . . . , pK , pk+1) start with dp and end with a new anteced pk+1. sup- 
+pose pk+1 in the context of d 
+
+′ 
+p captur nearli all data not captur by dp, except for a 
+
+fraction � upper bound by the regular paramet λ: 
+
+1− supp(dp,x)− supp(pk+1,x | d′p) ≡ � ≤ λ. (41) 
+
+sinc d′p start with dp, it prefix misclassif error be at least a great; the onli discrep- 
+anci between the misclassif error of d and d′ can come from the differ between 
+the support of the set of data not captur by dp and the support of pk+1: 
+
+|`(d′,x,y)− `(d,x,y)| ≤ 1− supp(dp,x)− supp(pk+1,x | d′p) = �. (42) 
+
+the best outcom for d′ would occur if it misclassif error be small than that 
+of d by �, therefor 
+
+r(d′,x,y) = `(d′,x,y) + λ(k + 1) 
+
+≥ `(d,x,y)− �+ λ(k + 1) = r(d,x,y)− �+ λ ≥ r(d,x,y) ≥ r∗. (43) 
+
+d′ be an optim rule list, i.e., d′ ∈ argmind r(d,x, y), if and onli ifr(d′,x,y) = r(d,x,y) = 
+r∗, which requir � = λ. otherwise, � < λ, in which case 
+
+r(d′,x,y) ≥ r(d,x,y)− �+ λ > r(d,x,y) ≥ r∗, (44) 
+
+i.e., d′ be not optimal. thi prof the first half of theorem 12. 
+To finish, we prove the bound in (40) by contradiction. first, note that the data not 
+
+captur by d′p have normal support � ≤ λ, i.e., 
+
+1− supp(d′p,x) = 1− supp(dp,x)− supp(pk+1,x | d′p) = � ≤ λ. (45) 
+
+thu for ani rule list d′′ whose prefix d′′p = (p1, . . . , pk+1, . . . , pk′) start with d 
+′ 
+p and end 
+
+with one or more addit rules, each addit rule pk have support supp(pk,x | d′′p) ≤ 
+
+17 
+
+
+
+angelino, larus-stone, alabi, seltzer, and rudin 
+
+� ≤ λ, for all k > K + 1. By theorem 10, all of the addit rule have insuffici sup- 
+port, therefor d′′p cannot be optimal, i.e., d 
+
+′′ /∈ argmind r(d,x,y). 
+
+similar to theorem 10, our low bound on anteced support, we can appli theo- 
+rem 12 in the context of both construct rule list and rule mine (§3.1). theorem 12 
+impli that if we onli seek a singl optim rule list, then dure branch-and-bound ex- 
+ecution, we can prune a prefix if we ever add an anteced with support too similar to 
+the support of set of data not captur by the preced antecedents. one way to view 
+thi result be that if d = (dp, δp, q0,k) and d 
+
+′ = (d′p, δ 
+′ 
+p, q 
+′ 
+0,k + 1) be rule list such that d 
+
+′ 
+p 
+
+start with dp and end with an anteced that captur all or nearli all data not captur 
+by dp, then the new rule in d 
+
+′ behav similar to the default rule of d. As a result, the 
+misclassif error of d′ must be similar to that of d, and ani reduct may not be 
+suffici to offset the penalti for longer prefixes. furthermore, theorem 12 impli that 
+we should onli mine rule with normal support less than 1− λ; we need not mine rule 
+with a larg fraction of observations. 
+
+3.9 anteced reject and it propag 
+
+In thi section, we demonstr further consequ of our low (§3.7) and upper bound 
+(§3.8) on anteced support, under a unifi framework we refer to a anteced rejection. 
+let dp = (p1, . . . , pk) be a prefix, and let pk be an anteced in dp. defin pk to have in- 
+suffici support in dp if do not obey the bound in (32) of theorem 10. defin pk to have 
+insuffici accur support in dp if it do not obey the bound in (35) of theorem 11. 
+defin pk to have excess support in dp if it do not obey the appropri bound in 
+theorem 12, i.e., either it’ the last anteced and doesn’t obey (40), or it’ ani other 
+anteced and doesn’t obey (39). If pk in the context of dp have insuffici support, insuffi- 
+cient accur support, or excess support, let u say that prefix dp reject anteced pK . 
+next, in theorem 13, we describ larg class of relat rule list whose prefix all reject 
+the same antecedent. 
+
+theorem 13 (anteced reject propagates) for ani prefix dp = (p1, . . . , pk), let 
+φ(dp) denot the set of all prefix d 
+
+′ 
+p such that the set of all anteced in dp be a subset 
+
+of the set of all anteced in d′p, i.e., 
+
+φ(dp) = {d′p = (p′1, . . . , p′k′) s.t. {pk : pk ∈ dp} ⊆ {p′κ : p′κ ∈ d′p},k ′ ≥ k}. (46) 
+
+let d = (dp, δp, q0,k) be a rule list with prefix dp = (p1, . . . , pk−1, pk), such that dp reject 
+it last anteced pK , either becaus pK in the context of dp have insuffici support, insuf- 
+ficient accur support, or excess support. let dk−1p = (p1, . . . , pk−1) be the first K − 1 
+anteced of dp. let D = (dp,∆p, q0, κ) be ani rule list with prefix Dp = (p1, . . . , pk′−1, 
+pk′ , . . . , pκ) such that Dp start with D 
+
+k′−1 
+p = (p1, . . . , pk′−1) ∈ φ(dk−1p ) and anteced 
+
+pk′ = pK . It follow that prefix Dp reject pk′ for the same reason that dp reject pK , and 
+furthermore, D cannot be optimal, i.e., D /∈ argmind† r(d†,x,y). 
+
+proof combin proposit 14, 15, and 16. 
+
+18 
+
+
+
+learn certifi optim rule list for categor data 
+
+proposit 14 (insuffici anteced support propagates) first defin φ(dp) a 
+in (46), and let dp = (p1, . . . , pk−1, pk) be a prefix, such that it last anteced pK have 
+insuffici support, i.e., the opposit of the bound in (32): supp(pk ,x | dp) ≤ λ. let dk−1p = 
+(p1, . . . , pk−1), and let D = (dp,∆p, q0, κ) be ani rule list with prefix Dp = (p1, . . . , pk′−1, 
+pk′ , . . . , pκ), such that Dp start with D 
+
+k′−1 
+p = (p1, . . . , pk′−1) ∈ φ(dk−1p ) and pk′ = pK . 
+
+It follow that pk′ have insuffici support in prefix dp, and furthermore, D cannot be 
+optimal, i.e., D /∈ argmindr(d,x,y). 
+
+proof the support of pK in dp depend onli on the set of anteced in d 
+K 
+p = (p1, . . . , pk): 
+
+supp(pk ,x | dp) = 
+1 
+
+N 
+
+N∑ 
+n=1 
+
+cap(xn, pK | dp) = 
+1 
+
+N 
+
+N∑ 
+n=1 
+
+( 
+¬ cap(xn, dk−1p ) 
+
+) 
+∧ cap(xn, pk) 
+
+= 
+1 
+
+N 
+
+N∑ 
+n=1 
+
+( 
+k−1∧ 
+k=1 
+
+¬ cap(xn, pk) 
+
+) 
+∧ cap(xn, pk) ≤ λ. 
+
+(47) 
+
+similarly, the support of pk′ in Dp depend onli on the set of anteced in D 
+K′ 
+p = 
+
+(p1, . . . , pk′): 
+
+supp(pk′ ,x |dp) = 
+1 
+
+N 
+
+N∑ 
+n=1 
+
+cap(xn, pk′ |dp) 
+
+= 
+1 
+
+N 
+
+N∑ 
+n=1 
+
+( 
+¬ cap(xn, DK 
+
+′−1 
+p ) 
+
+) 
+∧ cap(xn, pk′) 
+
+= 
+1 
+
+N 
+
+N∑ 
+n=1 
+
+( 
+k′−1∧ 
+k=1 
+
+¬ cap(xn, pk) 
+
+) 
+∧ cap(xn, pk′) 
+
+≤ 1 
+N 
+
+N∑ 
+n=1 
+
+( 
+k−1∧ 
+k=1 
+
+¬ cap(xn, pk) 
+
+) 
+∧ cap(xn, pk′) 
+
+= 
+1 
+
+N 
+
+N∑ 
+n=1 
+
+( 
+k−1∧ 
+k=1 
+
+¬ cap(xn, pk) 
+
+) 
+∧ cap(xn, pk) = supp(pk ,x | dp) ≤ λ. 
+
+(48) 
+
+the first inequ reflect the condit that DK 
+′−1 
+
+p ∈ φ(dk−1p ), which impli that the 
+set of anteced in DK 
+
+′−1 
+p contain the set of anteced in d 
+
+k−1 
+p , and the next equal 
+
+reflect the fact that pk′ = pK . thus, P 
+′ 
+K have insuffici support in prefix dp, therefor 
+
+by theorem 10, D cannot be optimal, i.e., D /∈ argmindr(d,x,y). 
+
+proposit 15 (insuffici accur anteced support propagates) let φ(dp) 
+denot the set of all prefix d′p such that the set of all anteced in dp be a subset of 
+the set of all anteced in d′p, a in (46). let d = (dp, δp, q0,k) be a rule list with prefix 
+
+19 
+
+
+
+angelino, larus-stone, alabi, seltzer, and rudin 
+
+dp = (p1, . . . , pk) and label δp = (q1, . . . , qk), such that the last anteced pK have insuffi- 
+cient accur support, i.e., the opposit of the bound in (35): 
+
+1 
+
+N 
+
+N∑ 
+n=1 
+
+cap(xn, pK | dp) ∧ 1[qk = yn] ≤ λ. (49) 
+
+let dk−1p = (p1, . . . , pk−1) and let D = (dp,∆p, q0, κ) be ani rule list with prefix Dp = 
+
+(p1, . . . , pκ) and label ∆p = (q1, . . . , qκ), such that Dp start with D 
+k′−1 
+p = (p1, . . . , pk′−1) 
+
+∈ φ(dk−1p ) and pk′ = pK . It follow that pk′ have insuffici accur support in prefix dp, 
+and furthermore, D /∈ argmind† r(d†,x,y). 
+
+proof the accur support of pk′ in Dp be insufficient: 
+
+1 
+
+N 
+
+N∑ 
+n=1 
+
+cap(xn, pk′ |dp) ∧ 1[qk′ = yn] 
+
+= 
+1 
+
+N 
+
+N∑ 
+n=1 
+
+( 
+k′−1∧ 
+k=1 
+
+¬ cap(xn, pk) 
+
+) 
+∧ cap(xn, pk′) ∧ 1[qk′ = yn] 
+
+≤ 1 
+N 
+
+N∑ 
+n=1 
+
+( 
+k−1∧ 
+k=1 
+
+¬ cap(xn, pk) 
+
+) 
+∧ cap(xn, pk′) ∧ 1[qk′ = yn] 
+
+= 
+1 
+
+N 
+
+N∑ 
+n=1 
+
+( 
+k−1∧ 
+k=1 
+
+¬ cap(xn, pk) 
+
+) 
+∧ cap(xn, pk) ∧ 1[qk′ = yn] 
+
+= 
+1 
+
+N 
+
+N∑ 
+n=1 
+
+cap(xn, pK | dp) ∧ 1[qk′ = yn] 
+
+≤ 1 
+N 
+
+N∑ 
+n=1 
+
+cap(xn, pK | dp) ∧ 1[qk = yn] ≤ λ. (50) 
+
+the first inequ reflect the condit that DK 
+′−1 
+
+p ∈ φ(dk−1p ), the next equal reflect 
+the fact that pk′ = pK . for the follow equality, notic that qk′ be the major class 
+label of data captur by pk′ in dp, and qK be the major class label of data captur 
+by PK in dp, and recal from (48) that supp(pk′ ,x |dp) ≤ supp(pk ,x | dp). By theorem 11, 
+D /∈ argmind† r(d†,x,y). 
+
+proposit 16 (excess anteced support propagates) defin φ(dp) a in (46), 
+and let dp = (p1, . . . , pk) be a prefix, such that it last anteced pK have excess support, 
+i.e., the opposit of the bound in (39): 
+
+supp(pk ,x | dp) ≥ 1− supp(dk−1p ,x)− λ, (51) 
+
+where dk−1p = (p1, . . . , pk−1). let D = (dp,∆p, q0, κ) be ani rule list with prefix Dp = 
+
+(p1, . . . , pκ) such that Dp start with D 
+k′−1 
+p = (p1, . . . , pk′−1) ∈ φ(dk−1p ) and pk′ = pK . It 
+
+follow that pk′ have excess support in prefix dp, and furthermore, D /∈ argmindr(d,x,y). 
+
+20 
+
+
+
+learn certifi optim rule list for categor data 
+
+proof sinc DK 
+′ 
+
+p = (p1, . . . , pk′) contain all the anteced in dp, we have that 
+
+supp(dk 
+′ 
+
+p ,x) ≥ supp(dp,x). (52) 
+
+expand these two term give 
+
+supp(dk 
+′ 
+
+p ,x) = supp(d 
+k′−1 
+p ,x) + supp(pk′ ,x |dp) 
+
+≥ supp(dp,x) = supp(dk−1p ,x) + supp(pk ,x | dp) ≥ 1− λ. (53) 
+
+rearrang give 
+
+supp(pk′ ,x |dp) ≥ 1− supp(dk 
+′−1 
+
+p ,x)− λ, (54) 
+
+thu pk′ have excess support in dp. By theorem 12, D /∈ argmindr(d,x,y). 
+
+theorem 13 impli potenti signific comput savings. dure branch-and- 
+bound execution, if we ever encount a prefix dp = (p1, . . . , pk−1, pk) that reject it last 
+anteced pK , then we can prune dp. furthermore, we can also prune ani prefix d 
+
+′ 
+p whose 
+
+anteced contain the set of anteced in dp, in almost ani order, with the constraint 
+that all anteced in {p1, . . . , pk−1} preced pK . 
+
+3.10 equival support bound 
+
+let Dp be a prefix, and let ξ(dp) be the set of all prefix that captur exactli the same 
+data a dp. now, let d be a rule list with prefix dp in ξ(dp), such that d have the minimum 
+object over all rule list with prefix in ξ(dp). finally, let d 
+
+′ be a rule list whose prefix d′p 
+start with dp, such that d 
+
+′ have the minimum object over all rule list whose prefix start 
+with dp. theorem 17 below impli that d 
+
+′ also have the minimum object over all rule list 
+whose prefix start with ani prefix in ξ(dp). 
+
+theorem 17 (equival support bound) defin σ(dp) to be the set of all rule list 
+whose prefix start with dp, a in (1). let d = (dp, δp, q0,k) be a rule list with prefix 
+dp = (p1, . . . , pk), and let D = (dp,∆p, q0, κ) be a rule list with prefix Dp = (p1, . . . , pκ), 
+such that dp and Dp captur the same data, i.e., 
+
+{xn : cap(xn, dp)} = {xn : cap(xn, dp)}. (55) 
+
+If the object low bound of d and D obey b(dp,x,y) ≤ b(dp,x,y), then the object of 
+the optim rule list in σ(dp) give a low bound on the object of the optim rule list 
+in σ(dp): 
+
+min 
+d′∈σ(dp) 
+
+r(d′,x,y) ≤ min 
+d′∈σ(dp) 
+
+r(d′,x,y). (56) 
+
+proof We begin by defin four relat rule lists. first, let d = (dp, δp, q0,k) be a rule list 
+with prefix dp = (p1, . . . , pk) and label δp = (q1, . . . , qk). second, let D = (dp,∆p, q0, κ) 
+be a rule list with prefix Dp = (p1, . . . , pκ) that captur the same data a dp, and la- 
+bel ∆p = (q1, . . . , qκ). third, let d 
+
+′ = (d′p, δ 
+′ 
+p, q 
+′ 
+0,k 
+
+′) ∈ σ(dp) be ani rule list whose prefix 
+
+21 
+
+
+
+angelino, larus-stone, alabi, seltzer, and rudin 
+
+start with dp, such that K 
+′ ≥ K. denot the prefix and label of d′ by d′p = (p1, . . . , pK , 
+
+pk+1, . . . , pk′) and δp = (q1, . . . , qk′), respectively. finally, defin D 
+′ = (d′p,∆ 
+
+′ 
+p, Q 
+
+′ 
+0, κ 
+′) ∈ 
+
+σ(dp) to be the ‘analogous’ rule list, i.e., whose prefix D 
+′ 
+p = (p1, . . . , pκ, pκ+1, . . . , pκ′) = 
+
+(p1, . . . , pκ, pk+1, . . . , pk′) start with Dp and end with the same K 
+′ −K anteced 
+
+a d′p. let ∆ 
+′ 
+p = (q1, . . . , qκ′) denot the label of D 
+
+′. 
+next, we claim that the differ in the object of rule list d′ and d be the same a 
+
+the differ in the object of rule list D′ and D. let u expand the first differ a 
+
+r(d′,x,y)−r(d,x,y) = `(d′,x,y) + λK ′ − `(d,x,y)− λK 
+= `p(d 
+
+′ 
+p, δ 
+′ 
+p,x,y) + `0(d 
+
+′ 
+p, q 
+′ 
+0,x,y)− `p(dp, δp,x,y)− `0(dp, q0,x,y) + λ(k ′ −k). 
+
+similarly, let u expand the second differ a 
+
+r(d′,x,y)−r(d,x,y) = `(d′,x,y) + λκ′ − `(d,x,y)− λκ 
+= `p(d 
+
+′ 
+p,∆ 
+
+′ 
+p,x,y) + `0(d 
+
+′ 
+p, Q 
+
+′ 
+0,x,y)− `p(dp,∆p,x,y)− `0(dp, q0,x,y) + λ(k ′ −k), 
+
+where we have use the fact that κ′ − κ = K ′ −k. 
+the prefix dp and Dp captur the same data. equivalently, the set of data that be not 
+
+captur by dp be the same a the set of data that be not captur by dp, i.e., 
+
+{xn : ¬ cap(xn, dp)} = {xn : ¬ cap(xn, dp)}. (57) 
+
+thus, the correspond rule list d and D share the same default rule, i.e., q0 = q0, yield 
+the same default rule misclassif error: 
+
+`0(dp, q0,x,y) = `0(dp, q0,x,y). (58) 
+
+similarly, prefix d′p and D 
+′ 
+p captur the same data, and thu rule list d 
+
+′ and D′ have the 
+same default rule misclassif error: 
+
+`0(dp, q0,x,y) = `0(dp, q0,x,y). (59) 
+
+At thi point, to demonstr our claim relat the object of d, d′, D, and d′, what 
+remain be to show that the differ in the misclassif error of prefix d′p and dp be 
+the same a that between d′p and dp. We can expand the first differ a 
+
+`p(d 
+′ 
+p, δ 
+′ 
+p,x,y)− `p(dp, δp,x,y) = 
+
+1 
+
+N 
+
+N∑ 
+n=1 
+
+k′∑ 
+k=k+1 
+
+cap(xn, pk | d′p) ∧ 1[qk 6= yn], (60) 
+
+where we have use the fact that sinc d′p start with dp, the first K rule in d 
+′ 
+p make the 
+
+same mistak a those in dp. similarly, we can expand the second differ a 
+
+`p(d 
+′ 
+p,∆ 
+
+′ 
+p,x,y)− `p(dp,∆p,x,y) = 
+
+1 
+
+N 
+
+N∑ 
+n=1 
+
+κ′∑ 
+k=κ+1 
+
+cap(xn, Pk |d′p) ∧ 1[qk 6= yn] 
+
+= 
+1 
+
+N 
+
+N∑ 
+n=1 
+
+k′∑ 
+k=k+1 
+
+cap(xn, pk |d′p) ∧ 1[qk 6= yn] 
+
+= 
+1 
+
+N 
+
+N∑ 
+n=1 
+
+k′∑ 
+k=k+1 
+
+cap(xn, pk | d′p) ∧ 1[qk 6= yn] (61) 
+
+= `p(d 
+′ 
+p, δ 
+′ 
+p,x,y)− `p(dp, δp,x,y). 
+
+22 
+
+
+
+learn certifi optim rule list for categor data 
+
+To justifi the equal in (61), we observ first that prefix d′p and d 
+′ 
+p start with κ and K 
+
+antecedents, respectively, that captur the same data. second, prefix d′p and d 
+′ 
+p end with 
+
+exactli the same order list of K ′ −K antecedents, therefor for ani k = 1, . . . ,K ′ −k, 
+anteced pκ+k = pk+k ind 
+
+′ 
+p captur the same data a pk+k captur in d 
+
+′ 
+p. It follow that 
+
+the correspond label be all equivalent, i.e., qκ+k = qk+k, for all k = 1, . . . ,K 
+′ −k, and 
+
+consequently, the prefix misclassif error associ with the last K ′ −K anteced 
+of d′p be the same a that of D 
+
+′ 
+p. We have therefor show that the differ between the 
+
+object of d′ and d be the same a that between D′ and D, i.e., 
+
+r(d′,x,y)−r(d,x,y) = r(d′,x,y)−r(d,x,y). (62) 
+
+next, suppos that the object low bound of d and D obey b(dp,x,y) ≤ b(dp,x,y), 
+therefor 
+
+r(d,x,y) = `p(dp, δp,x,y) + `0(dp, q0,x,y) + λK 
+
+= b(dp,x,y) + `0(dp, q0,x,y) 
+
+≤ b(dp,x,y) + `0(dp, q0,x,y) = b(dp,x,y) + `0(dp, q0,x,y) = r(d,x,y). 
+(63) 
+
+now let d∗ be an optim rule list with prefix constrain to start with dp, 
+
+d∗ ∈ argmin 
+d†∈σ(dp) 
+
+r(d†,x,y), (64) 
+
+and let K∗ be the length of d∗. let D∗ be the analog κ∗-rule list whose prefix start 
+with Dp and end with the same K 
+
+∗ −K anteced a d∗, where κ∗ = κ+k∗ −k. 
+By (62), 
+
+r(d∗,x,y)−r(d,x,y) = r(d∗,x,y)−r(d,x,y). (65) 
+
+furthermore, we claim that D∗ be an optim rule list with prefix constrain to start 
+with dp, 
+
+D∗ ∈ argmin 
+d†∈σ(dp) 
+
+r(d†,x,y). (66) 
+
+To demonstr (66), we consid two separ scenarios. In the first scenario, prefix dp 
+and Dp be compos of the same antecedents, i.e., the two prefix be equival up to a 
+permut of their antecedents, and a a consequence, κ = K and κ∗ = k∗. here, everi 
+rule list d′′ ∈ σ(dp) that start with dp have an analogu d′′ ∈ σ(dp) that start with dp, 
+such that d′′ and d′′ obey (62), and vice versa, and thu (66) be a direct consequ of (65). 
+
+In the second scenario, prefix dp and Dp be not compos of the same antecedents. 
+defin φ = {pk : (pk ∈ dp) ∧ (pk /∈ dp)} to be the set of anteced in dp that be not in dp, 
+and defin Φ = {pk : (pk ∈ dp) ∧ (pk /∈ dp)} to be the set of anteced in Dp that be not 
+in dp; either φ 6= ∅, or Φ 6= ∅, or both. 
+
+suppos φ 6= ∅, and let p ∈ φ be an anteced in φ. It follow that there exist a subset 
+of rule list in σ(dp) that do not have analogu in σ(dp). let D 
+
+′′ ∈ σ(dp) be such a rule 
+list, such that it prefix d′′p = (p1, . . . , pκ, . . . , p, . . . ) start with Dp and contain p among 
+
+23 
+
+
+
+angelino, larus-stone, alabi, seltzer, and rudin 
+
+it remain antecedents. sinc p captur a subset of the data that dp captures, and Dp 
+captur the same data a dp, it follow that p doesn’t captur ani data in D 
+
+′′ 
+p , i.e., 
+
+1 
+
+N 
+
+N∑ 
+n=1 
+
+cap(xn, p |d′′p) = 0 ≤ λ. (67) 
+
+By theorem 10, anteced p have insuffici support in d′′, and thu d′′ cannot be op- 
+timal, i.e., d′′ /∈ argmind†∈σ(dp)r(d 
+
+†,x,y). By a similar argument, if Φ 6= ∅ and P ∈ Φ, 
+and d′′ ∈ σ(dp) be ani rule list whose prefix start with dp and contain anteced P , then d′′ 
+cannot be optimal, i.e., d′′ /∈ argmind†∈σ(dp)r(d 
+
+†,x,y). 
+To finish justifi claim (66) for the second scenario, first defin 
+
+τ(dp,φ) ≡ {d′′ = (d′′p, δ′′p , q′′0 ,K ′′) : d′′ ∈ σ(dp) and pk /∈ φ,∀pk ∈ d′′p} ⊂ σ(dp) (68) 
+
+to be the set of all rule list whose prefix start with dp and don’t contain ani anteced 
+in Φ. now, recogn that the optim prefix in τ(dp,φ) and σ(dp) be the same, i.e., 
+
+argmin 
+d†∈τ(dp,φ) 
+
+r(d†,x,y) = argmin 
+d†∈σ(dp) 
+
+r(d†,x,y), (69) 
+
+and similarly, the optim prefix in τ(dp, φ) and σ(dp) be the same, i.e., 
+
+argmin 
+d†∈τ(dp,φ) 
+
+r(d†,x,y) = argmin 
+d†∈σ(dp) 
+
+r(d†,x,y). (70) 
+
+sinc we have show that everi d′′ ∈ τ(dp,φ) have a direct analogu d′′ ∈ τ(dp, φ), such 
+that d′′ and d′′ obey (62), and vice versa, we again have (66) a a consequ of (65). 
+
+We can now final combin (63) and (66) to obtain 
+
+min 
+d′∈σ(dp) 
+
+r(d′,x,y) = r(d∗,x,y) ≤ r(d∗,x,y) = min 
+d′∈σ(dp) 
+
+r(d′,x,y). (71) 
+
+thus, if prefix dp and Dp captur the same data, and their object low bound obey 
+b(dp,x,y) ≤ b(dp,x,y), theorem 17 impli that we can prune dp. next, in section 3.11 
+and 3.12, we highlight and analyz the special case of prefix that captur the same data 
+becaus they contain the same antecedents. 
+
+3.11 permut bound 
+
+let P = {pk}kk=1 be a set of K antecedents, and let Π be the set of all k-prefix corre- 
+spond to permut of anteced in P . now, let d be a rule list with prefix dp in Π, 
+such that d have the minimum object over all rule list with prefix in Π. finally, let d′ 
+
+be a rule list whose prefix d′p start with dp, such that d 
+′ have the minimum object over all 
+
+rule list whose prefix start with dp. corollari 18 below, which can be view a special 
+case of theorem 17, impli that d′ also have the minimum object over all rule list whose 
+prefix start with ani prefix in Π. 
+
+24 
+
+
+
+learn certifi optim rule list for categor data 
+
+corollari 18 (permut bound) let π be ani permut of {1, . . . ,k}, and de- 
+fine σ(dp) = {(d′p, δ′p, q′0,k ′) : d′p start with dp} to be the set of all rule list whose prefix 
+start with dp. let d = (dp, δp, q0,k) and D = (dp,∆p, q0,k) denot rule list with prefix 
+dp = (p1, . . . , pk) and Dp = (pπ(1), . . . , pπ(k)), respectively, i.e., the anteced in Dp cor- 
+respond to a permut of the anteced in dp. If the object low bound of d and D 
+obey b(dp,x,y) ≤ b(dp,x,y), then the object of the optim rule list in σ(dp) give a 
+low bound on the object of the optim rule list in σ(dp): 
+
+min 
+d′∈σ(dp) 
+
+r(d′,x,y) ≤ min 
+d′∈σ(dp) 
+
+r(d′,x,y). (72) 
+
+proof sinc prefix dp and Dp contain the same antecedents, they both captur the same 
+data. thus, we can appli theorem 17. 
+
+thu if prefix dp and Dp have the same antecedents, up to a permutation, and their 
+object low bound obey b(dp,x,y) ≤ b(dp,x,y), corollari 18 impli that we can 
+prune dp. We call thi symmetry-awar pruning, and we illustr the subsequ compu- 
+tation save next in §3.12. 
+
+3.12 upper bound on prefix evalu with symmetry-awar prune 
+
+here, we present an upper bound on the total number of prefix evalu that account for 
+the effect of symmetry-awar prune (§3.11). sinc everi subset of K anteced gener 
+an equival class of K! prefix equival up to permutation, symmetry-awar prune 
+dramat reduc the search space. 
+
+first, notic that algorithm 1 describ a breadth-first explor of the state space of 
+rule lists. now suppos we integr symmetry-awar prune into our execut of branch- 
+and-bound, so that after evalu prefix of length K, we onli keep a singl best prefix 
+from each set of prefix equival up to a permutation. 
+
+theorem 19 (upper bound on prefix evalu with symmetry-awar pruning) 
+consid a state space of all rule list form from a set S of M antecedents, and consid 
+the branch-and-bound algorithm with symmetry-awar pruning. defin γtot(s) to be the total 
+number of prefix evaluated. for ani set S of M rules, 
+
+γtot(s) ≤ 1 + 
+K∑ 
+k=1 
+
+1 
+
+(k − 1)! 
+· M ! 
+
+(M − k)! 
+, (73) 
+
+where K = min(b1/2λc,m). 
+
+proof By corollari 5, K ≡ min(b1/2λc,m) give an upper bound on the length of ani 
+optim rule list. the algorithm begin by evalu the empti prefix, follow by M pre- 
+fix of length k = 1, then P (m, 2) prefix of length k = 2, where P (m, 2) be the number of 
+size-2 subset of {1, . . . ,m}. befor proceed to length k = 3, we keep onli c(m, 2) pre- 
+fix of length k = 2, where c(m,k) denot the number of k-combin of M . now, the 
+
+25 
+
+
+
+angelino, larus-stone, alabi, seltzer, and rudin 
+
+number of length k = 3 prefix we evalu be c(m, 2)(m − 2). propag thi forward 
+give 
+
+γtot(s) ≤ 1 + 
+K∑ 
+k=1 
+
+c(m,k − 1)(m − k + 1) = 1 + 
+K∑ 
+k=1 
+
+1 
+
+(k − 1)! 
+· M ! 
+
+(M − k)! 
+. (74) 
+
+γtot(s) ≤ 1 + 
+K∑ 
+k=1 
+
+c(m,k − 1)(m − k + 1). (75) 
+
+prune base on permut symmetri thu yield signific comput savings. 
+let u compare, for example, to the näıv number of prefix evalu give by the upper 
+bound in proposit 8. If M = 100 and K = 5, then the näıv number be about 9.1× 109, 
+while the reduc number due to symmetry-awar prune be about 3.9× 108, which be 
+small by a factor of about 23. If M = 1000 and K = 10, the number of evalu fall 
+from about 9.6× 1029 to about 2.7× 1024, which be small by a factor of about 360,000. 
+
+while 1024 seem infeas enormous, it do not repres the number of rule list we 
+evaluate. As we show in our experi (§6), our permut bound in corollari 18 and 
+our other bound togeth conspir to reduc the search space to a size manag on a 
+singl computer. the choic of M = 1000 and K = 10 in our exampl abov correspond to 
+the state space size our effort target. K = 10 rule repres a (heuristic) upper limit on 
+the size of an interpret rule list, and M = 1000 repres the approxim number of 
+rule with suffici high support (theorem 10) we expect to obtain via rule mine (§3.1). 
+
+3.13 similar support bound 
+
+We now present a relax of our equival support bound from theorem 17. note that 
+our implement (§5) do not current leverag the bound in theorem 20. 
+
+theorem 20 (similar support bound) defin σ(dp) to be the set of all rule list whose 
+prefix start with dp, a in (1). let dp = (p1, . . . , pk) and Dp = (p1, . . . , pκ) be prefix 
+that captur nearli the same data. specifically, defin ω to be the normal support of data 
+captur by dp and not captur by dp, i.e., 
+
+ω ≡ 1 
+N 
+
+N∑ 
+n=1 
+
+¬ cap(xn, dp) ∧ cap(xn, dp). (76) 
+
+similarly, defin Ω to be the normal support of data captur by Dp and not captur 
+by dp, i.e., 
+
+Ω ≡ 1 
+N 
+
+N∑ 
+n=1 
+
+¬ cap(xn, dp) ∧ cap(xn, dp). (77) 
+
+26 
+
+
+
+learn certifi optim rule list for categor data 
+
+We can bound the differ between the object of the optim rule list in σ(dp) and 
+σ(dp) a follows: 
+
+min 
+d†∈σ(dp) 
+
+r(d†,x,y)− min 
+d†∈σ(dp) 
+
+r(d†,x,y) ≥ b(dp,x,y)− b(dp,x,y)− ω − Ω, (78) 
+
+where b(dp,x,y) and b(dp,x,y) be the object low bound of d and D, respectively. 
+
+proof We begin by defin four relat rule lists. first, let d = (dp, δp, q0,k) be a rule list 
+with prefix dp = (p1, . . . , pk) and label δp = (q1, . . . , qk). second, let D = (dp,∆p, q0, κ) 
+be a rule list with prefix Dp = (p1, . . . , pκ) and label ∆p = (q1, . . . , qκ). defin ω a 
+in (76) and Ω a in (77), and requir that ω,ω ≤ λ. third, let d′ = (d′p, δ′p, q′0,k ′) ∈ σ(dp) 
+be ani rule list whose prefix start with dp, such that K 
+
+′ ≥ K. denot the prefix and la- 
+bel of d′ by d′p = (p1, . . . , pK , pk+1, . . . , pk′) and δp = (q1, . . . , qk′), respectively. finally, 
+defin D′ = (d′p,∆ 
+
+′ 
+p, Q 
+
+′ 
+0, κ 
+′) ∈ σ(dp) to be the ‘analogous’ rule list, i.e., whose prefix d′p = 
+
+(p1, . . . , pκ, pκ+1, . . . , pκ′) = (p1, . . . , pκ, pk+1, . . . , pk′) start with Dp and end with the 
+same K ′ −K anteced a d′p. let ∆′p = (q1, . . . , qκ′) denot the label of d′. 
+
+the small possibl object for d′, in relat to the object of d′, reflect both 
+the differ between the object low bound of D and d and the larg possibl 
+discrep between the object of d′ and d′. the latter would occur if d′ misclassifi 
+all the data correspond to both ω and Ω while D′ correctli classifi thi same data, 
+thu 
+
+r(d′,x,y) ≥ r(d′,x,y) + b(dp,x,y)− b(dp,x,y)− ω − Ω. (79) 
+
+now let D∗ be an optim rule list with prefix constrain to start with dp, 
+
+D∗ ∈ argmin 
+d†∈σ(dp) 
+
+r(d†,x,y), (80) 
+
+and let κ∗ be the length of d∗. also let d∗ be the analog k∗-rule list whose prefix start 
+with dp and end with the same κ 
+
+∗ − κ anteced a d∗, where K∗ = K + κ∗ − κ. By (79), 
+
+min 
+d†∈σ(dp) 
+
+r(d†,x,y) = r(d∗,x,y) 
+
+≥ r(d∗,x,y) + b(dp,x,y)− b(dp,x,y)− ω − Ω 
+≥ min 
+
+d†∈σ(dp) 
+r(d†,x,y) + b(dp,x,y)− b(dp,x,y)− ω − Ω. (81) 
+
+theorem 20 impli that if prefix dp and Dp be similar, and we know the optim 
+object of rule list start with dp, then 
+
+min 
+d′∈σ(dp) 
+
+r(d′,x,y) ≥ min 
+d′∈σ(dp) 
+
+r(d′,x,y) + b(dp,x,y)− b(dp,x,y)− χ 
+
+≥ Rc + b(dp,x,y)− b(dp,x,y)− χ, (82) 
+
+27 
+
+
+
+angelino, larus-stone, alabi, seltzer, and rudin 
+
+where Rc be the current best objective, and χ be the normal support of the set of data 
+captur either exclus by dp or exclus by dp. It follow that 
+
+min 
+d′∈σ(dp) 
+
+r(d′,x,y) ≥ Rc + b(dp,x,y)− b(dp,x,y)− χ ≥ Rc (83) 
+
+if b(dp,x,y)− b(dp,x,y) ≥ χ. To conclude, we summar thi result and combin it with 
+our notion of lookahead from lemma 2. dure branch-and-bound execution, if we demon- 
+strate that mind′∈σ(dp)r(d 
+
+′,x,y) ≥ rc, then we can prune all prefix that start with ani 
+prefix d′p in the follow set:{ 
+
+d′p : b(d 
+′ 
+p,x,y) + λ− b(dp,x,y) ≥ 
+
+1 
+
+N 
+
+N∑ 
+n=1 
+
+cap(xn, dp)⊕ cap(xn, d′p) 
+
+} 
+. (84) 
+
+3.14 equival point bound 
+
+the bound in thi section quantifi the following: If multipl observ that be not 
+captur by a prefix dp have ident featur and opposit labels, then no rule list that 
+start with dp can correctli classifi all these observations. for each set of such observations, 
+the number of mistak be at least the number of observ with the minor label within 
+the set. 
+
+consid a dataset {(xn, yn)}nn=1 and also a set of anteced {sm}mm=1. defin dis- 
+tinct datapoint to be equival if they be captur by exactli the same antecedents, 
+i.e., xi 6= xj be equival if 
+
+1 
+
+M 
+
+M∑ 
+m=1 
+
+1[cap(xi, sm) = cap(xj , sm)] = 1. (85) 
+
+notic that we can partit a dataset into set of equival points; let {eu}uu=1 enumer 
+these sets. now defin θ(eu) to be the normal support of the minor class label with 
+respect to set eu, e.g., let 
+
+eu = {xn : 1[cap(xn, sm) = cap(xi, sm)]}, (86) 
+
+and let qu be the minor class label among point in eu, then 
+
+θ(eu) = 
+1 
+
+N 
+
+N∑ 
+n=1 
+
+1[xn ∈ eu] ∧ 1[yn = qu]. (87) 
+
+the exist of equival point set with non-singleton support yield a tighter ob- 
+jectiv low bound that we can combin with our other bounds; a our experi demon- 
+strate (§6), the practic consequ can be dramatic. first, for intuition, we present a 
+gener bound in proposit 21; next, we explicitli integr thi bound into our framework 
+in theorem 22. 
+
+proposit 21 (gener equival point bound) let d = (dp, δp, q0,k) be a rule 
+list, then 
+
+r(d,x,y) ≥ 
+U∑ 
+u=1 
+
+θ(eu) + λk. (88) 
+
+28 
+
+
+
+learn certifi optim rule list for categor data 
+
+proof recal that the object be r(d,x,y) = `(d,x,y) + λk, where the misclassif 
+error `(d,x,y) be give by 
+
+`(d,x,y) = `0(dp, q0,x,y) + `p(dp, δp,x,y) 
+
+= 
+1 
+
+N 
+
+N∑ 
+n=1 
+
+( 
+¬ cap(xn, dp) ∧ 1[q0 6= yn] + 
+
+K∑ 
+k=1 
+
+cap(xn, pk | dp) ∧ 1[qk 6= yn] 
+
+) 
+. (89) 
+
+In the context of the rule list d, each set of equival point be classifi by either a specif 
+anteced pk in d, or the default rule p0. for a set of equival point u, the rule list d 
+correctli classifi either point that have the major class label, or point that have 
+the minor class label. thus, d misclassifi a number of point in u at least a great a 
+the number of point with the minor class label. To translat thi into a low bound 
+on `(d,x,y), we first sum over all set of equival points, and then for each such set, count 
+differ between class label and the minor class label of the set, instead of count 
+mistakes: 
+
+`(d,x,y) 
+
+= 
+1 
+
+N 
+
+U∑ 
+u=1 
+
+N∑ 
+n=1 
+
+( 
+¬ cap(xn, dp) ∧ 1[q0 6= yn] + 
+
+K∑ 
+k=1 
+
+cap(xn, pk | dp) ∧ 1[qk 6= yn] 
+
+) 
+∧ 1[xn ∈ eu] 
+
+≥ 1 
+N 
+
+U∑ 
+u=1 
+
+N∑ 
+n=1 
+
+( 
+¬ cap(xn, dp) ∧ 1[yn = qu] + 
+
+K∑ 
+k=1 
+
+cap(xn, pk | dp) ∧ 1[yn = qu] 
+
+) 
+∧ 1[xn ∈ eu]. 
+
+(90) 
+
+next, we factor out the indic for equival point set membership, which yield a term 
+that sum to one, becaus everi datum be either captur or not captur by prefix dp. 
+
+`(d,x,y) = 
+1 
+
+N 
+
+U∑ 
+u=1 
+
+N∑ 
+n=1 
+
+( 
+¬ cap(xn, dp) + 
+
+K∑ 
+k=1 
+
+cap(xn, pk | dp) 
+
+) 
+∧ 1[xn ∈ eu] ∧ 1[yn = qu] 
+
+= 
+1 
+
+N 
+
+U∑ 
+u=1 
+
+N∑ 
+n=1 
+
+(¬ cap(xn, dp) + cap(xn, dp)) ∧ 1[xn ∈ eu] ∧ 1[yn = qu] 
+
+= 
+1 
+
+N 
+
+U∑ 
+u=1 
+
+N∑ 
+n=1 
+
+1[xn ∈ eu] ∧ 1[yn = qu] = 
+U∑ 
+u=1 
+
+θ(eu), (91) 
+
+where the final equal appli the definit of θ(eu) in (87). therefore, r(d,x,y) = 
+`(d,x,y) + λK ≥ 
+
+∑U 
+u=1 θ(eu) + λk. 
+
+now, recal that to obtain our low bound b(dp,x,y) in (10), we simpli delet the 
+default rule misclassif error `0(dp, q0,x,y) from the object r(d,x,y). theorem 22 
+obtain a tighter object low bound via a tighter low bound on the default rule mis- 
+classif error, 0 ≤ b0(dp,x,y) ≤ `0(dp, q0,x,y). 
+
+29 
+
+
+
+angelino, larus-stone, alabi, seltzer, and rudin 
+
+theorem 22 (equival point bound) let d be a rule list with prefix dp and low 
+bound b(dp,x,y), then for ani rule list d 
+
+′ ∈ σ(d) whose prefix d′p start with dp, 
+
+r(d′,x,y) ≥ b(dp,x,y) + b0(dp,x,y), (92) 
+
+where 
+
+b0(dp,x,y) = 
+1 
+
+N 
+
+U∑ 
+u=1 
+
+N∑ 
+n=1 
+
+¬ cap(xn, dp) ∧ 1[xn ∈ eu] ∧ 1[yn = qu]. (93) 
+
+proof We deriv a low bound on the default rule misclassif error `0(dp, q0,x,y), 
+analog to the low bound (90) on the misclassif error `(d,x,y) in the proof of 
+proposit 21. As before, we sum over all set of equival points, and then for each such 
+set, we count differ between class label and the minor class label of the set, instead 
+of count mistak make by the default rule: 
+
+`0(dp, q0,x,y) = 
+1 
+
+N 
+
+N∑ 
+n=1 
+
+¬ cap(xn, dp) ∧ 1[q0 6= yn] 
+
+= 
+1 
+
+N 
+
+U∑ 
+u=1 
+
+N∑ 
+n=1 
+
+¬ cap(xn, dp) ∧ 1[q0 6= yn] ∧ 1[xn ∈ eu] 
+
+≥ 1 
+N 
+
+U∑ 
+u=1 
+
+N∑ 
+n=1 
+
+¬ cap(xn, dp) ∧ 1[yn = qu] ∧ 1[xn ∈ eu] = b0(dp,x,y), (94) 
+
+where the final equal come from the definit of b0(dp,x,y) in (93). sinc we can write 
+the object r(d,x,y) a the sum of the object low bound b(dp,x,y) and default rule 
+misclassif error `0(dp, q0,x,y), appli (94) give a low bound on r(d,x,y): 
+
+r(d,x,y) = `p(dp, δp,x,y) + `0(dp, q0,x,y) + λK = b(dp,x,y) + `0(dp, q0,x,y) 
+
+≥ b(dp,x,y) + b0(dp,x,y). (95) 
+
+It follow that for ani rule list d′ ∈ σ(d) whose prefix d′p start with dp, we have 
+
+r(d′,x,y) ≥ b(d′p,x,y) + b0(d′p,x,y). (96) 
+
+finally, we show that the low bound on r(d,x,y) in (95) be not great than the low 
+bound on r(d′,x,y) in (96). first, let u defin 
+
+υ(d′p,k,x,y) ≡ 
+1 
+
+N 
+
+U∑ 
+u=1 
+
+N∑ 
+n=1 
+
+k′∑ 
+k=k+1 
+
+cap(xn, pk | d′p) ∧ 1[xn ∈ eu] ∧ 1[yn = qu]. (97) 
+
+30 
+
+
+
+learn certifi optim rule list for categor data 
+
+now, we write a low bound on b(d′p,x,y) with respect to b(dp,x,y): 
+
+b(d′p,x,y) = `p(d 
+′ 
+p, δp,x,y) + λK 
+
+′ = 
+1 
+
+N 
+
+N∑ 
+n=1 
+
+k′∑ 
+k=1 
+
+cap(xn, pk | d′p) ∧ 1[qk 6= yn] + λK ′ 
+
+= `p(dp, δp,x,y) + λK + 
+1 
+
+N 
+
+N∑ 
+n=1 
+
+k′∑ 
+k=k 
+
+cap(xn, pk | d′p) ∧ 1[qk 6= yn] + λ(k ′ −k) 
+
+= b(dp,x,y) + 
+1 
+
+N 
+
+N∑ 
+n=1 
+
+k′∑ 
+k=k+1 
+
+cap(xn, pk | d′p) ∧ 1[qk 6= yn] + λ(k ′ −k) 
+
+= b(dp,x,y) + 
+1 
+
+N 
+
+U∑ 
+u=1 
+
+N∑ 
+n=1 
+
+k′∑ 
+k=k+1 
+
+cap(xn, pk | d′p) ∧ 1[qk 6= yn] ∧ 1[xn ∈ eu] + λ(k ′ −k) 
+
+≥ b(dp,x,y) + 
+1 
+
+N 
+
+U∑ 
+u=1 
+
+N∑ 
+n=1 
+
+k′∑ 
+k=k+1 
+
+cap(xn, pk | d′p) ∧ 1[yn = qu] ∧ 1[xn ∈ eu] + λ(k ′ −k) 
+
+= b(dp,x,y) + υ(d 
+′ 
+p,k,x,y) + λ(k 
+
+′ −k). (98) 
+
+next, we write b0(dp,x,y) with respect to b0(d 
+′ 
+p,x,y), 
+
+b0(dp,x,y) = 
+1 
+
+N 
+
+U∑ 
+u=1 
+
+N∑ 
+n=1 
+
+¬ cap(xn, dp) ∧ 1[xn ∈ eu] ∧ 1[yn = qu] 
+
+= 
+1 
+
+N 
+
+U∑ 
+u=1 
+
+N∑ 
+n=1 
+
+( 
+¬ cap(xn, d′p) + 
+
+k′∑ 
+k=k+1 
+
+cap(xn, pk | d′p) 
+
+) 
+∧ 1[xn ∈ eu] ∧ 1[yn = qu] 
+
+= b0(d 
+′ 
+p,x,y) + 
+
+1 
+
+N 
+
+U∑ 
+u=1 
+
+N∑ 
+n=1 
+
+k′∑ 
+k=k+1 
+
+cap(xn, pk | d′p) ∧ 1[xn ∈ eu] ∧ 1[yn = qu], (99) 
+
+thu rearrang give 
+
+b0(d 
+′ 
+p,x,y) = b0(dp,x, y)−υ(d′p,k,x,y). (100) 
+
+combin (96) with first (100) and then (98) gives: 
+
+r(d′,x,y) ≥ b(d′p,x,y) + b0(d′p,x,y) 
+= b(d′p,x,y) + b0(dp,x, y)−υ(d′p,k,x,y) 
+≥ b(dp,x,y) + υ(d′p,k,x,y) + λ(k ′ −k) + b0(dp,x, y)−υ(d′p,k,x,y) 
+= b(dp,x,y) + b0(dp,x, y) + λ(k 
+
+′ −k) ≥ b(dp,x,y) + b0(dp,x,y). (101) 
+
+31 
+
+
+
+angelino, larus-stone, alabi, seltzer, and rudin 
+
+4. increment comput 
+
+for everi prefix dp evalu dure algorithm 1’ execution, we comput the object 
+low bound b(dp,x,y) and sometim the object r(d,x,y) of the correspond rule 
+list d. these calcul be the domin comput with respect to execut time. 
+thi motiv our use of a highli optim library, design by yang et al. (2016) for 
+repres rule list and perform oper encount in evalu function of rule 
+lists. furthermore, we exploit the hierarch natur of the object function and it low 
+bound to comput these quantiti increment throughout branch-and-bound execution. 
+In thi section, we provid explicit express for the increment comput that be 
+central to our approach. later, in §5, we describ a cach data structur for support our 
+increment framework in practice. 
+
+for completeness, befor present our increment expressions, let u begin by write 
+down the object low bound and object of the empti rule list, d = ((), (), q0, 0), the 
+first rule list evalu in algorithm 1. sinc it prefix contain zero rules, it have zero prefix 
+misclassif error and also have length zero. thus, the empti rule list’ object low 
+bound be zero: 
+
+b((),x,y) = `p((), (),x,y) + λ · 0 = 0. (102) 
+
+sinc none of the data be captur by the empti prefix, the default rule correspond to 
+the major class, and the object correspond to the default rule misclassif error: 
+
+r(d,x,y) = `(d,x,y) + λ · 0 = `p((), (),x,y) + `0((), q0,x,y) 
+= b((),x,y) + `0((), q0,x,y) = `0((), q0,x,y). (103) 
+
+now, we deriv our increment express for the object function and it low 
+bound. let d = (dp, δp, q0,k) and d 
+
+′ = (d′p, δ 
+′ 
+p, q 
+′ 
+0,k + 1) be rule list such that prefix dp = 
+
+(p1, . . . , pk) be the parent of d 
+′ 
+p = (p1, . . . , pK , pk+1). let δp = (q1, . . . , qk) and δ 
+
+′ 
+p = (q1, . . . , 
+
+qK , qk+1) be the correspond labels. the hierarch structur of algorithm 1 enforc 
+that if we ever evalu d′, then we will have alreadi evalu both the object and ob- 
+jectiv low bound of it parent, d. We would like to reus a much of these comput a 
+possibl in our evalu of d′. We can write the object low bound of d′ incrementally, 
+with respect to the object low bound of d: 
+
+b(d′p,x,y) = `p(d 
+′ 
+p, δ 
+′ 
+p,x,y) + λ(k + 1) 
+
+= 
+1 
+
+N 
+
+N∑ 
+n=1 
+
+k+1∑ 
+k=1 
+
+cap(xn, pk | d′p) ∧ 1[qk 6= yn] + λ(k + 1) (104) 
+
+= `p(dp, δp,x,y) + λK + λ+ 
+1 
+
+N 
+
+N∑ 
+n=1 
+
+cap(xn, pk+1 | d′p) ∧ 1[qk+1 6= yn] 
+
+= b(dp,x,y) + λ+ 
+1 
+
+N 
+
+N∑ 
+n=1 
+
+cap(xn, pk+1 | d′p) ∧ 1[qk+1 6= yn] 
+
+= b(dp,x,y) + λ+ 
+1 
+
+N 
+
+N∑ 
+n=1 
+
+¬ cap(xn, dp) ∧ cap(xn, pk+1) ∧ 1[qk+1 6= yn]. (105) 
+
+32 
+
+
+
+learn certifi optim rule list for categor data 
+
+thus, if we store b(dp,x,y), then we can reus thi quantiti when comput b(d 
+′ 
+p,x,y). 
+
+transform (104) into (105) yield a significantli simpler express that be a function of 
+the store quantiti b(dp,x,y). for the object of d 
+
+′, first let u write a näıv expression: 
+
+r(d′,x,y) = `(d′,x,y) + λ(k + 1) = `p(d 
+′ 
+p, δ 
+′ 
+p,x,y) + `0(d 
+
+′ 
+p, q 
+′ 
+0,x,y) + λ(k + 1) 
+
+= 
+1 
+
+N 
+
+N∑ 
+n=1 
+
+k+1∑ 
+k=1 
+
+cap(xn, pk | d′p) ∧ 1[qk 6= yn] + 
+1 
+
+N 
+
+N∑ 
+n=1 
+
+¬ cap(xn, d′p) ∧ 1[q′0 6= yn] + λ(k + 1). 
+
+(106) 
+
+instead, we can comput the object of d′ increment with respect to it object low 
+bound: 
+
+r(d′,x,y) = `p(d 
+′ 
+p, δ 
+′ 
+p,x,y) + `0(d 
+
+′ 
+p, q 
+′ 
+0,x,y) + λ(k + 1) 
+
+= b(d′p,x,y) + `0(d 
+′ 
+p, q 
+′ 
+0,x, y) 
+
+= b(d′p,x,y) + 
+1 
+
+N 
+
+N∑ 
+n=1 
+
+¬ cap(xn, d′p) ∧ 1[q′0 6= yn] 
+
+= b(d′p,x,y) + 
+1 
+
+N 
+
+N∑ 
+n=1 
+
+¬ cap(xn, dp) ∧ (¬ cap(xn, pk+1)) ∧ 1[q′0 6= yn]. (107) 
+
+the express in (107) be much simpler than the näıv one in (106), and be a function 
+of b(d′p,x,y), which we comput in (105). though we could comput the object of d 
+
+′ 
+
+increment with respect to that of d, do so would in practic requir that we also 
+store r(d,x,y); we prefer the approach suggest by (107) sinc it avoid thi addit 
+storag overhead. 
+
+We present an increment branch-and-bound procedur in algorithm 2, and show the 
+increment comput of the object low bound (105) and object (107) a two 
+separ function in algorithm 3 and 4, respectively. In algorithm 2, we use a cach to 
+store prefix and their object low bounds. algorithm 2 addit reorgan the 
+structur of algorithm 1 to group togeth the comput associ with all child 
+of a particular prefix. thi have two advantages. the first be to consolid cach queries: all 
+child of the same parent prefix comput their object low bound with respect to the 
+parent’ store value, and we onli requir one cach ‘find’ oper for the entir group 
+of children, instead of a separ queri for each child. the second be to shrink the queue’ 
+size: instead of add all of a prefix’ child a separ queue elements, we repres 
+the entir group of child in the queue by a singl element. sinc the number of child 
+associ with each prefix be close to the total number of possibl antecedents, both of these 
+effect can yield signific savings. for example, if we be tri to optim over rule list 
+form from a set of 1000 antecedents, then the maximum queue size in algorithm 2 will 
+be small than that in algorithm 1 by a factor of nearli 1000. 
+
+5. implement 
+
+We implement our algorithm use a collect of optim data structures: a trie (prefix 
+tree), a symmetry-awar map, and a queue. the trie act like a cache, keep track of 
+
+33 
+
+
+
+angelino, larus-stone, alabi, seltzer, and rudin 
+
+algorithm 2 increment branch-and-bound for learn rule lists, for simplicity, from a 
+cold start. We explicitli show the increment object low bound and object function 
+in algorithm 3 and 4, respectively. 
+
+input: object function r(d,x,y), object low bound b(dp,x,y), set of anteced 
+S = {sm}mm=1, train data (x,y) = {(xn, yn)}nn=1, regular paramet λ 
+output: provabl optim rule list d∗ with minimum object R∗ 
+
+dc ← ((), (), q0, 0) . initi current best rule list with empti rule list 
+Rc ← r(dc,x,y) . initi current best object 
+Q← queue( [ ( ) ] ) . initi queue with empti prefix 
+C ← cache( [ ( ( ) , 0 ) ] ) . initi cach with empti prefix and it object low bound 
+while Q not empti do . optim complet when the queue be empti 
+
+dp ← q.pop( ) . remov a prefix dp from the queue 
+b(dp,x,y)← c.find(dp) . look up dp’ low bound in the cach 
+u← ¬ cap(x, dp) . bit vector indic data not captur by dp 
+for s in S do . evalu all of dp’ child 
+
+if s not in dp then 
+Dp ← (dp, s) . branch: gener child Dp 
+v← u ∧ cap(x, s) . bit vector indic data captur by s in Dp 
+b(dp,x,y)← b(dp,x,y) + λ + incrementallowerbound(v,y, N) 
+if b(dp,x,y) < R 
+
+c then . bound: appli bound from theorem 1 
+r(d,x,y)← b(dp,x,y) + incrementalobjective(u,v,y, N) 
+if r(d,x,y) < Rc then 
+
+(dc, rc)← (d,r(d,x,y)) . updat current best rule list and object 
+end if 
+q.push(dp) . add Dp to the queue 
+c.insert(dp, b(dp,x,y)) . add Dp and it low bound to the cach 
+
+end if 
+end if 
+
+end for 
+end while 
+(d∗, r∗)← (dc, rc) . identifi provabl optim rule list and object 
+
+rule list we have alreadi evaluated. each node in the trie contain metadata associ 
+with that correspond rule list; the metadata consist of bookkeep inform such 
+a what child rule list be feasibl and the low bound and accuraci for that rule list. We 
+also track the best observ minimum object and it associ rule list. 
+
+the symmetry-awar map support symmetry-awar pruning. We implement thi use 
+the c++ stl unord map, to map all permut of a set of anteced to a key, 
+whose valu contain the best order of those anteced (i.e., the prefix with the small- 
+est low bound). everi anteced be associ with an index, and we call the numer 
+sort order of a set of anteced it canon order. thu by queri a set of anteced 
+by it canon order, all permut map to the same key. the symmetry-awar map 
+domin memori usag for problem that explor longer prefixes. befor insert per- 
+
+34 
+
+
+
+learn certifi optim rule list for categor data 
+
+algorithm 3 increment object low bound (105) use in algorithm 2. 
+
+input: bit vector v ∈ {0, 1}n indic data captur by s, the last anteced in dp, 
+bit vector of class label y ∈ {0, 1}n , number of observ N 
+output: compon of d’ misclassif error due to data captur by s 
+
+function incrementallowerbound(v,y, N) 
+nv = sum(v) . number of data captur by s, the last anteced in Dp 
+w← v ∧ y . bit vector indic data captur by s with label 1 
+nw = sum(w) . number of data captur by s with label 1 
+if nw/nv > 0.5 then 
+
+return (nv − nw)/n . misclassif error of the rule s→ 1 
+els 
+
+return nw/n . misclassif error of the rule s→ 0 
+end if 
+
+end function 
+
+algorithm 4 increment object function (107) use in algorithm 2. 
+
+input: bit vector u ∈ {0, 1}n indic data not captur by dp’ parent prefix, bit 
+vector v ∈ {0, 1}n indic data not captur by s, the last anteced in dp, bit 
+vector of class label y ∈ {0, 1}n , number of observ N 
+output: compon of d’ misclassif error due to it default rule 
+
+function incrementalobjective(u,v,y, N) 
+f ← u ∧ ¬v . bit vector indic data not captur by Dp 
+nf = sum(f) . number of data not captur by Dp 
+g← f ∧ y . bit vector indic data not captur by Dp with label 1 
+ng = sum(w) . number of data not captu by Dp with label 1 
+if nf/ng > 0.5 then 
+
+return (nf − ng)/n . default rule misclassif error with label 1 
+els 
+
+return ng/n . default rule misclassif error with label 0 
+end if 
+
+end function 
+
+mutat Pi into the symmetry-awar map, we check if there exist a permut Pj of Pi 
+alreadi in the map. If the low bound of Pi be good than that of Pj , we updat the map 
+and remov Pj and it subtre from the trie. otherwis we do noth (i.e., we do not insert 
+Pi into the symmetry-awar map or the trie). 
+
+We use a queue to store all of the leaf of the trie that still need to be explored. We order 
+entri in the queue to implement sever differ policies. A first-in-first-out (fifo) queue 
+implement breadth-first search (bfs), and a prioriti queue implement best-first search. 
+exampl prioriti queue polici includ order by the low bound, the objective, or a 
+custom metric that map prefix to real values. We also support a stochast explor 
+
+35 
+
+
+
+angelino, larus-stone, alabi, seltzer, and rudin 
+
+process that bypass the need for a queue by instead follow random path from the root 
+to leaves. We find that order by the low bound and other prioriti metric often lead 
+to a shorter runtim than use bfs. 
+
+map our algorithm to our data structur produc the follow execut strategy. 
+while the trie contain unexplor leaves, a schedul polici select the next prefix to 
+extend. then, for everi anteced that be not alreadi in thi prefix, we calcul the low 
+bound, objective, and other metric for the rule list form by append the anteced 
+to the prefix. If the low bound of the new rule list be less than the current minimum 
+objective, we insert that rule list into the symmetry-awar map, trie, and queue, and, if 
+relevant, updat the current minimum objective. If the low bound be great than the 
+minimum objective, then no extens of thi rule list could possibl be optimal, thu we 
+do not insert the new rule list into the tree or queue. We also leverag our other bound 
+from §3 to aggress prune the search space. 
+
+dure execution, we garbag collect the trie. each time we updat the minimum ob- 
+jective, we travers the trie in a depth-first manner, delet all subtre of ani node with 
+low bound larg than the current minimum objective. At other times, when we encount 
+a node with no children, we prune upwards–delet that node and recurs travers 
+the tree toward the root, delet ani childless nodes. thi garbag collect allow u 
+to constrain the trie’ memori consumption, though in our experi we observ the 
+minimum object to decreas onli a small number of times. 
+
+our implement of corel be at https://github.com/nlarusstone/corels. 
+
+6. experi 
+
+our experiment analysi address five questions: (1) how do corels’ accuraci com- 
+pare to other algorithms? (2) how do corels’ model size compar to other algorithms? 
+(3) how rapidli do the object function converge? (4) how rapidli do corel prune 
+the search space? (5) how much do each of the implement optim contribut 
+to corels’ performance? 
+
+all result that we present be execut on a server with two intel xeon e5-2699 v4 
+(55 MB cache, 2.20 ghz) processor and 448 GB ram. except where we mention a memori 
+constraint, all experi can run comfort on small machines, e.g., a laptop with 
+16gb ram. 
+
+our evalu focu on two socially-import predict problem associ with 
+recent, publicly-avail datasets: 
+
+• predict which individu in the propublica compa dataset (larson et al., 2016) 
+recidiv within two years. 
+
+• use the nyclu 2014 stop-and-frisk dataset (new york civil liberti union, 2014) 
+to predict whether a weapon will be found on a stop individu who be frisk or 
+searched. 
+
+our choic of and approach to the second problem be inspir by the work of goel et al. 
+(2016), who develop regress model to analyz racial dispar in new york city’ stop- 
+and-frisk policy, for a similar, larg dataset. In particular, the author arriv at a simpl 
+
+36 
+
+https://github.com/nlarusstone/corel 
+
+
+learn certifi optim rule list for categor data 
+
+if (locat = transit authority) then predict ye 
+els if (stop reason = suspici object) then predict ye 
+els if (stop reason = suspici bulge) then predict ye 
+els predict no 
+
+figur 3: An exampl rule list that predict whether a weapon will be found on a stop 
+individu who be frisk or searched, for the nyclu stop-and-frisk dataset. thi be the 
+most common optim rule list found by corel across 10 cross-valid folds; the other 
+contain the same rules, up to a permutation. 
+
+GL 
+M 
+
+SV 
+M 
+
+Ad 
+aB 
+
+oo 
+st 
+CA 
+
+RT 
+C4 
+
+.5 RF 
+
+RI 
+PP 
+
+ER 
+SB 
+
+RL 
+
+CO 
+RE 
+
+LS 
+0.63 
+
+0.65 
+
+0.67 
+
+0.69 
+
+0.71 
+
+A 
+cc 
+
+u 
+ra 
+
+cy 
+
+recidiv predict (propublica) 
+
+GL 
+M 
+
+SV 
+M 
+
+Ad 
+aB 
+
+oo 
+st 
+CA 
+
+RT 
+C4 
+
+.5 RF 
+SB 
+
+RL 
+
+CO 
+RE 
+
+LS 
+0.62 
+
+0.65 
+
+0.68 
+
+0.71 
+
+0.74 
+
+weapon predict (nyclu) 
+
+figur 4: comparison of corel and a panel of eight other algorithms: logist regres- 
+sion (glm), support vector machin (svm), adaboost, cart, c4.5, random forest (rf), 
+ripper, scalabl bayesian rule list (sbrl). test accuraci mean (white squares), stan- 
+dard deviat (error bars), and valu (color correspond to folds), for 10-fold cross- 
+valid experiments. left: two-year recidiv predict for the propublica compa 
+dataset. for corels, we use regular paramet λ = 0.005. right: weapon predic- 
+tion for the nyclu stop-and-frisk dataset. for corels, we use λ = 0.01. note that we 
+be unabl to execut ripper for the nyclu problem. 
+
+and interpret heurist that could potenti help polic offic more effect decid 
+when to frisk and/or search stop individuals, i.e., when such intervent be like to 
+discov crimin possess of a weapon. 
+
+We first ran a 10-fold cross valid experi use corel and eight other al- 
+gorithms: logist regression, support vector machines, adaboost, cart, c4.5, random 
+forests, ripper, and scalabl bayesian rule list (sbrl). 3 We use standard R packages, 
+with default paramet settings, for the first seven algorithms. 4 
+
+figur 1 and 3 show exampl optim rule list that corel learn for the propublica 
+and nyclu datasets, respectively. while our goal be to provid illustr examples, and 
+not to provid a detail analysi nor to advoc for the use of these specif models, we 
+note that these rule list be short and easi to understand. In particular, the three-rul list 
+for weapon predict in figur 3 have the spirit of the heurist strategi present by goel 
+
+3. for sbrl, we use the C implement at https://github.com/hongyuy/sbrlmod. 
+4. for cart, c4.5 (j48), and ripper, i.e., the tree and rule list learn algorithms, we use the imple- 
+
+mentat from the R packag rpart, rweka, and caret, respectively. By default, cart us complex 
+paramet cp = 0.01, and c4.5 us complex paramet C = 0.25. 
+
+37 
+
+https://github.com/hongyuy/sbrlmod 
+
+
+angelino, larus-stone, alabi, seltzer, and rudin 
+
+0 5 10 15 20 25 30 35 
+model size 
+
+0.60 
+
+0.62 
+
+0.64 
+
+0.66 
+
+0.68 
+
+0.70 
+
+A 
+cc 
+
+u 
+ra 
+
+cy 
+
+two-year recidiv predict (propublica dataset) 
+
+corel (.005) 
+
+corel (.01) 
+
+corel (.02) 
+
+ripper 
+
+sbrl 
+
+cart (.001) 
+
+cart (.003) 
+
+cart (.01) 
+
+cart (.03) 
+
+cart (.1) 
+
+c4.5 (.05) 
+
+c4.5 (.15) 
+
+c4.5 (.25) 
+
+c4.5 (.35) 
+
+c4.5 (.45) 
+
+0 5 10 15 20 25 30 35 40 45 50 55 
+model size 
+
+0.63 
+
+0.65 
+
+0.67 
+
+0.69 
+
+0.71 
+
+0.73 
+
+0.75 
+
+A 
+cc 
+
+u 
+ra 
+
+cy 
+
+weapon predict (nyclu stop-and-frisk dataset) 
+
+corel (.0025) 
+
+corel (.01) 
+
+corel (.04) 
+
+sbrl 
+
+cart (.001) 
+
+cart (.003) 
+
+cart (.01) 
+
+cart (.1) 
+
+figur 5: train and test accuraci a a function of model size. for corels, cart, 
+and c4.5, we vari the regular paramet λ, and complex paramet cp and C, 
+respectively; number within parenthesi in the legend indic paramet values. note 
+that the cart implement set cp = 0.01 by default, and c4.5 us C = 0.25. legend 
+marker and error bar indic mean and standard deviations, respectively, of test accuraci 
+across cross-valid folds. small circl mark associ train accuraci means. top: 
+two-year recidiv predict for the propublica compa dataset. none of the model 
+exhibit signific overfitting: mean train accuraci never exce mean test accuraci by 
+more than about 0.01. bottom: weapon predict for the nyclu stop-and-frisk dataset. 
+onli cart with cp = 0.001 significantli overfits. We do not depict c4.5, which find larg 
+model (> 100 leaves) and dramat overfit for all test parameters. 
+
+et al. (2016) that combin three stop criterion and be base on a reduc version of their 
+full regress model. 
+
+figur 4 show that there be no statist signific differ in algorithm ac- 
+curacies. In fact, the differ between fold be far larg than the differ between 
+algorithms. We conclud that corel produc model whose accuraci be compar to 
+those found via other algorithms. 
+
+figur 5 summar differ in accuraci and model size for corel and other 
+tree (cart, c4.5) and rule list (ripper, sbrl) learn algorithms. for both problems, 
+corel can learn short rule list without sacrific accuracy. 
+
+38 
+
+
+
+learn certifi optim rule list for categor data 
+
+10-3 10-2 10-1 100 101 102 103 104 
+0.0 
+
+0.1 
+
+0.2 
+
+0.3 
+
+0.4 
+
+0.5 
+
+V 
+a 
+lu 
+
+e 
+
+1 
+
+2 3 4 
+
+execut progress 
+
+object (corels) 
+
+lower bound (corels) 
+
+lower bound (w/o equival point bound) 
+
+10-3 10-2 10-1 100 101 102 103 104 
+
+time (s) 
+
+0 
+
+50 
+
+100 
+
+150 
+
+lo 
+g 
+1 
+0 
+(S 
+
+iz 
+e 
+) 
+
+size of remain search space 
+
+w/o equival point bound 
+
+corel 
+
+figur 6: corel with (lines) and without (dashes) the equival point bound (theo- 
+rem 22). top: object valu (thin line) and low bound (thick line) for corels, a a 
+function of wall clock time (log scale). number hatch mark along the trace of the ob- 
+jectiv valu indic when the length of the best know rule list changes, and be label 
+by the new length. corel quickli achiev the optim valu (star marker), and certi- 
+fie optim when the low bound match the object value. A separ execut 
+of corel without the equival point bound remain far from complete, and it low 
+bound (dash line) far from the optimum. bottom: blog10 γ(rc, q)c, a a function of wall 
+clock time (log scale), where γ(rc, Q) be the upper bound on remain search space size 
+(theorem 7). 
+
+In the remainder, we show result use the propublica dataset. the solid line in 
+figur 6 illustr how both the object (top) and the size of the remain search space 
+(bottom) decreas a corel executes. the object drop quickly, achiev the optim 
+valu within 10 seconds. corel certifi optim in less than 6 minut – the object 
+low bound of the remain search space steadili converg to the optim object a 
+the search space shrinks. 
+
+finally, we determin the efficaci of each of our bound and data structur optimiza- 
+tions. both panel of figur 6 also highlight a separ execut of corel without the 
+equival point bound. after nearli 3 hours, the execut be still far from complete; in 
+particular, the low bound be far from the optimum object value. tabl 1 provid sum- 
+mari statist for experi use the full corel implement and five variant 
+that each remov a specif optimization. figur 7 present a view of the same experi- 
+ments. these plot depict the number of prefix of a give length in the queue dure the 
+algorithm’ execution. 
+
+39 
+
+
+
+angelino, larus-stone, alabi, seltzer, and rudin 
+
+remov compon ttotal (min) topt (s) itot (×106) qmax (×106) kmax 
+none (corels) 5.5 (1.6) 8 (2) 1.7 (0.4) 1.3 (0.4) 5-6 
+prioriti queue (bfs) 6.7 (2.2) 4 (1) 1.9 (0.6) 1.5 (0.5) 5-6 
+support bound 10.2 (3.4) 13 (4) 2.7 (0.8) 2.2 (0.7) 5-6 
+symmetry-awar map 58.6 (23.3) 23 (6) 16.0 (5.9) 14.5 (5.7) 5-6 
+lookahead bound 71.9 (23.0) 9 (2) 18.5 (5.9) 16.3 (5.3) 6-7 
+equival pt bound >134 >7168* >800 >789 ≥10 
+
+tabl 1: per-compon perform improvement. the column report total execut 
+time, time to optimum, number of queue insertions, maximum queue size, and maximum 
+evalu prefix length. the first row show corels; subsequ row show variant that 
+each remov a specif implement optim or bound. (we be not measur the 
+cumul effect of remov a sequenc of components.) all row repres complet 
+executions, except for the final row, in which each execut be termin due to memori 
+constraints, onc the size of the cach reach 8× 108 elements, after consum 390-410gb 
+ram. In all but the final row and column, we report mean (and standard deviations) over 
+10 cross-valid folds; in the final row, we report the minimum valu across folds. 
+* onli 4 out of 10 fold achiev the optimum befor be terminated. 
+
+10-4 10-3 10-2 10-1 100 101 102 103 104 
+100 
+
+101 
+
+102 
+
+103 
+
+104 
+
+105 
+
+106 
+
+107 
+
+108 
+
+C 
+o 
+u 
+n 
+t 
+
+1 2 3 4 
+
+T ≡ 149 s 
+
+corel 
+
+10-4 10-3 10-2 10-1 100 101 102 103 104 
+100 
+
+101 
+
+102 
+
+103 
+
+104 
+
+105 
+
+106 
+
+107 
+
+108 
+
+1 2 3 4 
+
+176 s ≈ 1.2 T 
+
+No prioriti queue 
+
+10-4 10-3 10-2 10-1 100 101 102 103 104 
+100 
+
+101 
+
+102 
+
+103 
+
+104 
+
+105 
+
+106 
+
+107 
+
+108 
+
+1 2 3 4 
+
+270 s ≈ 1.8 T 
+
+No support bound 
+
+10-4 10-3 10-2 10-1 100 101 102 103 104 
+
+time (s) 
+
+100 
+
+101 
+
+102 
+
+103 
+
+104 
+
+105 
+
+106 
+
+107 
+
+108 
+
+C 
+o 
+u 
+n 
+t 
+
+1 2 3 4 
+
+1340 s ≈ 9.0 T 
+
+No symmetry-awar map 
+
+10-4 10-3 10-2 10-1 100 101 102 103 104 
+
+time (s) 
+
+100 
+
+101 
+
+102 
+
+103 
+
+104 
+
+105 
+
+106 
+
+107 
+
+108 
+
+1 2 3 4 5 
+
+1759 s ≈ 12 T 
+
+No lookahead bound 
+
+10-4 10-3 10-2 10-1 100 101 102 103 104 
+
+time (s) 
+
+100 
+
+101 
+
+102 
+
+103 
+
+104 
+
+105 
+
+106 
+
+107 
+
+108 
+
+1 2 3 4 5 6 7 8 9 
+
+> 9532 s ≈ 64 T 
+
+No equival point bound 
+
+figur 7: logic queue composition. number of prefix in the queue (log scale), label 
+and color by length, a a function of wall clock time (log scale), for full corel (top 
+left), and five variant that each remov a specif implement optim or bound. 
+the gray shade fill in the area beneath the total number of queue element for corels, 
+i.e., the sum over all length in the top left figure. for comparison, we replic the same 
+gray region in the other three subfigures. for each execution, we indic the total time 
+both in seconds, and rel to the full corel implement (T = 149 s). 
+
+40 
+
+
+
+learn certifi optim rule list for categor data 
+
+7. conclus 
+
+corel be an effici and accur algorithm for construct provabl optim rule lists. 
+optim be particularli import in domain where model interpret have social 
+consequences, e.g., recidiv prediction. while achiev optim on such discret op- 
+timiz problem be comput hard in general, we aggress prune our prob- 
+lem’ search space via a suit of bounds. thi make realist size problem tractable. 
+corel be amen to parallelization, which should allow it to scale to even larg prob- 
+lems. 
+
+acknowledg 
+
+e.a. be support by the miller institut for basic research in science, univers of cal- 
+ifornia, berkeley, and be host by prof. m.i. jordan at riselab. c.d.r. be support in 
+part by mit-lincoln labs. e.a. would like to thank E. jonas, E. kohler, and S. Tu for 
+earli implement guidance, A. d’amour for point out the work by goel et al. (2016), 
+J. schleier-smith and E. thewalt for help conversations, and member of riselab, sail, 
+and the UC berkeley databas group for their support and feedback. We thank H. yang 
+and B. letham for share advic and code for process data and mine rules. 
+
+refer 
+
+K. P. bennett and J. A. blue. optim decis trees. technic report, r.p.i. math report 
+no. 214, renssela polytechn institute, 1996. 
+
+I. bratko. machin learning: between accuraci and interpretability. In learning, network 
+and statistics, volum 382 of intern centr for mechan sciences, page 163– 
+177. springer vienna, 1997. isbn 978-3-211-82910-3. 
+
+L. breiman, J. H. friedman, R. A. olshen, and C. J. stone. classif and regress 
+trees. wadsworth, 1984. 
+
+C. chen and C. rudin. optim fall rule list and softli fall rule lists. work in 
+progress, 2017. 
+
+H. A. chipman, E. I. george, and R. E. mcculloch. bayesian cart model search. journal 
+of the american statist association, 93(443):935–948, 1998. 
+
+H. A. chipman, E. I. george, and R. E. mcculloch. bayesian treed models. machin 
+learning, 48(1/3):299–320, 2002. 
+
+H. A. chipman, E. I. george, and R. E. mcculloch. bart: bayesian addit regress 
+trees. the annal of appli statistics, 4(1):266–298, 2010. 
+
+W. W. cohen. fast effect rule induction. In twelfth intern confer on machin 
+learn (icml), page 115–123, 1995. 
+
+41 
+
+
+
+angelino, larus-stone, alabi, seltzer, and rudin 
+
+R. M. dawes. the robust beauti of improp linear model in decis making. american 
+psychologist, 34(7):571–582, 1979. 
+
+D. dension, B. mallick, and a.f.m. smith. A bayesian cart algorithm. biometrika, 85 
+(2):363–377, 1998. 
+
+D. dobkin, T. fulton, D. gunopulos, S. kasif, and S. salzberg. induct of shallow decis 
+trees, 1996. 
+
+A. farhangfar, R. greiner, and M. zinkevich. A fast way to produc optim fixed-depth 
+decis trees. In intern symposium on artifici intellig and mathemat 
+(isaim 2008), 2008. 
+
+A. A. freitas. comprehens classif models: a posit paper. acm sigkdd 
+explor newsletter, 15(1):1–10, 2014. 
+
+M. garofalakis, D. hyun, R. rastogi, and K. shim. effici algorithm for construct 
+decis tree with constraints. In proceed of the sixth acm sigkdd intern 
+confer on knowledg discoveri and data mine (kdd’98), page 335–339, 2000. 
+
+C. giraud-carrier. beyond predict accuracy: what? In proceed of the ecml-98 
+workshop on upgrad learn to meta-level: model select and data transforma- 
+tion, page 78–85, 1998. 
+
+S. goel, J. M. rao, and R. shroff. precinct or prejudice? understand racial dispar 
+in new york city’ stop-and-frisk policy. ann. appl. stat., 10(1):365–394, 03 2016. 
+
+M. goessl and S. kang. direct decis lists. preprint at arxiv:1508.07643, aug 
+2015. 
+
+B. goodman and S. flaxman. EU regul on algorithm decision-mak and a “right 
+to explanation”. preprint at arxiv:1606.08813, 2016. 
+
+R. C. holte. veri simpl classif rule perform well on most commonli use datasets. 
+machin learning, 11(1):63–91, 1993. 
+
+J. huysmans, K. dejaeger, C. mues, J. vanthienen, and B. baesens. An empir evalu 
+of the comprehens of decis table, tree and rule base predict models. decis 
+support systems, 51(1):141–154, 2011. 
+
+H. lakkaraju and C. rudin. cost-sensit and interpret dynam treatment regim 
+base on rule lists. In proceed of the artifici intellig and statist (aistats), 
+2017. 
+
+J. larson, S. mattu, L. kirchner, and J. angwin. how we analyz the compa recidiv 
+algorithm. propublica, 2016. 
+
+N. L. larus-stone. learn certifi optim rule lists: A case for discret optimiza- 
+tion in the 21st century. 2017. undergradu thesis, harvard college. 
+
+42 
+
+
+
+learn certifi optim rule list for categor data 
+
+B. letham, C. rudin, T. H. mccormick, and D. madigan. interpret classifi use 
+rule and bayesian analysis: build a good stroke predict model. annal of appli 
+statistics, 9(3):1350–1371, 2015. 
+
+W. li, J. han, and J. pei. cmar: accur and effici classif base on multipl 
+class-associ rules. ieee intern confer on data mining, page 369–376, 
+2001. 
+
+B. liu, W. hsu, and Y. ma. integr classif and associ rule mining. In pro- 
+ceed of the 4th intern confer on knowledg discoveri and data mining, 
+kdd ’98, page 80–96, 1998. 
+
+M. marchand and M. sokolova. learn with decis list of data-depend features. 
+journal of machin learn research, 6:427–451, 2005. 
+
+T. H. mccormick, C. rudin, and D. madigan. bayesian hierarch rule model for 
+predict medic conditions. the annal of appli statistics, 6:652–668, 2012. 
+
+S. muggleton and L. De raedt. induct logic programming: theori and methods. the 
+journal of logic programming, 19:629–679, 1994. 
+
+new york civil liberti union. stop-and-frisk data, 2014. http://www.nyclu.org/ 
+content/stop-and-frisk-data. 
+
+S. nijssen and E. fromont. optim constraint-bas decis tree induct from itemset 
+lattices. data mine and knowledg discovery, 21(1):9–51, 2010. issn 1384-5810. 
+
+J. R. quinlan. c4.5: program for machin learning. morgan kaufmann, 1993. 
+
+R. L. rivest. learn decis lists. machin learning, 2(3):229–246, novemb 1987. 
+
+C. rudin and S. ertekin. learn optim list of rule with mathemat programming. 
+unpublished, 2015. 
+
+C. rudin, B. letham, and D. madigan. learn theori analysi for associ rule and 
+sequenti event prediction. journal of machin learn research, 14:3384–3436, 2013. 
+
+S. rüping. learn interpret models. phd thesis, universität dortmund, 2006. 
+
+G. shmueli. To explain or to predict? statist science, 25(3):289–310, august 2010. issn 
+0883-4237. 
+
+M. sokolova, M. marchand, N. japkowicz, and J. shawe-taylor. the decis list machine. 
+In advanc in neural inform process systems, volum 15 of nip ’03, page 
+921–928, 2003. 
+
+K. vanhoof and B. depaire. structur of associ rule classifiers: A review. In proceed 
+of the intern confer on intellig system and knowledg engineering, isk 
+’10, page 9–12, 2010. 
+
+43 
+
+http://www.nyclu.org/content/stop-and-frisk-data 
+http://www.nyclu.org/content/stop-and-frisk-data 
+
+
+angelino, larus-stone, alabi, seltzer, and rudin 
+
+A. vellido, J. D. mart́ın-guerrero, and P. j.g. lisboa. make machin learn model 
+interpretable. In proceed of the european symposium on artifici neural networks, 
+comput intellig and machin learning, 2012. 
+
+F. wang and C. rudin. fall rule lists. In proceed of artifici intellig and 
+statist (aistats), 2015. 
+
+H. yang, C. rudin, and M. seltzer. scalabl bayesian rule lists. preprint at 
+arxiv:1602.08610, 2016. 
+
+X. yin and J. han. cpar: classif base on predict associ rules. In pro- 
+ceed of the 2003 siam intern confer on data mining, icdm ’03, page 
+331–335, 2003. 
+
+Y. zhang, E. B. laber, A. tsiatis, and M. davidian. use decis list to construct 
+interpret and parsimoni treatment regimes. preprint at arxiv:1504.07715, april 
+2015. 
+
+44 
+
+
+1 introduct 
+2 relat work 
+3 learn optim rule list 
+3.1 rule list for binari classif 
+3.2 object function 
+3.3 optim framework 
+3.4 hierarch object low bound 
+3.5 upper bound on prefix length 
+3.6 upper bound on the number of prefix evalu 
+3.7 lower bound on anteced support 
+3.8 upper bound on anteced support 
+3.9 anteced reject and it propag 
+3.10 equival support bound 
+3.11 permut bound 
+3.12 upper bound on prefix evalu with symmetry-awar prune 
+3.13 similar support bound 
+3.14 equival point bound 
+
+4 increment comput 
+5 implement 
+6 experi 
+7 conclus 
+
