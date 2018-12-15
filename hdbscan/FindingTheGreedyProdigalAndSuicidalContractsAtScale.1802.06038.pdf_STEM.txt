@@ -1,0 +1,1976 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+find the greedy, prodigal, and suicid contract at scale 
+
+ivica nikolić 
+school of computing, nu 
+
+singapor 
+
+aashish kolluri 
+school of computing, nu 
+
+singapor 
+
+ilya sergey 
+univers colleg london 
+
+unit kingdom 
+
+prateek saxena 
+school of computing, nu 
+
+singapor 
+
+aquina hobor 
+yale-nu colleg and school of computing, nu 
+
+singapor 
+
+abstract 
+smart contracts—st execut object host on 
+blockchain like ethereum—carri billion of dollar 
+worth of coin and cannot be updat onc deployed. We 
+present a new systemat character of a class of 
+trace vulnerabilities, which result from analyz mul- 
+tipl invoc of a contract over it lifetime. We fo- 
+cu attent on three exampl properti of such trace 
+vulnerabilities: find contract that either lock fund 
+indefinitely, leak them carelessli to arbitrari users, or 
+can be kill by anyone. We implement maian, the 
+first tool for precis specifi and reason about 
+trace properties, which employ inter-procedur sym- 
+bolic analysi and concret valid for exhibit real 
+exploits. our analysi of nearli one million contract 
+flag 34,200 (2,365 distinct) contract vulnerable, in 10 
+second per contract. On a subset of 3,759 contract 
+which we sampl for concret valid and manual 
+analysis, we reproduc real exploit at a true posit rate 
+of 89%, yield exploit for 3,686 contracts. our tool 
+find exploit for the infam pariti bug that indirectli 
+lock 200 million dollar worth in ether, which previ- 
+ou analysi fail to capture. 
+
+1 introduct 
+
+cryptocurr featur a distribut protocol for a set 
+of comput to agre on the state of a public ledger 
+call the blockchain. prototypically, these distribut 
+ledger map account or address (the public half of a 
+cryptograph key pair) with quantiti of virtual “coins”. 
+miners, or the comput nodes, facilit record the 
+state of a payment network, encod transact that 
+transfer coin from one address to another. A signifi- 
+cant number of blockchain protocol now exist, and a of 
+write the market valu of the associ coin be over 
+$300 billion us, creat a lucr attack target. 
+
+smart contract extend the idea of a blockchain to a 
+comput platform for decentr execut of general- 
+
+purpos applications. contract be program that run on 
+blockchains: their code and state be store on the ledger, 
+and they can send and receiv coins. smart contract 
+have be popular by the ethereum blockchain. re- 
+cently, sophist applic of smart contract have 
+arisen, especi in the area of token manag due 
+to the develop of the erc20 token standard. thi 
+standard allow the uniform manag of custom to- 
+kens, enabling, e.g., decentr exchang and com- 
+plex wallets. today, over a million smart contract oper- 
+ate on the ethereum network, and thi count be growing. 
+
+smart contract offer a particularli uniqu combina- 
+tion of secur challenges. onc deploy they can- 
+not be upgrad or patched,1 unlik tradit con- 
+sumer devic software. secondly, they be write in a 
+new ecosystem of languag and runtim environments, 
+the de facto standard for which be the ethereum virtual 
+machin and it program languag call solidity. 
+contract be rel difficult to test, especi sinc 
+their runtim allow them to interact with other smart 
+contract and extern off-chain services; they can be in- 
+voke repeatedli by transact from a larg number of 
+users. third, sinc coin on a blockchain often have sig- 
+nific value, attack be highli incentiv to find 
+and exploit bug in contract that process or hold them 
+directli for profit. the attack on the dao contract cost 
+the ethereum commun $60 million us; and sever 
+more recent one have have impact of a similar scale [1]. 
+
+In thi work, we present a systemat character 
+of a class of vulner that we call a trace vulner- 
+abilities. unlik mani previou work that have appli 
+static and dynam analysi to find bug in contract au- 
+tomat [2–5], our work focu on detect vul- 
+nerabl across a long sequenc of invoc of a 
+contract. We label vulner contract with three cate- 
+gori — greedy, prodigal, and suicid — which either 
+lock fund indefinitely, leak them to arbitrari users, or 
+
+1other than by “hard forks”, which be essenti decis of the 
+commun to chang the protocol and be extrem rare. 
+
+ar 
+X 
+
+iv 
+:1 
+
+80 
+2. 
+
+06 
+03 
+
+8v 
+1 
+
+[ 
+c 
+
+.C 
+R 
+
+] 
+1 
+
+6 
+Fe 
+
+b 
+20 
+
+18 
+
+
+
+be suscept to by kill by ani user. our precis de- 
+fin properti captur mani well-known exampl of 
+know anecdot bug [1, 6, 7], but broadli cover a class 
+of exampl that be not know in prior work or public 
+reports. more importantly, our character allow 
+u to concret check for bug by run the contract, 
+which aid determin confirm true positives. 
+
+We build an analysi tool call maian for find- 
+ing these vulner directli from the bytecod of 
+ethereum smart contracts, without requir sourc code 
+access. In total, across the three categori of vulnera- 
+bilities, maian have be use to analyz 970,898 con- 
+tract live of the public ethereum blockchain. our tech- 
+niqu be power enough to find the infam pariti 
+bug that indirectli caus 200 million dollar worth of 
+ether, which be not found by previou analyses. A total 
+of 34,200 (2,365 distinct) contract be flag a poten- 
+tialli buggy, directli carri the equival of million of 
+dollar worth of ether. As in the case of the pariti bug, 
+they may put a larg amount to risk, sinc contract in- 
+teract with one another. for 3,759 contract we tri to 
+concret validate, maian have found over 3,686 con- 
+firm vulner with 89% true posit rate. all 
+vulner be uncov on averag within 10 sec- 
+ond of analysi per contract. 
+contributions. We make the follow contributions: 
+• We identifi three class of trace vulnerabilities, 
+
+which can be captur a properti of a execut 
+trace — potenti infinit sequenc of invoc 
+of a contract. previou techniqu and tool [3] be not 
+design to find these bug becaus they onli model 
+behavior for a singl call to a contract. 
+
+• We provid formal high-ord properti to check 
+which admit a mechan symbol analysi proce- 
+dure for detection. We fulli implement maian, a tool 
+for symbol analysi of smart contract bytecod (with- 
+out access to sourc code). 
+
+• We test close to one million contracts, find thou- 
+sand of confirm true posit within a few second 
+of analysi time per contract. test trace properti 
+with maian be practical. 
+
+2 problem 
+
+We defin a new class of trace vulnerabilities, show 
+three specif exampl of properti that can be check 
+in thi broader class. We present our approach and tool 
+to reason about the class of trace vulnerabilities. 
+
+2.1 background on smart contract 
+
+smart contract in ethereum run on ethereum virtual 
+machin (evm), a stack-bas execut runtim [8]. 
+
+differ sourc languag compil to the evm seman- 
+tics, the predomin of them be solid [9]. A smart 
+contract embodi the concept of an autonom agent, 
+identifi by it program logic, it identifi address, 
+and it associ balanc in ether. contracts, like other 
+addresses, can receiv ether from extern agent stor- 
+ing it in their balanc field; they can can also send ether 
+to other address via transactions. A smart contract be 
+creat by the owner who send an initi transac- 
+tion, which contain the contract bytecod and have no 
+specifi recipient. due to the persist natur of the 
+blockchain, onc initialized, the contract code cannot 
+be updated. contract live perpetu unless they be 
+explicitli termin by execut the suicid byte- 
+code instruction, after which they be no longer invo- 
+cabl or call dead. when alive, contract can be in- 
+voke mani times. each invoc be trigger by send- 
+ing a transact to the contract address, togeth with 
+input data and a fee (known a gas) [8]. the mine net- 
+work execut separ instanc of the contract code and 
+agre on the output of the invoc via the standard 
+blockchain consensu protocol, i.e., nakamoto consen- 
+su [10, 11]. the result of the comput be replic 
+via the blockchain and grant a transact fee to the min- 
+er a per block reward rate establish periodically. 
+
+the evm allow contract function to have local state, 
+while the contract may have global variabl store on 
+the blockchain. contract can invok other contract via 
+messag calls; output of these calls, consid to be 
+a part of the same transaction, be return to the caller 
+dure the runtime. importantly, call be also use to 
+send ether to other contract and non-contract addresses. 
+the balanc of a contract can be read by anyone, but be 
+onli updat via call from other contract and extern 
+initi transactions. 
+
+contract can be execut repeatedli over their life- 
+time. A transact can run one invoc of the con- 
+tract and an execut trace be a (possibl infinite) se- 
+quenc of run of a contract record on the blockchain. 
+our work show the import of reason about ex- 
+ecut trace of contract with a class of vulner 
+that have not be address in prior works, and provid 
+an automat tool to detect these issues. 
+
+2.2 contract with trace vulner 
+
+while trace vulner be a broader class, we our 
+focu attent on three exampl properti to check of 
+contract traces. specifically, we flag contract which (a) 
+can be kill by arbitrari addresses, (b) have no way to 
+releas ether after a certain execut state, and (c) re- 
+leas ether to arbitrari address carelessly. 
+
+note that ani character of bug must be take 
+with a grain of salt, sinc one can alway argu that the 
+
+2 
+
+
+
+1 function payout(address [] recipi , 
+
+2 uint256 [] amounts) { 
+
+3 require(recipients.length == amounts.length); 
+
+4 for (uint i = 0; i < recipients.length; i++) { 
+
+5 /* ... */ 
+
+6 recipients[i].send(amounts[i]); 
+
+7 }} 
+
+figur 1: bounti contract; payout leak ether. 
+
+expos behavior embodi intent — a be debat in 
+the case of the dao bug [6]. our character of 
+vulner be based, in part, on anecdot incid 
+report publicli [6,7,12]. To the best of our knowledge, 
+however, our character be the first to precis de- 
+fine checkabl properti of such incid and measur 
+their prevalence. note that there be sever valid rea- 
+son for contract for be killable, hold fund in- 
+definit under certain conditions, or give them out 
+to address not know at the time of deployment. for 
+instance, a common secur best practic be that when 
+under attack, a contract should be kill and should re- 
+turn fund to a trust address, such a that of the owner. 
+similarly, benign contract such a bounti or games, 
+often hold fund for long period of time (until a bounti 
+be awarded) and releas them to address that be not 
+know statically. our character admit these be- 
+nign behavior and flag egregi violat describ 
+next, for which we be unabl to find justifi intent. 
+prodig contracts. contract often return fund to 
+owner (when under attack), to address that have sent 
+ether to it in past (e.g., in lotteries), or to address 
+that exhibit a specif solut (e.g., in bounties). how- 
+ever, when a contract give away ether to an arbitrari 
+address— which be not an owner, have never deposit 
+ether in the contract, and have provid no data that be 
+difficult to fabric by an arbitrari observer—w deem 
+thi a a vulnerability. We be interest in find such 
+contracts, which we call a prodigal. 
+
+consid the bounti contract with code fragment 
+give in figur 1. thi contract collect ether from dif- 
+ferent sourc and reward bounti to a select set of 
+recipients. In the contract, the function payout send to 
+a list of recipi specifi amount of ether. It be clear 
+from the function definit that the recipi and the 
+amount be provid a inputs, and anybodi can call 
+the function (i.e., the function do not have restrict 
+on the sender). the messag sender of the transact 
+be not check for; the onli check be on the size of lists. 
+therefore, ani user can invok thi function with a list of 
+recipi of her choice, and complet drain it ether. 
+
+the abov contract requir a singl function invoca- 
+tion to leak it ether. however, there be exampl of 
+contract which need two or more invoc (call with 
+specif arguments) to caus a leak. exampl of such 
+
+1 function initmultiowned(address [] _owner , 
+
+2 uint _required){ 
+
+3 if (m_numown > 0) throw; 
+
+4 m_numown = _owners.length + 1; 
+
+5 m_owner [1] = uint(msg.sender); 
+
+6 m_ownerindex[uint(msg.sender)] = 1; 
+
+7 m_requir = _required; 
+
+8 /* ... */ 
+
+9 } 
+
+10 
+
+11 function kill(address _to) { 
+
+12 uint ownerindex = m_ownerindex[uint(msg.sender)]; 
+
+13 if (ownerindex == 0) return; 
+
+14 var pend = m_pending[sha3(msg.data)]; 
+
+15 if (pending.yetneed == 0) { 
+
+16 pending.yetneed = m_required; 
+
+17 pending.ownersdon = 0; 
+
+18 } 
+
+19 uint ownerindexbit = 2** ownerindex; 
+
+20 if (pending.ownersdon & ownerindexbit == 0) { 
+
+21 if (pending.yetneed <= 1) 
+
+22 suicide(_to); 
+
+23 els { 
+
+24 pending.yetneed --; 
+
+25 pending.ownersdon |= ownerindexbit; 
+
+26 } 
+
+27 } 
+
+28 } 
+
+figur 2: simplifi fragment of paritywalletlibrari 
+contract, which can be killed. 
+
+contract be present in section 5. 
+suicid contracts. A contract often enabl a secur 
+fallback option of be kill by it owner (or trust ad- 
+dresses) in emerg situat like when be drain 
+of it ether due to attacks, or when malfunctioning. 
+however, if a contract can be kill by ani arbitrari ac- 
+count, which would make it to execut the suicid in- 
+struction, we consid it vulner and call it suicidal. 
+
+the recent pariti fiasco [1] be a concret exampl 
+of such type of a contract. A supposedli innoc 
+ethereum user [13] kill a librari contract on which 
+the main pariti contract relies, thu render the lat- 
+ter non-funct and lock all it ether. To under- 
+stand the suicid side of the librari contract, focu on 
+the shorten code fragment of thi contract give in 
+figur 2. To kill the contract, the user invok two dif- 
+ferent functions: one to set the ownership,2 and one to 
+actual kill the contract. that is, the user first call 
+initmultiowned, provid empti array for _owners, 
+and zero for _required. thi effect mean that the 
+contract have no owner and that nobodi have to agre to 
+execut a specif contract function. then the user in- 
+voke the function kill. thi function need _requir 
+number of owner to agre to kill the contract, befor the 
+actual suicid command at line 22 be executed. how- 
+ever, sinc in the previou call to initmultiowned, the 
+
+2the bug would have be prevent have the function 
+initmultiown be properli initi by the authors. 
+
+3 
+
+
+
+1 contract addressreg{ 
+
+2 address public owner; 
+
+3 map (address=>bool) isverifiedmap; 
+
+4 function setowner(address _owner){ 
+
+5 if (msg.sender == owner) 
+
+6 owner = _owner; 
+
+7 } 
+
+8 function addressreg (){ owner = msg.sender; } 
+
+9 function verify(address addr){ 
+
+10 if (msg.sender == owner) 
+
+11 isverifiedmap[addr] = true; 
+
+12 } 
+
+13 function deverify(address addr){ 
+
+14 if (msg.sender == owner) 
+
+15 isverifiedmap[addr] = false; 
+
+16 } 
+
+17 function hasphysicaladdress(address addr) 
+
+18 constant returns(bool){ 
+
+19 return isverifiedmap[addr]; 
+
+20 } 
+
+21 } 
+
+figur 3: addressreg contract lock ether. 
+
+valu of _requir be set to zero, suicid be executed, 
+and thu the contract be killed. 
+greedi contracts. We refer to contract that remain 
+aliv and lock ether indefinitely, allow it be releas 
+under no conditions, a greedy. In the exampl of the 
+pariti contract, mani other multisigwallet-lik con- 
+tract which held ether, use function from the pariti 
+librari contract to releas fund to their users. after 
+the pariti librari contract be killed, the wallet con- 
+tract could no longer access the library, thu becom 
+greedy. thi vulner result in lock of $200m 
+US worth of ether indefinitely! 
+
+greedi contract can aris out of more direct error a 
+well. the most common such error occur in contract 
+that accept ether but either complet lack instruct 
+that send ether out (e.g. send, call, transfer), or 
+such instruct be not reachable. An exampl of con- 
+tract that lack command that releas ether, that have al- 
+readi lock ether be give in figur 3. 
+posthum contracts. when a contract be killed, 
+it code and global variabl be clear from the 
+blockchain, thu prevent ani further execut of it 
+code. however, all kill contract continu to receiv 
+transactions. although such transact can no longer 
+invok the code of the contract, if ether be sent along 
+them, it be add to the contract balance, and similarli to 
+the abov case, it be lock indefinitely. kill contract or 
+contract that do not contain ani code, but have non-zero 
+ether we call posthumous. It be the onu of the sender to 
+check if the contract be aliv befor send ether, and 
+evid show that thi be not alway the case. becaus 
+posthum contract requir no further static analysi 
+beyond that for identifi suicid contracts, we do not 
+treat thi a a separ class of bugs. We mere list all 
+
+07/02/2018 tool - vectr 
+
+https://vectr.com/ashgeek/b4jrqbqtay 1/1 
+
+symbol 
+analysi 
+
+sampl exploit 
+
+concret 
+valid 
+
+bytecod 
+
+analysi 
+specif 
+
+result 
+
+maian 
+
+figur 4: maian 
+
+posthum contract on the live ethereum blockchain 
+we have found in section 5. 
+
+2.3 our approach 
+
+each run of the contract, call an invocation, may exer- 
+cise an execut path in the contract code under a give 
+input context. note that prior work have consid 
+bug that be properti of one invocation, ignor the 
+chain of effect across a trace of invoc [2,5,14–17]. 
+
+We develop a tool that us systemat techniqu to 
+find contract that violat specif properti of traces. 
+the violat be either: 
+
+(a) of safeti properties, assert that there exist a 
+trace from a specifi blockchain state that caus the 
+contract to violat certain conditions; and 
+
+(b) of live properties, assert whether some ac- 
+tion cannot be take in ani execut start from a 
+specifi blockchain state. 
+
+We formul the three kind of vulner contract 
+a these safeti and live trace properti in section 3. 
+our techniqu of find vulnerabilities, implement a 
+a tool call maian and describ in section 4, con- 
+sist of two major components: symbol analysi and 
+concret validation. the symbol analysi compon 
+take contract bytecod and analysi specif a in- 
+puts. the specif includ vulner categori 
+to search for and depth of the search space, which fur- 
+ther we refer to a invoc depth, along with a few 
+other analysi paramet we outlin in section 4. To de- 
+velop our symbol analysi component, we implement 
+a custom ethereum virtual machine, which facilit 
+symbol execut of contract bytecod [3]. with everi 
+contract candidate, our compon run possibl execu- 
+tion trace symbolically, until it find a trace which satis- 
+fie a set of predetermin properties. the input context 
+to everi execut trace be a set of symbol variables. 
+onc a contract be flagged, the compon return con- 
+crete valu for these variables. our final step be to run 
+the contract concret and valid the result for true 
+positives; thi step be implement by our concret val- 
+idat component. the concret valid compon 
+take the input gener by symbol analysi compo- 
+
+4 
+
+
+
+nent and check the exploit of the contract on a privat 
+fork of ethereum blockchain. essentially, it be a testb 
+environ use to confirm the correct of the bugs. 
+As a result, at the end of valid the candid contract 
+be determin a true or fals positive, but the contract 
+state on main blockchain be not affect sinc no chang 
+be commit to the offici ethereum blockchain. 
+
+3 execut model and trace properti 
+
+A life cycl of a smart contract can be repres by a 
+sequenc of the contract’ states, which describ the val- 
+ue of the contract’ fields, a well a it balance, inter- 
+leav with instruct and irrevers action it per- 
+form modifi the global context of the blockchain, 
+such transfer ether or commit suicide. one can 
+consid a contract to be buggi with respect to a certain 
+class of unwelcom high-level scenario (e.g., “leaking” 
+funds) if some of it finit execut trace fail to sat- 
+isfi a certain condition. trace properti characteris 
+thi way be tradit qualifi a trace-safeti ones, 
+mean that “dure a final execut noth bad hap- 
+pens”. prove the absenc of some other high-level bug 
+will, however, requir establish a statement of a dif- 
+ferent kind, namely, “someth good must eventu 
+happen”. such properti be know a live one 
+and requir reason about progress in executions. An 
+exampl of such properti would be an assert that a 
+contract can alway execut a finit number of step in 
+order to perform an action of interest, such a tranfer 
+money, in order to be consid non-greedy. 
+
+In thi section, we formal defin the execut model 
+of ethereum smart contracts, allow one to pinpoint 
+the vulner characteris in section 2.2. the key 
+idea of our bug-catch approach be to formul the 
+erron behaviour a predic of observ contract 
+traces, rather than individu configur and instruc- 
+tion invocations, occur in the process of an execu- 
+tion. By do so, we be abl to (a) captur the prodi- 
+gal/suicid contract via condit that relat the un- 
+welcom agent gaining, at some point, access to a con- 
+tract’ fund or suicid function by find a way 
+around a plan semantics, and (b) respond about re- 
+peat behaviour pattern in the contract life cycles, 
+allow u to detect greedi contracts. 
+
+3.1 evm semant and execut trace 
+We begin with defin cotnract execut trace by 
+adopt a low-level execut semant of an evm- 
+like languag in the form of etherlite-lik calcu- 
+lu [2]. etherlit implement a small-step stack ma- 
+chine, oper on top of a global configur of the 
+blockchain, which use to retriev contract code and 
+
+ascrib ether balanc to accounts, a well a manipula- 
+tion with the local contract configuration. As custom- 
+ari in ethereum, such agent be repres by it address 
+id, and might be a contract itself. for the purpos of 
+thi work, we simplifi the semant of etherlit by 
+elid the execut result in exceptions, a reason- 
+ing about such be orthogon to the properti of interest. 
+therefore, the configur δ of the etherlit ab- 
+stract machin be defin a follows: 
+
+configur δ , 〈a,σ〉 
+execut stack A , 〈m, id,pc,s,m〉 ·A | ε 
+messag m , {sender 7→ id; valu : N; data 7→ . . .} 
+blockchain state σ , id 7→ 
+
+{ 
+bal : N; code? 7→m; f ? 7→ v 
+
+} 
+that is, a contract execut configur consist 
+
+of an activ record stack A and a blockchain con- 
+text σ . An activ record stack A be a list of tupl 
+〈m, id,pc,s,m〉, where id and M be the address and the 
+code of the contract current be executed, pc be a pro- 
+gram counter point to the next instruct to be exe- 
+cuted, s be a local operand stack, and m be the last mes- 
+sage use to invok the contract execution. among other 
+fields, m store the ident of the sender, the amount 
+valu of the ether be transfer (repres a a nat- 
+ural number), a well a auxiliari field (data) use to 
+provid addit argument for a contract call, which 
+we will be omit for the sake of brevity. finally, a 
+simplifi context σ of a blockchain be encod a a fi- 
+nite partial map from an account id to it balanc 
+and contract code M and it mutabl state, map the 
+field name f to the correspond values,3 which both 
+be option (hence, mark with ?) and be onli present 
+for contract-stor blockchain records. We will further 
+refer to the union of a contract’ field entri f 7→ v and 
+it balanc entri bal 7→ z a a contract state ρ . 
+
+figur 5 present select rule for a smart contract 
+execut in etherlite.4 the rule for store and 
+load valu to/from a contract’ field f be standard. 
+upon call anoth account, a rule call be executed, 
+which requir the amount of ether z to be transfer 
+to be not larg than the contract id’ current balance, 
+and chang the activ record stack and the global 
+blockchain context accordingly. finally, the rule sui- 
+cidenonemptystack provid the semant for the 
+suicid instruct (for the case of a non-empti activa- 
+tion record stack), in which case all fund of the termi- 
+nate contract id be transfer to the caller’ id′. 
+
+An import addit we make to the semant of 
+etherlit be execut labels, which allow to distin- 
+
+3for simplic of presentation, we treat all contract state a persis- 
+tent, elid oper with auxiliari memory, such a mload/mstore. 
+
+4the remain rule can be found in the work by luu et al. [2]. 
+
+5 
+
+
+
+sstore 
+m[pc] = sstore σ ′ = σ [id][ f 7→ v] 
+
+〈〈m, id,pc, f · v · s,m〉 ·a,σ〉 sstore( f , v)−−−−−−−→ 〈〈m, id,pc+1,s,m〉 ·a,σ ′〉 
+
+sload 
+m[pc] = sload v = σ [id][ f ] 
+
+〈〈m, id,pc, f · s,m〉 ·a,σ〉 sload( f , v)−−−−−−−→ 〈〈m, id,pc+1,v · s,m〉 ·a,σ〉 
+
+call 
+m[pc] = call σ [id][bal]≥ z 
+
+s = id′ · z ·arg · s′ a = 〈m, id,pc+1,s′,m〉 
+m′ = {sender 7→ id;valu 7→ z;data 7→ args} M′ = σ [id′][code] 
+
+σ ′ = σ [id][bal 7→ σ [id][bal]− z] σ ′′ = σ ′[id′][bal 7→ σ ′[id′][bal]+ z] 
+
+〈〈m, id,pc,s,m〉 ·a,σ〉 call(id 
+′, m′)−−−−−−−→ 〈〈m′, id′,0,ε,m′〉 ·a ·a,σ ′′〉 
+
+suicidenonemptystack 
+m[pc] = suicid s = id′ · s′ a = 〈m′,pc′,s′′,m′〉 
+
+σ ′ = σ [id′][bal 7→ (σ [id′][bal]+σ [id][bal])] σ ′′ = σ ′[id][bal 7→ 0] 
+
+〈〈m, id,pc,s,m〉 ·a ·a,σ〉 suicide(id 
+′)−−−−−−−→ 〈〈m′, id′,pc′,1 · s′′,m′〉 ·a,σ ′′〉 
+
+figur 5: select execut rule of etherlite. 
+
+guish between specif transit be taken, a well a 
+their parameters, and be defin a follows: 
+
+` , sstore( f , v) | sload( f , v) | call(id, m) | suicide(id) | . . . 
+
+for instance, a transit label of the form call(id, m) 
+captur the fact that a current run contract have 
+transfer control to anoth contract id, by send it 
+a messag m, while the label suicide(id) would mean a 
+suicid of the current contract, with transfer of all of it 
+fund to the account (a contract’ or not) id. 
+
+with the label oper semant at hand, we 
+can now provid a definit of partial contract execut 
+trace a sequenc of interleav contract state ρi and 
+transit label ` j a follows: 
+
+definit 3.1 (project contract trace). A partial pro- 
+ject trace t = τ̂id(σ ,m) of a contract id in an initi 
+blockchain state σ and an incom messag m be defin 
+a a sequenc [〈ρ0, `0〉, . . . ,〈ρn, `n〉], such that for everi 
+i ∈ {0 . . .n}, ρi = σi[id]|bal, f , where σi be the blockchain 
+state at the ith occurr of a configur of the form, 
+〈〈•, id,•,•,•〉,σi〉 in an execut sequenc start from 
+the configur 〈〈σ [id][code], id,0,ε,m〉 · ε,σ〉, and `i 
+be a label of an immedi next transition. 
+
+In other words, τ̂id(σ ,m) captur the state of a con- 
+tract id, interleav with the transit take “on it be- 
+half” and repres by the correspond labels, start- 
+ing from the initi blockchain σ and trigger by the 
+messag m. the notat σ [id]|bal, f stand for a projec- 
+tion to the correspond compon of the contract en- 
+tri in σ . state and transit of contract other than id 
+and involv into the same execut are, thus, ignored. 
+
+given a (partial) project trace τ̂id(σ ,m), we say that 
+it be complete, if it correspond to an execution, whose 
+
+last configur be 〈ε,σ ′〉 for some σ ′. the follow 
+definit captur the behavior of multipl subsequ 
+transact with respect to a contract of interest. 
+
+definit 3.2 (multi-transact contract trace). A 
+contract trace t = τid(σ ,mi), for a sequenc of messag 
+mi = m0, . . . ,mn, be a concaten of single-transact 
+trace τ̂id(σi,mi), where σ0 = σ , σi+1 be a blockchain 
+state at the end of an execut start from a con- 
+figur 〈〈σ [id][code], id,0,ε,mi〉 · ε,σi〉, and all trace 
+τ̂id(σi,mi) be complet for i ∈ {0, . . . ,n−1}. 
+
+As stated, the definit do not requir a trace to end 
+with a complet execut at the last transaction. for 
+convenience, we will refer to the last element of a trace t 
+by last(t) and to it length a length(t). 
+
+3.2 characteris safeti violat 
+the notion of contract trace allow u to formal cap- 
+ture the definit of buggi behaviors, describ previ- 
+ousli in section 2.2. first, we turn our attent to the 
+prodigal/suicid contracts, which can be uniformli cap- 
+ture by the follow higher-ord trace predicate. 
+
+definit 3.3 (leaki contracts). A contract with an ad- 
+dress id be consid to be leaki with respect to pred- 
+icat P, R and Q, and a blockchain state σ (denot 
+leakyp,r,q(id,σ)) iff there exist a sequenc of messag 
+mi, such that for a trace t = τid(σ ,mi): 
+1. the precondit p(σ [id][code], t0,m0) holds, 
+2. the side condit r(ti,m0) hold for all i < length(t), 
+3. the postcondit q(tn,m0) hold for tn = last(t). 
+
+definit 3.3 of leaki contract be rel with re- 
+spect to a current state of a blockchain: a contract that be 
+current leaki may stop be such in the future. also, 
+notic that the “triggering” initi messag m0 serf a 
+an argument for all three paramet predicates. We will 
+now show how two behavior observ earli can be en- 
+cod via specif choic of P, R, and q.5 
+
+prodig contracts. A contract be consid prodig if 
+it send ether, immedi or after a seri of transit 
+(possibl span multipl transactions), to an arbitrari 
+sender. thi intuit can be encod via the follow 
+choic of P, R, and Q for definit 3.3: 
+
+p(m,〈ρ, `〉,m) , m[sender] /∈ im(ρ)∧m[value] = 0 
+r(〈ρ, `〉,m) , true 
+q(〈ρ, `〉,m) , `= call(m[sender],m′)∧m′[value]> 0 
+
+∨ `= delegatecall(m[sender]) 
+∨ `= suicide(m[sender]) 
+
+accord to the instanti of the paramet predi- 
+cate above, a prodig contract be expos by a trace that 
+
+5in most of the cases, it be suffici to take R , true, but in sec- 
+tion 6 we hint certain properti that requir a non-trivi side condition. 
+
+6 
+
+
+
+be trigger by a messag m, whose sender do not ap- 
+pear in the contract’ state (m[sender] /∈ im(ρ)), i.e., it be 
+not the owner, and the ether payload of m be zero. To 
+expos the erron behavior of the contract, the post- 
+condit check that the transit of a contract be such 
+that it transfer fund or control (i.e., correspond to call, 
+delegatecal or suicid instruct [8]) with the re- 
+cipient be the sender of the initi message. In the case 
+of send fund via call we also check that the amount 
+be transfer be non zero. In other words, the initi 
+caller m[sender], unknown to the contract, get himself 
+some fund without ani monetari contribution! In prin- 
+ciple, we could ensur minim of a trace, subject to 
+the property, by impos a non-trivi side condit R, 
+although thi do not affect the class of contract ex- 
+pose by thi definition. 
+suicid contracts. A definit of a suicid contract 
+be veri similar to the one of a prodig contract. It be 
+deliv by the follow choic of predicates: 
+
+p(m,〈ρ, `〉,m) , suicid ∈m∧m[sender] /∈ im(ρ) 
+r(〈ρ, `〉,m) , true 
+q(〈ρ, `〉,m) , `= suicide(m[sender]) 
+
+that is, a contract be suicid if it code M contain 
+the suicid instruct and the correspond transit 
+can be trigger by a messag sender, that do not ap- 
+pear in the contract’ state at the moment of receiv the 
+message, i.e., at the initi moment m[sender] /∈ im(ρ). 
+
+3.3 characteris live violat 
+A contract be consid lock at a certain blockchain 
+state σ , if at ani execut origin from σ prohibit 
+certain transit to be taken. sinc disprov live 
+properti of thi kind with a finit counterexampl be 
+imposs in general, we formul our definit a an 
+under-approxim of the properti of interest, consid- 
+ere onli final trace up to a certain length: 
+
+definit 3.4 (lock contracts). A contract with an 
+address id be consid to be lock with respect to 
+predic P and R, the transact number k, and a 
+blockchain state σ (denot lockingp,r,k(id,σ)) iff for 
+all sequenc of messag mi of length less or equal than 
+k, the correspond trace t = τid(σ ,mi) satisfies: 
+1. the precondit p(σ [id][code], t0,m0), 
+2. the side condit r(ti,m0) for all i≤ length(t). 
+
+notic that, unlik definit 3.3, thi definit do 
+not requir a postcondition, a it be design to under- 
+approxim potenti infinit traces, up to a certain 
+length k,6 so the “final state” be irrelevant. 
+
+6we discu viabl choic of k in section 5. 
+
+greedi contracts. In order to specifi a properti assert- 
+ing that in an interact with up to k transactions, a con- 
+tract do not allow to releas it funds, we instanti 
+the predic from definit 3.4 a follows: 
+
+p(m,〈ρ, `〉,m) , ρ[bal]> 0 
+
+r(〈ρ, `〉,m) , ¬ 
+
+ `= call(m[sender],m 
+′)∧m′[value]> 0 
+
+∨ `= delegatecall(m[sender]) 
+∨ `= suicide(m[sender]) 
+
+ 
+intuitively, the definit of a greedi contract be dual to 
+
+the notion of a prodig one, a wit by the abov 
+formulation: at ani trace start from an initi state, 
+where the contract hold a non-zero balance, no transi- 
+tion transfer the correspond fund (i.e., match 
+by the side condit R) can be taken, no matter what be 
+the sender’ identity. that is, thi definit cover the 
+case of contract’ owner a well: no one can withdraw 
+ani fund from the contract. 
+
+4 the algorithm and the tool 
+
+maian be a symbol analyz for smart contract ex- 
+ecut traces, for the properti defin in section 3. 
+It oper by take a input a contract in it byte- 
+code form and a concret start block valu from the 
+ethereum blockchain a the input context, flag con- 
+tract that be outlin in section 2.2. when reason 
+about contract traces, maian follow the etherlit 
+rules, describ in section 3.1, execut them symbol- 
+ically. dure the execution, which start from a con- 
+tract state satisfi the precondit of properti of in- 
+terest (cf. definit 3.3 and 3.4), it check if there ex- 
+ist an execut trace which violat the properti and a 
+set of candid valu for input transact that trigger 
+the properti violation. for the sake of tractabl of the 
+analysis, it do not keep track of the entir blockchain 
+context σ (includ the state of other contracts), treat 
+onli the contract’ transact input and certain block 
+paramet a symbolic. To reduc the number of fals 
+posit and confirm concret exploit for vulnerabili- 
+ties, maian call it concret valid routine, which 
+we outlin in section 4.2. 
+
+4.1 symbol analysi 
+
+our work concern find properti of trace that in- 
+volv multipl invoc of a contract. We leverag 
+static symbol analysi to perform thi step in a way that 
+allow reason across contract call and across multi- 
+ple blocks. We start our analysi give a contract byte- 
+code and a start concret context captur valu of 
+the blockchain. maian reason about valu read from 
+
+7 
+
+
+
+input transact field and block parameters7 in a sym- 
+bolic way—specifically, it denot the set of all concret 
+valu that the input variabl can take a a symbol vari- 
+able. It then symbol interpret the relationship of 
+other variabl comput in the contract a a symbol 
+express over symbol variables. for instance, the 
+code y := x + 4 result in a symbol valu for y if x 
+be a symbol expression; otherwis it be execut a con- 
+crete value. conceptually, one can imagin the analy- 
+si a maintain two memori map variabl to 
+values: one be a symbol memori map variabl to 
+their symbol expressions, the other map variabl 
+to their concret values. 
+execut path search. the symbol interpret 
+search the space of all execut path in a trace with 
+a depth-first search. the search be a best effort to in- 
+creas coverag and find properti violat traces. our 
+goal be neither to be sound, i.e., search all possibl path 
+at the expens of fals positives, nor to be provabl com- 
+plete, i.e., have onli true posit at the expens of cov- 
+erag [18]. from a practic perspective, we make design 
+choic that strike a balanc between these two goals. 
+
+the symbol execut start from the entri point of 
+the contract, and consid all function which can be 
+invok extern a an entri point. more precisely, 
+the symbol execut start at the first instruct in 
+the bytecode, proceed sequenti until the execut 
+path end in termin instruction. such instruct 
+can be valid (e.g., stop, return), in which case we as- 
+sume to have reach the end of some contract function, 
+and thu restart the symbol execut again from the 
+first bytecod instruct to simul the next function 
+call. On the other hand, the termin instruct can 
+be invalid (e.g., non-exist instruct code or invalid 
+jump destination), in which case we termin the search 
+down thi path and backtrack in the depth-first search 
+procedur to tri anoth path. when execut reach 
+a branch, maian concret evalu the branch con- 
+dition if all the variabl use in the condit expres- 
+sion be concrete. thi uniqu determin the direct 
+for continu the symbol execution. If the condit 
+involv a symbol expression, maian queri an ex- 
+ternal smt solver to check for the satisfi of the 
+symbol condit express a well a it negation. 
+here, if the symbol condit express a well a it 
+negat be satisfiable, both branch be visit in the 
+depth-first search; otherwise, onli the satisfi branch 
+be explor in the depth first search. On occasions, the 
+satisfi of the express cannot be decid in a 
+pre-defin timeout use by our tool; in such case, we 
+termin the search down thi path and backtrack in 
+the depth-first search procedur to tri anoth path. We 
+
+7those be callvalue, caller, number, timestamp, 
+blockhash, balance, address, and origin. 
+
+maintain a symbol path constraint which captur the 
+condit necessari to execut the path be analyz 
+in a standard way. maian implement support for 121 
+out of the 133 bytecod instruct in ethereum’ stack- 
+base low-level language. 
+
+At a call instruction, control follow transfer to the tar- 
+get. If the target of the transfer be a symbol expression, 
+maian backtrack in it depth-first search. call outsid 
+a contract, however, be not simul and return be 
+mark symbolic. therefore, maian depth-first search 
+be inter-procedural, but not inter-contract. 
+handl data accesses. the memori mappings, both 
+symbol and concrete, record all the contract memori a 
+well blockchain storage. dure the symbol interpreta- 
+tion, when a global or blockchain storag be access for 
+the first time on a path, it concret valu be read from 
+the main ethereum blockchain into local mappings. thi 
+ensur that subsequ read or write be kept local to 
+the path be present explored. 
+
+the evm machin support a flat byte-address 
+memory, and each address have a bit-width of 256 bits. 
+the access be in 32-byte size word which maian 
+encod a bit-vector constraint to the smt solver. due 
+to unavail of sourc code, maian do not have 
+ani prior inform about higher-level datatyp in the 
+memory. all type default to 256-bit integ in the en- 
+cod use by maian. furthermore, maian attempt 
+to recov more advanc type such a dynam array 
+by use the follow heuristic: if a symbol variable, 
+say x, be use in constant arithmet to creat an expres- 
+sion (say x+4) that load from memori (a an argument 
+to the calldataload instruction), then it detect such an 
+access a a dynam memori array access. here, maian 
+us the smt solver to gener k concret valu for the 
+symbol expression, make the optimist assumpt 
+that the size of the array to be an integ in the rang 
+[0,k]. the paramet k be configurable, and default to 2. 
+apart from thi case, whenev access in the memori 
+involv a symbol address, maian make no attempt 
+at alia analysi and simpli termin the path be 
+search and backtrack in it depth-first search. 
+handl non-determinist inputs. contract have 
+sever sourc of non-determinist input such a the 
+block timestamp, etc. while these be treat a sym- 
+bolic, these be not exactli under the control of the exter- 
+nal users. maian do not use their concret valu a it 
+need to reason about invoc of the contract across 
+multipl invocations, i.e., at differ blocks. 
+flag violations. finally, when the depth-first 
+search in the space of the contract execut reach 
+a state where the desir properti be violated, it flag 
+the contract a a buggi candidate. the symbol path 
+constraint, along with the necessari properti conditions, 
+be assert for satisfi to the smt solver. We 
+
+8 
+
+
+
+use Z3 [19] a our solver, which provid concret val- 
+ue that make the input formula satisfiable. We use these 
+valu a the concret data for our symbol inputs, in- 
+clude the symbol transact data. 
+bound the path search space. maian take the fol- 
+low step to bound the search in the (potenti in- 
+finite) path space. first, the call depth be limit to the 
+constant call max_call_depth, which default to 3 but 
+can be configur for empir tests. second, we limit 
+the total number of jump or control transfer on one path 
+explor to a configur constant max_cfg_nodes, de- 
+fault set to 60. thi be necessari to avoid be stuck in 
+loops, for instance. third, we set a timeout of 10 sec- 
+ond per call to our smt solver. lastly, the total time 
+spent on a contract be limit to configur constant 
+max_analysis_time, default set to 300 seconds. 
+pruning. To speed up the state search, we implement 
+prune with memorization. whenev the search en- 
+counter that the particular configur (i.e., contract 
+storage, memory, and stack) have be see before, it do 
+not further explor that part of the path space. 
+
+4.2 concret valid 
+
+In the concret valid step, maian creat a pri- 
+vate fork of the origin ethereum blockchain with the 
+last block a the input context. It then run the contract 
+with the concret valu of the transact gener by 
+the symbol analysi to check if the properti hold in 
+the concret execution. If the concret execut fail 
+to exhibit a violat of the trace property, we mark the 
+contract a a fals positive; otherwise, the contract be 
+mark a a true positive. To implement the valid 
+framework, we add a new function to the offici 
+go-ethereum packag [20] which allow u to fork the 
+ethereum main chain at a block height of our choice. 
+onc we fork the main chain, we mine on that fork with- 
+out connect to ani peer on the ethereum network, 
+and thu we be abl to mine our own transact with- 
+out commit them to the main chain. 
+prodig contracts. the valid framework check if 
+a contract inde leak ether by send to it the transac- 
+tion with input provid by the symbol analysi en- 
+gine. the transact be sent by one of our account 
+creat previously. onc the transact be executed, 
+the valid framework check whether the contract 
+have sent ether to our account. If a verifi contract 
+do not have ether, our framework first send ether to 
+the contract and onli then run the exploit. 
+suicid contracts. In a similar fashion, the frame- 
+work check if a contract can be kill after execut the 
+transact provid by the symbol analysi engin on 
+the fork chain. note, onc a contract be killed, it byte- 
+code be reset to ’0x’. our framework us precis thi 
+
+test to confirm the correct of the exploit. 
+greedi contracts. A strategi similar to the abov 
+two cannot be use to valid the exploit on contract 
+that lock ether. however, dure the bug find pro- 
+cess, our symbol execut engin check firsthand 
+whether a contract accept ether. the valid frame- 
+work can, thus, check if a contract be true posit by 
+confirm that it accept ether and do not have call, 
+delegatecall, or suicid opcod in it bytecode. In 
+section 5 we give exampl of such contracts. 
+
+5 evalu 
+
+We analyz 970,898 smart contracts, obtain by 
+download the ethereum blockchain from the first 
+block util block number 4,799,998, which be the last 
+block a of decemb 26, 2017. ethereum blockchain 
+have onli contract bytecodes. To obtain the origin 
+(solidity) sourc codes, we refer to the etherscan ser- 
+vice [21] and obtain sourc for 9,825 contracts. onli 
+around 1% of the contract have sourc code, highlight- 
+ing the util of maian a a bytecod analyzer. 
+
+recal that our concret valid compon can an- 
+alyz a contract from a particular block height where 
+the contract be aliv (i.e., initialized, but not killed). To 
+simplifi our valid process for a larg number of 
+contract flag by the symbol analysi component, 
+we perform our concret valid at block height of 
+4,499,451, further denot a bh. At thi block height, 
+we find that most of the flag contract be alive, in- 
+clude the pariti librari contract [1] that our tool suc- 
+cess finds. thi contract be kill at a block height 
+of 4,501,969. all contract exist on blockchain at a 
+block height of 4,499,451 be tested, but onli contract 
+that be aliv at BH be concret validated.8 
+
+experiment setup and performance. maian sup- 
+port parallel analysi of contracts, and scale linearli 
+in the number of avail cores. We run it on a linux 
+box, with 64-bit ubuntu 16.04.3 lts, 64gb ram and 
+40 cpu intel(r) xeon(r) e5-2680 v2@2.80ghz. In 
+most of our experi we run the tool on 32 cores. 
+On average, maian requir around 10.0 second to an- 
+alyz a contract for the three aforement bugs: 5.5 
+second to check if a contract be prodigal, 3.2 second for 
+suicidal, and 1.3 second for greedy. 
+contract characteristics. the number of contract have 
+increas tenfold from dec, 2016 to dec, 2017 and 176- 
+fold sinc dec, 2015. however, the distribut of ether 
+balanc across contract follow a skew distribution. 
+less than 1% of the contract have more than 99% of the 
+ether in the ecosystem. thi suggest that a vulnerabil- 
+iti in ani one of these high-profil contract can affect a 
+
+8we also concret valid the flag candid which be 
+kill befor BH a well. 
+
+9 
+
+
+
+categori 
+#candid 
+
+flag 
+(distinct) 
+
+candid 
+without 
+sourc 
+
+#valid 
+% of 
+true 
+
+posit 
+prodig 1504 (438) 1487 1253 97 
+suicid 1495 (403) 1487 1423 99 
+greedi 31,201 (1524) 31,045 1083 69 
+total 34,200 (2,365) 34,019 3,759 89 
+
+tabl 1: final result use invoc depth 3 at block 
+height bh. column 1 report number of flag contracts, 
+and the distinct among these. column 2 show the num- 
+ber of flag which have no sourc code. column 3 be 
+the subset we sampl for concret validation. column 4 
+report true posit rates; the total here be the averag TP 
+rate weight by the number of valid contracts. 
+
+larg fraction of the entir ether balance. note that con- 
+tract interact with each other, therefore, a vulner 
+in one contract may affect mani other hold ether, a 
+demonstr by the recent infam pariti librari which 
+be use by wallet contract with $200 million US worth 
+of ether [1]. 
+
+5.1 result 
+tabl 1 summar the contract flag by maian. 
+given the larg number of flag contracts, we select 
+a random subset for concret validation, and report on 
+the true posit rate obtained. We report the number of 
+distinct contracts, calcul by compar the hash of 
+the bytecode; however, all percentag be calcul on 
+the origin number of contract (with duplicates). 
+prodig contracts. our tool have flag 1,504 candi- 
+date contract (438 distinct) which may leak ether to an 
+arbitrari ethereum address, with a true posit rate of 
+around 97%. At block height bh, 46 of these contract 
+hold some ether. the concret valid describ in 
+section 4.2 succeed for exploit for 37 out of 46 — these 
+be true positives, wherea 7 be fals positives. the re- 
+main 2 contract leak ether to an address differ 
+from the caller’ address. note that all of the 37 true 
+posit contract be aliv a of thi writing. for ethic 
+reasons, no exploit be do on the main blockchain. 
+
+Of the remain 1,458 contract which present do 
+not have ether on the public ethereum blockchain, 24 
+have be kill and 42 have not be publish (a of 
+block height bh). To valid the remain aliv con- 
+tract (in total 1392) on a privat fork, first we send them 
+ether from our mine account, and find that 1,183 con- 
+tract can receiv ether.9 We then concret valid 
+whether these contract leak ether to an arbitrari address. 
+A total of 1,156 out of 1,183 (97.72%) contract be con- 
+firm to be true positives; 27 (2.28%) be fals positives. 
+
+for each of the 24 contract kill by the block height 
+
+9these be live and we could updat them with fund in testing. 
+
+bh, the concret valid proce a follows. We cre- 
+ate a privat test fork of the blockchain, start from a 
+snapshot at a block height where the contract be alive. We 
+send ether to the contract from one of our address ad- 
+dress, and check if the contract leak ether to an arbitrari 
+address. We repeat thi procedur for each contract, and 
+find that all 24 candid contract be true positives. 
+suicid contracts. maian flag 1,495 contract (403 
+distinct), includ the paritywalletlibrari contract, 
+a found suscept to be kill by an arbitrari ad- 
+dress, with a nearli 99% true posit rate. out of 1,495 
+contracts, 1,398 be aliv at bh. our concret valid 
+engin on a privat fork of ethereum confirm that 1,385 
+contract (or 99.07%) be true positives, i.e., they can be 
+kill by ani arbitrari ethereum account, while 13 con- 
+tract (or 0.93%) be fals positives. the list of true pos- 
+itiv includ the recent paritywalletlibrari contract 
+which be kill at block height 4,501,969 by an ar- 
+bitrari account. Of the 1,495 contract flagged, 25 have 
+be kill by bh; we repeat the procedur describ pre- 
+viousli and cofirm all of them a true positives. 
+greedi contracts. our tool flag 31,201 greedi can- 
+didat (1,524 distinct), which amount to around 3.2% 
+of the contract present on the blockchain. the first ob- 
+servat be that maian deem all but these a accept- 
+ing ether but have state that releas them (not lock- 
+ing indefinitely). To valid a candid contract a a 
+true posit one have to show that the contract do not 
+release/send ether to ani address for ani valid trace. 
+however, concret valid may not cover all possibl 
+traces, and thu it cannot be use to confirm if a contract 
+be greedy. therefore, we take a differ strategi and di- 
+vide them into two categories: 
+(i) contract that accept ether, but in their bytecod do 
+not have ani of the instruct that releas ether (such 
+instruct includ call, suicide, or delegatecall). 
+(ii) contract that accept ether, and in their bytecod 
+have at least one of call, suicid or delegatecall. 
+
+maian flag 1,058 distinct contract from the first 
+category. We valid that these contract can receiv 
+ether (we send ether to them in a transact with input 
+data accord to the one provid by the symbol ex- 
+ecut routine). our experi show that 1,057 out 
+of 1,058 (e.g., 99.9%) can receiv ether and thu be 
+true positives. On the other hand, the tool flag 466 
+distinct contract from the second category, which be 
+harder to confirm by test alone. We resort to manual 
+analysi for a subset of these which have sourc code. 
+among these, onli 25 have solid sourc code. with 
+manual inspect we find that none of them be true pos- 
+itiv — some trace can reach the call code, but maian 
+fail to reach it in it path exploration. the reason for 
+these be mention in the section 5.3. By extrapola- 
+tion (weight averag across 1,083 validated), we ob- 
+
+10 
+
+
+
+1 bytes20 prev; 
+2 function tap(bytes20 nickname) { 
+3 prev = nickname; 
+4 if (prev != nickname) { 
+5 msg.sender.send(this.balance); 
+6 } 
+7 } 
+
+figur 6: A prodig contract. 
+
+1 contract mortal { 
+2 address public owner; 
+3 function mortal () { 
+4 owner = msg.sender; 
+5 } 
+6 function kill() { 
+7 if (msg.sender == owner){ 
+8 suicide(owner); 
+9 } 
+
+10 } 
+11 } 
+12 contract thing be mortal { /*...*/ } 
+
+figur 7: the prodig contract thing, deriv from 
+mortal, leak ether to ani address by get killed. 
+
+tain true posit rate among greedi contract of 69%. 
+posthum contracts. recal that posthum be 
+contract that be dead on the blockchain (have be 
+killed) but still have non-zero ether balance. We can find 
+such contract by queri the blockchain, i.e., by col- 
+lect all contract without execut code, but with 
+non-zero balance. We found 853 contract at a block 
+height of 4,799,998 that do not have ani compil code 
+on the blockchain but have posit ether balance. inter- 
+estingly, among these, 294 contract have receiv ether 
+after they becom dead. 
+
+5.2 case studies: true posit 
+apart from exampl present in section 2.2, we now 
+present true and fals postiv case studies. note that 
+we onli present the contract with sourc code for read- 
+ability. however, the fraction of flag contract with 
+sourc code be veri low (1%). 
+prodig contracts. In figur 6, we give an exampl of 
+a prodig contract. the function tap seem to lock ether 
+becaus the condit at line 4, semantically, can never 
+be true. however, the compil optim of solid 
+allow thi condit to pa when an input great than 
+20 byte be use to call the function tap. note, on a byte- 
+code level, the evm can onli load chunk of 32 byte of 
+input data. At line 3 in tap the first 20 byte of nicknam 
+be assign to the global variabl prev, while neglect 
+the remain 12 bytes. the error occur becaus evm 
+at line 4, correctli nullifi the 12 byte in prev, but not 
+in nickname. thu if nicknam have non-zero valu in 
+these 12 byte then the inequ be true. thi contract 
+so far have lose 5.0001 ether to differ address on real 
+ethereum blockchain. 
+
+A contract may also leak ether by get kill sinc 
+
+1 function withdraw () public return (uint) { 
+2 record storag rec = records[msg.send ]; 
+3 uint balanc = rec.balance; 
+4 if (balanc > 0) { 
+5 rec.bal = 0; 
+6 msg.sender.transfer(balance); 
+7 withdrawn(now , msg.sender , balance); 
+8 } 
+9 if (now - lastinvestmenttim > 4 weeks) { 
+
+10 selfdestruct(funder); 
+11 } 
+12 return balance; } 
+
+figur 8: the dividend contract can be kill by in- 
+voke withdraw if the last invest have be make 
+at least 4 week ago. 
+
+the semant of suicid instruct enforc it to send 
+all of it balanc to an address provid to the instruc- 
+tion. In figur 7, the contract thing [22] be inherit 
+from a base contract mortal. the contract implement a 
+review system in which public review an ongo topic. 
+among others, the contract have a kill function inherit 
+from it base contract which be use to send it balanc 
+to it owner if it killed. the function mortal, suppos- 
+edli a constructor, be misspelled, and thu anyon can 
+call mortal to becom the owner of the contract. sinc 
+the deriv contract thing inherit function from con- 
+tract mortal, thi vulner in the base contract al- 
+low an arbitrari ethereum account to becom the owner 
+of the deriv contract, to kill it, and to receiv it ether. 
+suicid contracts. A contract can be kill by ex- 
+ploit an unprotect suicid instruction. A trivial 
+exampl be a public kill function which host the sui- 
+cide instruction. sometimes, suicid be protect by 
+a weak condition, such a in the contract dividend give 
+in figur 8. thi contract allow user to buy share 
+or withdraw their investment. the logic of withdraw- 
+ing invest be implement by the withdraw function. 
+however, thi function have a self_destruct instruct 
+which can be execut onc the last invest have be 
+make more than 4 week ago. hence, if an investor call 
+thi function after 4 week of the last investment, all the 
+fund go to the owner of the contract and all the record 
+of investor be clear from the blockchain. though the 
+ether be safe with the owner , there would be no record of 
+ani invest for the owner to return ether to investors. 
+
+In the previou example, one invoc of withdraw 
+function be suffici to kill the contract. there are, 
+however, contract which requir two or more func- 
+tion invoc to be killed. for instance, the contract 
+mortal give in figur 7 check whether it be the owner 
+that call the kill function. hence, it requir an attack 
+to becom the owner of the contract to kill it. so, thi 
+contract requir two invoc to be killed: one call to 
+the function mortal use to becom an owner of the con- 
+
+11 
+
+
+
+1 contract simplestorag { 
+2 uint storeddata; address storedaddress; 
+3 event flag(uint val , address addr); 
+4 
+
+5 function set(uint x, address y) { 
+6 storeddata = x; storedaddress = y; 
+7 } 
+8 function get() constant 
+9 returns(uint retval , address retaddr) { 
+
+10 return (storeddata ,storedaddress); 
+11 } 
+12 } 
+
+figur 9: A contract that lock ether. 
+
+tract and one call to the function kill to kill the contract. 
+A more secur contract would leverag the mortal func- 
+tion to a constructor so that the function be call onli 
+onc when the contract be deployed. note, the recent par- 
+iti bug similarli also requir two invoc [1]. 
+greedi contracts. the contract simplestorage, give 
+in figur 9, be an exampl of a contract that lock ether 
+indefinitely. when an arbitrari address send ether along 
+with a transact invok the set function, the contract 
+balanc increas by the amount of ether sent. how- 
+ever, the contract do not have ani instruct to releas 
+ether, and thu lock it on the blockchain. 
+
+the payabl keyword have be introduc in solid- 
+iti recent to prevent function from accept ether by 
+default, i.e., a function not associ with payabl key- 
+word throw if ether be sent in a transaction. however, 
+although thi contract do not have ani function asso- 
+ciat with the payabl keyword, it accept ether sinc 
+it have be compil with an old version of solid 
+compil (with no support for payable). 
+
+5.3 case studies: fals posit 
+We manual analyz case where maian’ concret 
+valid fail to trigger the necessari violat with the 
+produc concret values, if sourc code be available. 
+prodig and suicid contracts. In both of the classes, 
+fals posit aris due to two reasons: 
+(i) our tool perform inter-procedur analysi within a 
+contract, but do not transfer control in cross-contract 
+calls. for call from one contract to a function of anoth 
+contract, maian assign symbol variabl to the return 
+values. thi be imprecise, becaus real execut may 
+onli return one valu (say true) when the call succeeds. 
+(ii) maian may assign valu to symbol variabl re- 
+late to block state (e.g., timestamp and blocknumber) 
+in case where these valu be use to decid the con- 
+trol flow. thus, we may get fals posit becaus those 
+valu may be differ at the concret valid stage. 
+for instance, in figur 11, the _guess valu depend on 
+the valu of block parameters, which cannot be forc 
+to take on the concret valu found by our analyzer. 
+
+1 function confirmtransaction(uint tid) 
+2 ownerexists(msg.sender) { 
+3 confirmations[tid][msg.sender] = true; 
+4 executetransaction(tid); 
+5 } 
+6 function executetransaction(uint tid) { 
+7 // In case of major 
+8 if (isconfirmed(tid)) { 
+9 transact tx = transactions[tid]; 
+
+10 tx.execut = true; 
+11 if (tx.destination.call.value(tx.value) 
+
+(tx.data)) 
+12 /*....*/ 
+13 }} 
+
+figur 10: fals positive, flag a a greedi contract. 
+
+1 function randomnumb () returns(uint) { 
+2 /*....*/ 
+3 last = seed^(uint(sha3(block.blockhash( 
+4 block.number),nonces[msg.send ]))*0 
+
+x000b0007000500030001); 
+5 } 
+6 function guess(uint _guess) return (bool) { 
+7 if (randomnumb () == _guess) { 
+8 if (!msg.sender.send(this.balance)) throw; 
+9 /*....*/ 
+
+10 }/*....*/} 
+
+figur 11: fals positive, flag a a prodig contract. 
+
+greedi contracts. the larg share of fals posit be 
+attribut to two causes: 
+(i) detect a trace which lead to releas of ether may 
+need three or more function invocations. for instance, 
+in figur 10, the function confirmtransact have to be 
+execut by the major of owner for the contract to 
+execut the transaction. our default invoc depth be 
+the reason for miss a possibl reachabl state. 
+(ii) our tool be not abl to recov the subtyp for the 
+gener byte type in the evm semantics. 
+(iii) some contract releas fund onli if a random num- 
+ber (usual gener use transact and block pa- 
+rameters) match a predetermin valu unlik in the 
+case of the contract in figur 11. In that contract the 
+variabl _guess be also a symbol variable, hence, the 
+solver can find a solut for condit on line 7. If there 
+be a concret valu in place of _guess, the solver time 
+out sinc the constraint involv a hash function (hard to 
+invert by the smt solver). 
+
+5.4 summari and observ 
+the symbol execut engin of maian flag 34,200 
+contracts. with concret valid engin or manual in- 
+spection, we have confirm that around 97% of prodi- 
+gal, 97% of suicid and 69% of greedi contract be true 
+positive. the import of analyz the bytecod of 
+the contracts, rather than solid sourc code, be demon- 
+strate by the fact that onli 1% of all contract have 
+sourc code. further, among all flag contracts, onli 
+181 have verifi sourc code accord to the wide 
+
+12 
+
+
+
+inv. depth prodig suicid greedi 
+1 131 127 682 
+2 156 141 682 
+3 157 141 682 
+4 157 141 682 
+
+tabl 2: the tabl show number of contract flag 
+for variou invoc depths. thi analysi be do on a 
+random subset of 25,000–100,000 contracts. 
+
+use platform etherscan, or in percentag onli 1.06%, 
+0.47% and 0.49%, in the three categori of prodigal, 
+suicidal, and greedy, respectively. We refer the reader to 
+tabl 1 for the exact summari of these results. 
+
+furthermore, the maxim amount of ether that could 
+have be withdrawn from prodig and suicid con- 
+tracts, befor the block height bh, be nearli 4,905 ether, 
+or 5.9 million US dollars10 accord to the exchang 
+rate at the time of thi writing. In addition, 6,239 ether 
+(7.5 million US dollars) be lock insid posthum 
+contract current on the blockchain, of which 313 ether 
+(379,940 US dollars) have be sent to dead contract af- 
+ter they have be killed. 
+
+finally, the analysi give in tabl 2 show the num- 
+ber of flag contract for differ invoc depth 
+from 1 to 4. We test 25,000 contract be for greedy, 
+and 100,000 for remain categories, infer that in- 
+creas depth improv result marginally, and an invo- 
+cation depth of 3 be an optim tradeoff point. 
+
+6 relat work 
+
+dichotomi of smart contract bugs. the earli work by 
+delmolino et al. [24] distinguish the follow class 
+of problems: (a) contract that do not refund their users, 
+(b) miss encrypt of sensit user data and (c) lack 
+of incent for the user to take certain actions. the 
+properti (a) be the closest to our notion of greedy. while 
+that outlin the problem and demonstr it on seri 
+of simpl exampl taught in a class, they do not provid 
+a systemat approach for detect of smart contract 
+prone to thi issue. later work on contract safeti and 
+secur identifi potenti bugs, relat to the concurr 
+transact execut [25], mishandl except [2], 
+overli extens ga consumpt [14] and implementa- 
+tion of fraudul financi scheme [26].11 
+
+In contrast to all those work, which focu on bad im- 
+plement practic or misus languag semantics, 
+we believe, our characteris of sever class of con- 
+tract bugs, such a greedy, prodigal, etc, be novel, a they 
+be state in term of properti execut trace rather 
+than particular instruct taken/st reached. 
+
+10calcul at 1,210 usd/eth [23]. 
+11see the work [27, 28] for a survey of know contract issues. 
+
+reason about smart contracts. oyent [2, 3] be 
+the first symbol execution-bas tool that provid 
+analysi target sever specif issues: (a) mishan- 
+dled exceptions, (b) transaction-ord dependence, 
+(c) timestamp depend and (d) reentranc [29], thu 
+remedi the corner case of solidity/evm semant 
+(a) a well a some program anti-pattern (b)–(d). 
+
+other tool for symbol analysi of evm and/or 
+evm have be develop more recently: manti- 
+core [17], mythril [15, 16], securifi [5], and 
+kevm [30, 31], all focu on detect low-level 
+safeti violat and vulnerabilities, such a integ over- 
+flows, reentrancy, and unhandl exceptions, etc, nei- 
+ther of them requir reason about contract execu- 
+tion traces. A veri recent work by grossman et al. [32] 
+similar to our in spirit and provid a dynam anal- 
+ysi of execut traces, focu exclus on detect- 
+ing non-callback-fre contract (i.e., prone to reentranc 
+attacks)—a vulner that be by now well studied. 
+
+concurr with our work, kalra et al. develop 
+zeu [4], a framework for autom verif of 
+smart contract use abstract interpret and sym- 
+bolic model checking, accept user-provid polici 
+to verifi for. unlik maian, zeu conduct polici 
+check at a level of llvm-like intermedi represen- 
+tation of a contract, obtain from solid code, and 
+leverag a suit of standard tools, such a off-the-shelf 
+constraint and smt solver [19, 33, 34]. zeu do not 
+provid a gener framework for check trace proper- 
+ties, or under-approxim live properties. 
+
+variou version of evm semant [8] be imple- 
+ment in coq [35], isabelle/hol [36, 37], F? [38], 
+idri [39], and why3 [40, 41], follow by subsequ 
+mechanis contract verif efforts. however, none 
+of those effort consid trace properti in the spirit 
+of what we defin in section 3. 
+
+sever contract languag be propos recent 
+that distinguish between global action (e.g., send 
+ether or termin a contract) and instruct for ordi- 
+nari comput [42,43], for the sake of simplifi rea- 
+sone about contract executions. for instance, the work 
+on the contract languag scilla [43] show how to en- 
+code in coq [44] and formal prove a property, which be 
+veri similar to a contract be non-leaky, a per defini- 
+tion 3.3 instanti with a non-trivi side condit R. 
+
+7 conclus 
+We character vulner in smart contract that 
+be checkabl a properti of an entir execut trace 
+(possibl infinit sequenc of their invocations). We 
+show three exampl of such trace vulnerabilities, lead- 
+ing to greedy, prodig and suicid contracts. analyz 
+970,898 contracts, our new tool maian flag thousand 
+of contract vulner at a high true posit rate. 
+
+13 
+
+
+
+refer 
+[1] A. akentiev, “pariti multisig github.” [online]. available: 
+
+https://github.com/paritytech/parity/issues/6995 
+
+[2] L. luu, D. chu, H. olickel, P. saxena, and A. hobor, “make 
+smart contract smarter,” in ccs. acm, 2016, pp. 254–269. 
+
+[3] “oyente: An analysi tool for smart contracts,” 2018. [online]. 
+available: https://github.com/melonproject/oyent 
+
+[4] S. kalra, S. goel, M. dhawan, and S. sharma, “zeus: analyz 
+safeti of smart contracts,” in ndss, 2018, to appear. 
+
+[5] “securify: formal verif of ethereum smart contracts,” 
+2018. [online]. available: http://securify.ch/ 
+
+[6] M. del castillo, “the dao attacked: code issu lead to $60 
+million ether theft,” june 17, 2016. 
+
+[7] “governmental’ 1100eth jackpot payout be stuck becaus it us 
+too much gas.” [online]. available: https://www.reddit.com/r/ 
+ethereum/comments/4ghzhv/ 
+
+[8] G. wood, “ethereum: A secur decentralis generalis 
+transact ledger.” [online]. available: https://ethereum.github. 
+io/yellowpaper/paper.pdf 
+
+[9] solidity: high-level languag for implement smart con- 
+tracts. [online]. available: http://solidity.readthedocs.io/ 
+
+[10] S. nakamoto, “bitcoin: A peer-to-p electron cash system,” 
+2008. [online]. available: http://bitcoin.org/bitcoin.pdf 
+
+[11] G. pı̂rlea and I. sergey, “mechanis blockchain consensus,” in 
+cpp. acm, 2018, pp. 78–90. 
+
+[12] J. alois, “ethereum pariti hack may impact eth 500,000 or 
+$146 million,” 2017. 
+
+[13] “the guy who blew up pariti didn’t know what he be doing.” 
+[online]. available: https://www.reddit.com/r/cryptocurrency/ 
+comments/7beos3/ 
+
+[14] T. chen, X. li, X. luo, and X. zhang, “under-optim smart 
+contract devour your money,” in ieee 24th intern con- 
+ferenc on softwar analysis, evolut and reengineering, 
+saner, 2017, pp. 442–446. 
+
+[15] “mythril,” 2018. [online]. available: https://github.com/ 
+b-mueller/mythril/ 
+
+[16] B. mueller, “how formal verif can ensur flawless 
+smart contracts,” januari 2018. [online]. available: https: 
+//goo.gl/9wufe1 
+
+[17] “manticore,” 2018. [online]. available: https://github.com/ 
+trailofbits/manticor 
+
+[18] P. godefroid, “higher-ord test generation,” in proceed of 
+the 32nd acm sigplan confer on program languag 
+design and implementation, ser. pldi ’11, 2011. 
+
+[19] L. M. de moura and N. bjørner, “z3: an effici smt solver,” 
+in tacas, ser. lncs, vol. 4963. springer, 2008, pp. 337–340. 
+
+[20] “go-ethereum.” [online]. available: https://github.com/ 
+ethereum/go-ethereum 
+
+[21] “etherscan verifi sourc codes.” [online]. available: https: 
+//etherscan.io/contractsverifi 
+
+[22] “contract mortal.” [online]. available: https://etherscan. 
+io/address/0x4671ebe586199456ca28ac050cc9473cbac829eb# 
+code 
+
+[23] “etherscan.” [online]. available: https://etherscan.io/ 
+
+[24] K. delmolino, M. arnett, A. E. kosba, A. miller, and E. shi, 
+“step by step toward creat a safe smart contract: lesson and 
+insight from a cryptocurr lab,” in FC 2016 intern 
+workshops, ser. lncs, vol. 9604. springer, 2016, pp. 79–94. 
+
+[25] I. sergey and A. hobor, “A concurr perspect on smart 
+contracts,” in 1st workshop on trust smart contracts, ser. 
+lncs, vol. 10323. springer, 2017, pp. 478–493. 
+
+[26] M. bartoletti, S. carta, T. cimoli, and R. saia, “dissect 
+ponzi scheme on ethereum: identification, analysis, and impact,” 
+corr, vol. abs/1703.03779, 2017. 
+
+[27] N. atzei, M. bartoletti, and T. cimoli, “A survey of attack 
+on ethereum smart contract (sok),” in post, ser. lncs, vol. 
+10204. springer, 2017, pp. 164–186. 
+
+[28] consensi diligence, “ethereum smart contract secur best 
+practices,” 2018. [online]. available: https://consensys.github. 
+io/smart-contract-best-practic 
+
+[29] E. G. sirer, “reentranc woe in smart contracts.” 
+[online]. available: http://hackingdistributed.com/2016/07/13/ 
+reentrancy-woes/ 
+
+[30] E. hildenbrandt, M. saxena, X. zhu, N. rodrigues, P. daian, 
+D. guth, and G. rosu, “kevm: A complet semant of the 
+ethereum virtual machine,” tech. rep., 2017. 
+
+[31] G. rosu, “erc20-k: formal execut specif of 
+erc20,” decemb 2017. [online]. available: https: 
+//runtimeverification.com/blog/?p=496 
+
+[32] S. grossman, I. abraham, G. golan-gueta, Y. michalevsky, 
+N. rinetzky, M. sagiv, and Y. zohar, “onlin detect of effec- 
+tive callback free object with applic to smart contracts,” 
+pacmpl, vol. 2, no. popl, pp. 48:1–48:28, 2018. 
+
+[33] A. gurfinkel, T. kahsai, A. komuravelli, and J. A. navas, “the 
+seahorn verif framework,” in cav, part I, ser. lncs, vol. 
+9206. springer, 2015, pp. 343–361. 
+
+[34] K. L. mcmillan, “interpol and symbol model checking,” 
+in vmcai, ser. lncs, vol. 4349. springer, 2007, pp. 89–90. 
+
+[35] Y. hirai, “ethereum virtual machin for coq (v0.0.2),” 
+publish onlin on 5 march 2017. [online]. available: 
+https://goo.gl/dxyfwk 
+
+[36] ——, “defin the ethereum virtual machin for interact 
+theorem provers,” in 1st workshop on trust smart contracts, 
+ser. lncs, vol. 10323. springer, 2017, pp. 520–535. 
+
+[37] S. amani, M. bégel, M. bortin, and M. staples, “toward ver- 
+ifi ethereum smart contract bytecod in isabelle/hol,” in 
+cpp. acm, 2018, pp. 66–77. 
+
+[38] K. bhargavan, A. delignat-lavaud, C. fournet, A. gollamudi, 
+G. gonthier, N. kobeissi, N. kulatova, A. rastogi, T. sibut- 
+pinote, N. swamy, and S. zanella-béguelin, “formal verif 
+of smart contracts: short paper,” in plas. acm, 2016, pp. 
+91–96. 
+
+[39] J. pettersson and R. edström, “safer smart contract through 
+type-driven development,” master’ thesis, chalmer univer- 
+siti of technology, sweden, 2016. 
+
+[40] C. reitwiessner, “formal verif for solid con- 
+tracts,” 2015. [online]. available: https://forum.ethereum. 
+org/discussion/3779/formal-verification-for-solidity-contract 
+
+[41] J. filliâtr and A. paskevich, “why3 - where program meet 
+provers,” in esop, ser. lncs, vol. 7792. springer, 2013, pp. 
+125–128. 
+
+[42] “bamboo,” 2018. [online]. available: https://github.com/ 
+pirapira/bamboo 
+
+[43] I. sergey, A. kumar, and A. hobor, “scilla: a smart contract 
+intermediate-level language,” corr, vol. abs/1801.00687, 2018. 
+
+[44] coq develop team, the coq proof assist refer 
+manual - version 8.7, 2018. [online]. available: http: 
+//coq.inria.fr/ 
+
+14 
+
+https://github.com/paritytech/parity/issues/6995 
+https://github.com/melonproject/oyent 
+http://securify.ch/ 
+https://www.reddit.com/r/ethereum/comments/4ghzhv/ 
+https://www.reddit.com/r/ethereum/comments/4ghzhv/ 
+https://ethereum.github.io/yellowpaper/paper.pdf 
+https://ethereum.github.io/yellowpaper/paper.pdf 
+http://solidity.readthedocs.io/ 
+http://bitcoin.org/bitcoin.pdf 
+https://www.reddit.com/r/cryptocurrency/comments/7beos3/ 
+https://www.reddit.com/r/cryptocurrency/comments/7beos3/ 
+https://github.com/b-mueller/mythril/ 
+https://github.com/b-mueller/mythril/ 
+https://goo.gl/9wufe1 
+https://goo.gl/9wufe1 
+https://github.com/trailofbits/manticor 
+https://github.com/trailofbits/manticor 
+https://github.com/ethereum/go-ethereum 
+https://github.com/ethereum/go-ethereum 
+https://etherscan.io/contractsverifi 
+https://etherscan.io/contractsverifi 
+https://etherscan.io/address/0x4671ebe586199456ca28ac050cc9473cbac829eb#cod 
+https://etherscan.io/address/0x4671ebe586199456ca28ac050cc9473cbac829eb#cod 
+https://etherscan.io/address/0x4671ebe586199456ca28ac050cc9473cbac829eb#cod 
+https://etherscan.io/ 
+https://consensys.github.io/smart-contract-best-practic 
+https://consensys.github.io/smart-contract-best-practic 
+http://hackingdistributed.com/2016/07/13/reentrancy-woes/ 
+http://hackingdistributed.com/2016/07/13/reentrancy-woes/ 
+https://runtimeverification.com/blog/?p=496 
+https://runtimeverification.com/blog/?p=496 
+https://goo.gl/dxyfwk 
+https://forum.ethereum.org/discussion/3779/formal-verification-for-solidity-contract 
+https://forum.ethereum.org/discussion/3779/formal-verification-for-solidity-contract 
+https://github.com/pirapira/bamboo 
+https://github.com/pirapira/bamboo 
+http://coq.inria.fr/ 
+http://coq.inria.fr/ 
+
+1 introduct 
+2 problem 
+2.1 background on smart contract 
+2.2 contract with trace vulner 
+2.3 our approach 
+
+3 execut model and trace properti 
+3.1 evm semant and execut trace 
+3.2 characteris safeti violat 
+3.3 characteris live violat 
+
+4 the algorithm and the tool 
+4.1 symbol analysi 
+4.2 concret valid 
+
+5 evalu 
+5.1 result 
+5.2 case studies: true posit 
+5.3 case studies: fals posit 
+5.4 summari and observ 
+
+6 relat work 
+7 conclus 
+

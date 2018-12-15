@@ -1,0 +1,1618 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+googl vizier: A servic for black-box optim 
+
+
+googl vizier: A servic for black-box optim 
+
+daniel golovin, benjamin solnik, subhodeep moitra, greg kochanski, john karro, D. sculley 
+{dgg, bsolnik, smoitra, gpk, karro, dsculley}@google.com 
+
+googl research 
+pittsburgh, pa, usa 
+
+abstract 
+
+ani suffici complex system act a a black box when 
+it becom easi to experi with than to understand. 
+hence, black-box optim have becom increasingli im- 
+portant a system have becom more complex. In thi paper 
+we describ googl vizier, a google-intern servic for per- 
+form black-box optim that have becom the de facto 
+paramet tune engin at google. googl vizier be use 
+to optim mani of our machin learn model and other 
+systems, and also provid core capabl to google’ cloud 
+machin learn hypertun subsystem. We discu our re- 
+quirements, infrastructur design, underli algorithms, and 
+advanc featur such a transfer learn and autom 
+earli stop that the servic provides. 
+
+keyword 
+
+black-box optimization, bayesian optimization, gaussian 
+processes, hyperparameters, transfer learning, autom 
+stop 
+
+1 introduct 
+
+black–box optim be the task of optim an object 
+function 𝑓 : 𝑋 → R with a limit budget for evaluations. 
+the adject “black–box” mean that while we can eval- 
+uat 𝑓(𝑥) for ani 𝑥 ∈ 𝑋, we have no access to ani other 
+inform about 𝑓 , such a gradient or the hessian. when 
+function evalu be expensive, it make sens to care 
+and adapt select valu to evaluate; the overal goal be 
+for the system to gener a sequenc of 𝑥𝑡 that approach 
+the global optimum a rapidli a possible. 
+
+black box optim algorithm can be use to find the 
+best oper paramet for ani system whose perform 
+can be measur a a function of adjust parameters. It 
+have mani import applications, such a autom tune 
+of the hyperparamet of machin learn system (e.g., 
+learn rates, or the number of hidden layer in a deep neural 
+network), optim of the user interfac of web servic 
+(e.g. optim color and font to maxim read speed), 
+and optim of physic system (e.g., optim airfoil 
+in simulation). 
+
+permiss to make digit or hard copi of part or all of thi work 
+for person or classroom use be grant without fee provid that 
+copi be not make or distribut for profit or commerci advantag 
+and that copi bear thi notic and the full citat on the first page. 
+copyright for third-parti compon of thi work must be honored. 
+for all other uses, contact the owner/author(s). 
+
+kdd ’17, august 13-17, 2017, halifax, ns, canada 
+
+© 2017 copyright held by the owner/author(s). 
+acm isbn 978-1-4503-4887-4/17/08. 
+https://doi.org/10.1145/3097983.3098043 
+
+In thi paper we discu a state-of-the-art system for black– 
+box optim develop within google, call googl 
+vizier, name after a high offici who offer advic to rulers. 
+It be a servic for black-box optim that support sever 
+advanc algorithms. the system have a conveni remot 
+procedur call (rpc) interface, along with a dashboard and 
+analysi tools. googl vizier be a research project, part of 
+which suppli core capabl to our cloud machin learn 
+hypertune1 subsystem. We discu the architectur of the 
+system, design choices, and some of the algorithm used. 
+
+1.1 relat work 
+
+black–box optim make minim assumpt about 
+the problem under consideration, and thu be broadli appli- 
+cabl across mani domain and have be studi in multipl 
+scholarli field under name includ bayesian optimiza- 
+tion [2, 25, 26], derivative–fre optim [7, 24], sequen- 
+tial experiment design [5], and assort variant of the 
+multiarm bandit problem [13, 20, 29]. 
+
+sever class of algorithm have be propos for the 
+problem. the simplest of these be non-adapt procedur 
+such a random search, which select 𝑥𝑡 uniformli at ran- 
+dom from 𝑋 at each time step 𝑡 independ of the previou 
+point selected, {𝑥𝜏 : 1 ≤ 𝜏 < 𝑡}, and grid search, which 
+select along a grid (i.e., the cartesian product of finit set 
+of feasibl valu for each parameter). classic algorithm 
+such a simulatedann and assort genet algo- 
+rithm have also be investigated, e.g., covari matrix 
+adapt [16]. 
+
+anoth class of algorithm perform a local search by 
+select point that maintain a search pattern, such a a sim- 
+plex in the case of the classic nelder–mead algorithm [22]. 
+more modern variant of these algorithm maintain simpl 
+model of the object 𝑓 within a subset of the feasibl 
+region (call the trust region), and select a point 𝑥𝑡 to 
+improv the model within the trust region [7]. 
+
+more recently, some research have combin power 
+techniqu for model the object 𝑓 over the entir feasibl 
+region, use idea develop for multiarm bandit problem 
+for manag explor / exploit trade-offs. these approach 
+be fundament bayesian in nature, henc thi literatur 
+go under the name bayesian optimization. typically, the 
+model for 𝑓 be a gaussian process (a in [26, 29]), a deep 
+neural network (a in [27, 31]), or a regress forest (a 
+in [2, 19]). 
+
+mani of these algorithm have open-sourc implemen- 
+tation available. within the machin learn community, 
+
+1https://cloud.google.com/ml/ 
+
+https://doi.org/10.1145/3097983.3098043 
+https://cloud.google.com/ml/ 
+
+
+exampl include, e.g., hyperopt2, moe3, spearmint4, and 
+autoweka5, among mani others. In contrast to such softwar 
+packages, which requir practition to set them up and run 
+them locally, we opt to develop a manag servic for 
+black–box optimization, which be more conveni for user 
+but involv addit design considerations. 
+
+1.2 definit 
+
+throughout the paper, we use to the follow term to 
+describ the semant of the system: 
+
+A trial be a list of paramet values, 𝑥, that will lead to a 
+singl evalu of 𝑓(𝑥). A trial can be “completed”, which 
+mean that it have be evalu and the object valu 
+𝑓(𝑥) have be assign to it, otherwis it be “pending”. 
+
+A studi repres a singl optim run over a feasibl 
+space. each studi contain a configur describ the 
+feasibl space, a well a a set of trials. It be assum that 
+𝑓(𝑥) do not chang in the cours of a study. 
+
+A worker refer to a process respons for evalu a 
+pend trial and calcul it object value. 
+
+2 system overview 
+
+thi section explor the design consider involv in 
+implement black-box optim a a service. 
+
+2.1 design goal and constraint 
+
+vizier’ design satisfi the follow desiderata: 
+
+∙ eas of use. minim user configur and setup. 
+∙ host state-of-the-art black-box optim algorithms. 
+∙ high avail 
+∙ scalabl to million of trial per study, thousand of 
+parallel trial evalu per study, and billion of stud- 
+ies. 
+∙ easi to experi with new algorithms. 
+∙ easi to chang out algorithm deploy in production. 
+
+for eas of use, we implement vizier a a manag ser- 
+vice that store the state of each optimization. thi approach 
+drastic reduc the effort a new user need to get up and 
+running; and a manag servic with a well-docu and 
+stabl rpc api allow u to upgrad the servic without user 
+effort. We provid a default configur for our manag 
+servic that be good enough to ensur that most user need 
+never concern themselv with the underli optim 
+algorithms. 
+
+the default option allow the servic to dynam select 
+a recommend black–box algorithm along with low–level 
+set base on the studi configuration. We choos to 
+make our algorithm stateless, so that we can seamlessli 
+switch algorithm dure a study, dynam choos the 
+algorithm that be like to perform good for a particular trial 
+of a give study. for example, gaussian process bandit [26, 
+29] provid excel result quality, but naiv implement 
+
+2https://github.com/jaberg/hyperopt 
+3https://github.com/yelp/mo 
+4https://github.com/hips/spearmint 
+5https://github.com/automl/autoweka 
+
+scale a 𝑂(𝑛3) with the number of train points. thus, onc 
+we’v collect a larg number of complet trials, we may 
+want to switch to use a more scalabl algorithm. 
+
+At the same time, we want to allow ourselv (and advanc 
+users) the freedom to experi with new algorithm or 
+special-cas modif of the support algorithm in a 
+manner that be safe, easy, and fast. hence, we’v built googl 
+vizier a a modular system consist of four cooper 
+process (see figur 1) that updat the state of studi in the 
+central database. the process themselv be modular with 
+sever clean abstract layer that allow u to experi 
+with and appli differ algorithm easily. 
+
+final we want to allow multipl trial to be evalu 
+in parallel, and allow for the possibl that evalu the 
+object function for each trial could itself be a distribut 
+process. To thi end we defin workers, respons for evalu- 
+ate suggestions, and identifi each work by a persist 
+name (a worker handle) that persist across process preemp- 
+tion or crashes. 
+
+2.2 basic user workflow 
+
+To use vizier, a develop may use one of our client librari 
+(current implement in c++, python, golang), which will 
+gener servic request encod a protocol buffer [15]. 
+the basic workflow be extrem simple. user specifi a studi 
+configur which includes: 
+
+∙ identifi characterist of the studi (e.g. name, 
+owner, permissions). 
+∙ the set of paramet along with feasibl set for each 
+(c.f., section 2.3.1 for details); vizier do constrain 
+optim over the feasibl set. 
+
+given thi configuration, basic use of the servic (with each 
+trial be evalu by a singl process) can be implement 
+a follows: 
+
+# regist thi client with the study, creat it if 
+# necessary. 
+client.loadstudy(studi config, worker handle) 
+while (not client.studyisdone()): 
+# obtain a trial to evaluate. 
+trial = client.getsuggestion() 
+# evalu the object function at the trial parameters. 
+metric = runtrial(trial) 
+# report back the results. 
+client.completetrial(trial, metrics) 
+
+here runtrial be the problem–specif evalu of the 
+object function 𝑓 . multipl name metric may be report 
+back to vizier, howev one must be distinguish a the 
+object valu 𝑓(𝑥) for trial 𝑥. note that multipl process 
+work on a studi should share the same worker handl if 
+and onli if they be collabor evalu the same trial. 
+all process regist with a give studi with the same 
+worker handl be guarante to receiv the same trial when 
+upon request, which enabl distribut trial evaluation. 
+
+https://github.com/hips/spearmint 
+
+
+vizier api 
+
+persist 
+
+databas 
+suggest servic 
+
+suggest 
+worker 
+
+autom stop servic 
+
+dangl 
+
+work finder 
+automatedstop 
+
+worker 
+
+evalu 
+worker 
+
+figur 1: architectur of vizier service: main compo- 
+nent be (1) dangl work finder (restart work lose 
+to preemptions) (2) persist databas hold the cur- 
+
+rent state of all studi (3) suggest servic (creat 
+
+new trials), (4) earli stop servic (help termin 
+a trial early) (5) vizier api (json, validation, multi- 
+
+plexing) (6) evalu worker (provid and own by 
+
+the user). 
+
+2.3 interfac 
+
+2.3.1 configur a study. To configur a study, the user 
+provid a studi name, owner, option access permissions, an 
+optim goal from {maximize, minimize}, and specifi 
+the feasibl region 𝑋 via a set of parameterconfigs, each of 
+which declar a paramet name along with it values. We 
+support the follow paramet types: 
+
+∙ double: the feasibl region be a close interv [𝑎, 𝑏] for 
+some real valu 𝑎 ≤ 𝑏. 
+∙ integer: the feasibl region have the form [𝑎, 𝑏] ∩ Z for 
+some integ 𝑎 ≤ 𝑏. 
+∙ discrete: the feasibl region be an explicitli specified, 
+order set of real numbers. 
+∙ categorical: the feasibl region be an explicitli speci- 
+fied, unord set of strings. 
+
+user may also suggest recommend scaling, e.g., loga- 
+rithmic scale for paramet for which the object may 
+depend onli on the order of magnitud of a paramet value. 
+
+2.3.2 api definition. worker and end user can make 
+call to the vizier servic use either a rest api or use 
+google’ intern rpc protocol [15]. the most import 
+servic call are: 
+
+∙ createstudy: given a studi configuration, thi creat 
+an optim studi and return a global uniqu 
+identifi (“guid”) which be then use for all futur 
+servic calls. If a studi with a match name exists, 
+the guid for that studi be returned. thi allow parallel 
+worker to call thi method and all regist with the 
+same study. 
+∙ suggesttrials: thi method take a “worker handle” 
+a input, and immedi return a global uniqu 
+handl for a “long-run operation” that repres 
+
+the work of gener trial suggestions. the user 
+can then poll the api period to check the statu 
+of the operation. onc the oper be completed, it 
+will contain the suggest trials. thi design ensur 
+that all servic call be make with low latency, while 
+allow for the fact that the gener of trial can 
+take longer. 
+∙ addmeasurementtotrial: thi method allow client to 
+provid intermedi metric dure the evalu of 
+a trial. these metric be then use by the autom 
+stop rule to determin which trial should be 
+stop early. 
+∙ completetrial: thi method chang a trial’ statu 
+to “completed”, and provid a final object valu 
+that be then use to inform the suggest provid 
+by futur call to suggesttrials. 
+∙ shouldtrialstop: thi method return a global uniqu 
+handl for a long-run oper that repres the 
+work of determin whether a pend trial should 
+be stopped. 
+
+2.4 infrastructur 
+
+2.4.1 parallel process of suggest work. As the de 
+facto paramet tune engin of google, vizier be constantli 
+work on gener suggest for a larg number of 
+studi concurrently. As such, a singl machin would be in- 
+suffici for handl the workload. our suggest servic be 
+therefor partit across sever googl datacenters, with 
+a number of machin be use in each one. each instanc 
+of the suggest servic potenti can gener sugges- 
+tion for sever studi in parallel, give u a massiv 
+scalabl suggest infrastructure. google’ load balanc 
+infrastructur be then use to allow client to make call to a 
+unifi endpoint, without need to know which instanc be 
+do the work. 
+
+when a request be receiv by a suggest servic instanc 
+to gener suggestions, the instanc first place a distribut 
+lock on the study. thi lock be acquir for a fix period 
+of time, and be period extend by a separ thread 
+run on the instance. In other words, the lock will be held 
+until either the instanc fails, or it decid it’ do work 
+on the study. If the instanc fail (due to e.g. hardwar 
+failure, job preemption, etc), the lock soon expires, make 
+it elig to be pick up by a separ process (call the 
+“danglingworkfinder”) which then reassign the studi to a 
+differ suggest servic instance. 
+
+one consider in maintain a product system be 
+that bug be inevit introduc a our code matures. 
+occasionally, a new algorithm change, howev well tested, 
+will lead to instanc of the suggest servic fail for 
+particular studies. If a studi be pick up by the dangling- 
+workfind too mani times, it will temporarili halt the 
+studi and alert us. thi prevent subtl bug that onli affect 
+a few studi from caus crash loop that affect the overal 
+stabil of the system. 
+
+
+
+vizier api 
+
+persist 
+
+databas 
+
+evalu 
+
+worker 
+
+playground binari 
+
+abstract policycustom polici 
+
+figur 2: architectur of playground mode: main com- 
+ponent be (1) the vizier api take servic requests. 
+
+(2) the custom polici implement the abstract polici 
+
+and gener suggest trials. (3) the playground bi- 
+nari drive the custom polici base on demand report 
+
+by the vizier api. (4) the evalu worker behav 
+a normal, i.e., they request and evalu trials. 
+
+2.5 the algorithm playground 
+
+vizier’ algorithm playground provid a mechan for ad- 
+vanc user to easily, quickly, and safe replac vizier’ 
+core optim algorithm with arbitrari algorithms. 
+
+the playground serf a dual purpose; it allow rapid 
+prototyp of new algorithms, and it allow power-us to 
+easili custom vizier with advanc or exot capabl 
+that be particular to their use-case. In all cases, user of 
+the playground benefit from all of vizier’ infrastructur 
+asid from the core algorithms, such a access to a persist 
+databas of trials, the dashboard, and visualizations. 
+
+At the core of the playground be the abil to inject trial 
+into a study. vizier allow the user or other author pro- 
+ce to request one or more particular trial be evaluated. 
+In playground mode, vizier do not suggest trial for eval- 
+uation, but reli on an extern binari to gener trials, 
+which be then push to the servic for late distribut to 
+the workers. 
+
+more specifically, the architectur of the playground in- 
+volv the follow key components: (1) abstract polici (2) 
+playground binary, (3) vizier servic and (4) evalu 
+workers. see figur 2 for an illustration. 
+
+the abstract polici contain two abstract methods: 
+
+(1) getnewsuggestions(trials, num suggestions) 
+(2) getearlystoppingtrials(trials) 
+
+which should be implement by the user’ custom policy. 
+both these method be pass the full state of all trial in the 
+study, so stateless algorithm be support but not required. 
+getnewsuggest be expect to gener num suggest 
+new trials, while the getearlystoppingtri method be ex- 
+pect to return a list of pend trial that should be 
+stop early. the custom polici be regist with the play- 
+ground binari which period poll the vizier service. 
+the evalu worker maintain the servic abstract 
+and be unawar of the exist of the playground. 
+
+figur 3: A section of the dashboard for track the 
+progress of trial and the correspond object func- 
+tion values. note also, the presenc of action button 
+
+such a get suggest for manual request sugges- 
+tions. 
+
+2.6 benchmark suit 
+
+vizier have an integr framework that allow u to effi- 
+cientli benchmark our algorithm on a varieti of object 
+functions. mani of the object function come from the 
+black-box optim benchmark workshop [10], but 
+the framework allow for ani function to be model by 
+implement an abstract experiment class, which have a 
+virtual method respons for calcul the object valu 
+for a give trial, and a second virtual method that return 
+the optim solut for that benchmark. 
+
+user configur a set of benchmark run by provid a set 
+of algorithm configur and a set of object functions. 
+the benchmark suit will optim each function with each 
+algorithm 𝑘 time (where 𝑘 be configurable), produc a seri 
+of performance-over-tim metric which be then format 
+after execution. the individu run be distribut over 
+multipl thread and multipl machines, so it be easi to have 
+thousand of benchmark run execut in parallel. 
+
+2.7 dashboard and visual 
+
+vizier have a web dashboard which be use for both monitor 
+and chang the state of vizier studies. the dashboard be 
+fulli featur and implement the full function of the 
+vizier api. the dashboard be commonli use for: (1) track 
+the progress of a study. (2) interact visualizations. (3) 
+creating, updat and delet a study. (4) request new 
+suggestions, earli stopping, activating/deactiv a study. 
+see figur 3 for a section of the dashboard. In addit to 
+monitor and visualizations, the dashboard contain action 
+button such a get suggestions. 
+
+the dashboard us a translat layer which convert 
+between json and protocol buffer [15] when talk with 
+backend servers. the dashboard be built with polym [14] 
+an open sourc web framework support by googl and 
+us materi design principles. It contain interact vi- 
+sualiz for analyz the paramet in your study. In 
+particular, we use the parallel coordin visual [18] 
+which have the benefit of scale to high dimension space 
+
+
+
+figur 4: the parallel coordin visual [18] be 
+use for examin result from differ vizier runs. It 
+have the benefit of scale to high dimension space (∼15 
+dimensions) and work with both numer and categor- 
+ical parameters. additionally, it be interact and allow 
+
+variou mode of slice and dice data. 
+
+(∼15 dimensions) and work with both numer and categor- 
+ical parameters. see figur 4 for an example. each vertic 
+axi be a dimens correspond to a parameter, wherea 
+each horizont line be an individu trial. the point at which 
+the horizont line intersect the vertic axi give the valu 
+of the paramet in that dimension. thi can be use for 
+examin how the dimens co-vari with each other and 
+also against the object function valu (left most axis). the 
+visual be built use d3.j [4]. 
+
+3 the vizier algorithm 
+
+vizier’ modular design allow u to easili support multipl 
+algorithms. for studi with under a thousand trials, vizier 
+default to use batch gaussian process bandit [8]. We 
+use a matérn kernel with automat relev determin 
+(see e.g. section 5.1 of rasmussen and william [23] for a 
+discussion) and the expect improv acquisit func- 
+tion [21]. We search for and find local maximum of the acquisi- 
+tion function with a proprietari gradient-fre hill climb 
+algorithm, with random start points. 
+
+We implement discret paramet by emb them in 
+R. categor paramet with 𝑘 feasibl valu be repre- 
+sent via one-hot encoding, i.e., emb in [0, 1]𝑘. In both 
+cases, the gaussian process regressor give u a continu 
+and differenti function upon which we can walk uphill, 
+then when the walk have converged, round to the near 
+feasibl point. 
+
+while some author recommend use bayesian deep learn- 
+ing model in lieu of gaussian process for scalabl [27, 31], 
+in our experi they be too sensit to their own hyperpa- 
+ramet and do not reliabl perform well. other research 
+have recogn thi problem a well, and be work to 
+address it [28]. 
+
+for studi with ten of thousand of trial or more, other al- 
+gorithm may be used. thoughrandomsearch andgridsearch 
+be support a first–class choic and may be use in thi 
+regime, and mani other publish algorithm be support 
+
+through the algorithm playground, we current recommend 
+a proprietari local–search algorithm under these conditions. 
+
+for all of these algorithm we support data normalization, 
+which map numer paramet valu into [0, 1] and objec- 
+tive valu onto [−0.5, 0.5]. depend on the problem, a 
+one-to-on nonlinear map may be use for some of the 
+parameters, and be typic use for the objective. data nor- 
+maliz be handl befor trial be present to the trial 
+suggest algorithms, and it suggest be transpar 
+map back to the user-specifi scaling. 
+
+3.1 autom earli stop 
+
+In some import applic of black–box optimization, 
+inform relat to the perform of a trial may becom 
+avail dure trial evaluation. perhap the best exampl 
+of such a perform curv occur when tune machin 
+learn hyperparamet for model train progress 
+(e.g., via some version of stochast gradient descent). In thi 
+case, the model typic becom more accur a it train 
+on more data, and the accuraci of the model be avail at the 
+end of each train epoch. use these accuraci vs. train 
+step curves, it be often possibl to determin that a trial’ 
+paramet set be unpromis well befor evalu be 
+finished. In thi case we can termin trial evalu early, 
+free those evalu resourc for more promis trial 
+parameters. when do algorithmically, thi be refer to a 
+autom earli stopping. 
+
+vizier support autom earli stop via an api call to 
+a 
+shouldtrialstop method. analog to the suggest ser- 
+vice, there be an autom stop servic that accept 
+request from the vizier api to analyz a studi and de- 
+termin the set of trial that should be stopped, accord 
+to the configur earli stop algorithm. As with sugges- 
+tion algorithms, sever autom earli stop algorithm 
+be supported, and rapid prototyp can be do via the 
+algorithm playground. 
+
+3.2 autom stop algorithm 
+
+vizier support the follow autom stop algorithms. 
+these be meant to work in a stateless fashion i.e. they be 
+give the full state of all trial in the vizier studi when 
+determin which trial should stop. 
+
+3.2.1 perform curv stop rule. thi stop rule 
+perform regress on the perform curv to make a 
+predict of the final object valu of a trial give a set of 
+trial that be alreadi completed, and a partial perform 
+curv (i.e., a set of measur take dure trial evalua- 
+tion). given thi prediction, if the probabl of exceed 
+the optim valu found thu far be suffici low, earli 
+stop be request for the trial. 
+
+while prior work on autom earli stop use bayesian 
+parametr regress [9, 30], we opt for a bayesian non- 
+parametr regression, specif a gaussian process model 
+with a care design kernel that measur similar be- 
+tween perform curves. our motiv in thi be to 
+
+
+
+be robust to mani kind of perform curves, includ 
+those come from applic other than tune machin 
+learn hyperparamet in which the perform curv 
+may have veri differ semantics. notably, thi stop 
+rule still work well even when the perform curv be not 
+measur the same quantiti a the object value, but be 
+mere predict of it. 
+
+3.2.2 median stop rule. the median stop rule 
+stop a pend trial 𝑥𝑡 at step 𝑠 if the trial’ best object 
+valu by step 𝑠 be strictli bad than the median valu of the 
+run averag 𝑜𝜏1:𝑠 of all complet trials’ object 𝑥𝜏 
+report up to step 𝑠. here, we calcul the run averag 
+of a trial 𝑥𝜏 up to step 𝑠 a 𝑜 
+
+𝜏 
+1:𝑠 = 
+
+1 
+𝑠 
+σ𝑠𝑖=1𝑜 
+
+𝜏 
+𝑖 , where 𝑜 
+
+𝜏 
+𝑖 be 
+
+the object valu of 𝑥𝜏 at step 𝑖. As with the perform 
+curv stop rule, the median stop rule do not depend 
+on a parametr model, and be applic to a wide rang 
+of perform curves. In fact, the median stop rule 
+be model–free, and be more reminisc of a bandit-bas 
+approach such a hyperband [20]. 
+
+3.3 transfer learn 
+
+when do black-box optimization, user often run studi 
+that be similar to studi they have run before, and we can 
+use thi fact to minim repeat work. vizier support a 
+form of transfer learn which leverag data from prior 
+studi to guid and acceler the current study. for instance, 
+one might tune the learn rate and regular of a 
+machin learn system, then use that studi a a prior to 
+tune the same ML system on a differ data set. 
+
+vizier’ current approach to transfer learn be rel 
+simple, yet robust to chang in object across studies. We 
+design our transfer learn approach with these goal in 
+mind: 
+
+(1) scale well to situat where there be mani prior 
+studies. 
+
+(2) acceler studi (i.e., achiev good result with 
+few trials) when the prior be good, particularli in 
+case where the locat of the optimum, 𝑥*, doesn’t 
+chang much. 
+
+(3) Be robust against poorli chosen prior studi (i.e., a 
+bad prior should give onli a modest deceleration). 
+
+(4) share inform even when there be no formal rela- 
+tionship between the prior and current studies. 
+
+In previou work on transfer learn in the context of 
+hyperparamet optimization, bardenet et al. [1] discu the 
+difficulti in transfer knowledg across differ dataset 
+especi when the observ metric and the sampl of 
+the dataset be different. they use a rank approach for 
+construct a surrog model for the respons surface. thi 
+approach suffer from the comput overhead of run 
+a rank algorithm. yogatama and mann [32] propos a 
+more effici approach, which scale a θ(𝑘𝑛 + 𝑛3) for 𝑘 
+studi of 𝑛 trial each, where the cubic term come from 
+use a gaussian process in their acquisit function. 
+
+vizier typic us gaussian process regressors, so one 
+natur approach to implement transfer learn might be 
+
+figur 5: An illustr of our transfer learn 
+scheme, show how 𝜇′𝑖 be built from the residu 
+label w.r.t. 𝜇𝑖−1 (shown in dot red lines). 
+
+to build a larg gaussian process regressor that be train 
+on both the prior(s) and the current study. howev that 
+approach fail to satisfi design goal 1: for 𝑘 studi with 𝑛 
+trial each it would requir ω(𝑘3𝑛3) time. such an approach 
+also requir one to specifi or learn kernel function that 
+bridg between the prior(s) and current study, violat 
+design goal 4. 
+
+instead, our strategi be to build a stack of gaussian process 
+regressors, where each regressor be associ with a study, 
+and where each level be train on the residu rel to 
+the regressor below it. our model be that the studi be 
+perform in a linear sequence, each studi use the studi 
+befor it a priors. 
+
+the bottom of the stack contain a regressor built use 
+data from the old studi in the stack. the regressor abov 
+it be associ with the 2nd old study, and regress on 
+the residu of it object rel to the predict of the 
+regressor below it. similarly, the regressor associ with 
+the 𝑖th studi be built use the data from that study, and 
+regress on the residu of the object with respect to the 
+predict of the regressor below it. 
+
+more formally, we have a sequenc of studi {𝑆𝑖}𝑘𝑖=1 on un- 
+know object function {𝑓𝑖}𝑘𝑖=1, where the current studi 
+be 𝑆𝑘, and we build two sequenc of regressor {𝑅𝑖}𝑘𝑖=1 
+and {𝑅′𝑖} 
+
+𝑘 
+𝑖=1 have posterior mean function {𝜇𝑖} 
+
+𝑘 
+𝑖=1 and 
+
+{𝜇′𝑖} 
+𝑘 
+𝑖=1 respectively, and posterior standard deviat func- 
+
+tion {𝜎𝑖}𝑘𝑖=1 and {𝜎 
+′ 
+𝑖} 
+
+𝑘 
+𝑖=1, respectively. our final predict 
+
+will be 𝜇𝑘 and 𝜎𝑘. 
+let 𝐷𝑖 = 
+
+{︀ 
+(𝑥𝑖𝑡, 𝑦 
+
+𝑖 
+𝑡) 
+}︀ 
+𝑡 
+be the dataset for studi 𝑆𝑖. let 𝑅 
+
+′ 
+𝑖 be 
+
+a regressor train use data 
+{︀ 
+((𝑥𝑖𝑡, 𝑦 
+
+𝑖 
+𝑡 − 𝜇𝑖−1(𝑥𝑖𝑡)) 
+
+}︀ 
+𝑡 
+which 
+
+comput 𝜇′𝑖 and 𝜎 
+′ 
+𝑖. then we defin a our posterior mean 
+
+at level 𝑖 a 𝜇𝑖(𝑥) := 𝜇 
+′ 
+𝑖(𝑥) + 𝜇𝑖−1(𝑥). We take our poste- 
+
+rior standard deviat at level 𝑖, 𝜎𝑖(𝑥), to be a weight 
+geometr mean of 𝜎′𝑖(𝑥) and 𝜎𝑖−1(𝑥), where the weight be 
+a function of the amount of data (i.e., complet trials) in 
+𝑆𝑖 and 𝑆𝑖−1. the exact weight function depend on a 
+constant 𝛼 ≈ 1 set the rel import of old and new 
+standard deviations. 
+
+thi approach have nice properti when the prior regressor 
+be dens support (i.e. have mani well-spac data points), 
+
+
+
+but the top-level regressor have rel littl train data: 
+(1) fine structur in the prior carri through to 𝜇𝑘, even 
+if the top-level regressor give a low-resolut model of the 
+object function residual; (2) sinc the estim for 𝜎′𝑘 be 
+inaccurate, averag it with 𝜎𝑘−1 can lead to an improv 
+estimate. further, when the top-level regressor have dens 
+support, 𝛽 → 1 and the 𝜎𝑘 → 𝜎′𝑘, a one might desire. 
+
+We provid detail in the pseudocod in algorithm 1, and 
+illustr the regressor in figur 5. 
+
+algorithm 1 transfer learn regressor 
+
+# thi be a high order function that return a regressor 
+r(𝑥test); 
+# then r(𝑥test) can be evalu to obtain (𝜇, 𝜎) 
+function getregressor(𝐷training, 𝑖) 
+
+If 𝑖 < 0: return function that return (0,1) for all input 
+# recurs to get a regressor (𝜇i−1(𝑥), 𝜎i−1(𝑥)) train 
+
+on 
+# the data for all level of the stack below thi one. 
+𝑅prior ← getregressor(𝐷training, 𝑖− 1) 
+# comput train residu 
+𝐷residu ← [(𝑥, 𝑦 −𝑅prior(𝑥)[0])for(𝑥, 𝑦) ∈ 𝐷i] 
+# train a gaussian process (𝜇′𝑖(𝑥), 𝜎 
+
+′ 
+𝑖(𝑥)) on the resid- 
+
+uals. 
+𝐺𝑃residu = traingp(𝐷residuals) 
+function stackedregressor(𝑥test) 
+
+𝜇prior, 𝜎prior ← 𝑅prior(𝑥test) 
+𝜇top, 𝜎top ← 𝐺𝑃residuals(𝑥test) 
+𝜇← 𝜇top + 𝜇prior 
+𝛽 ← 𝛼|𝐷i|/(𝛼|𝐷i|+ |𝐷𝑖−1|) 
+𝜎 ← 𝜎𝛽top𝜎 
+
+1−𝛽 
+prior 
+
+return 𝜇, 𝜎 
+end function 
+return stackedregressor 
+
+end function 
+
+algorithm 1 be then use in the batch gaussian process 
+bandit [8] algorithm. algorithm 1 have the properti that 
+for a suffici dens sampl of the feasibl region in the 
+train data for the current study, the predict converg 
+to those of a regressor train onli on the current studi data. 
+thi ensur a certain degre of robustness: badli chosen 
+prior will eventu be overwhelm (design goal 3). 
+
+In product settings, transfer learn be often particu- 
+larli valuabl when the number of trial per studi be rel 
+small, but there be mani such studies. for example, certain 
+product machin learn system may be veri expens 
+to train, limit the number of trial that can be run for 
+hyperparamet tuning, yet be mission critic for a busi- 
+ness and be thu work on year after year. over time, the 
+total number of trial span sever small hyperparamet 
+tune run can be quit informative. our transfer learn 
+scheme be particularli well-suit to thi case, a illustr 
+in section 4.3. 
+
+4 result 
+
+4.1 perform evalu 
+
+To evalu the perform of googl vizier we requir func- 
+tion that can be use to benchmark the results. these be 
+pre-selected, easili calcul function with know optim 
+point that have proven challeng for black-box optimiza- 
+tion algorithms. We can measur the success of an optim 
+on a benchmark function 𝑓 by it final optim gap. that 
+is, if 𝑥* minim 𝑓 , and �̂� be the best solut found by the 
+optimizer, then |𝑓(�̂�)− 𝑓(𝑥*)| measur the success of that 
+optim on that function. if, a be frequent the case, the 
+optim have a stochast component, we then calcul the 
+averag optim gap by averag over multipl run of the 
+optim on the same benchmark function. 
+
+compar between benchmark be a more difficult give 
+that the differ benchmark function have differ rang 
+and difficulties. for example, a good black-box optim 
+appli to the rastrigin function might achiev an optimal- 
+iti gap of 160, while simpl random sampl of the beal 
+function can quickli achiev an optim gap of 60 [10]. We 
+normal for thi by take the ratio of the optim gap 
+to the optim gap of random search on the same func- 
+tion under the same conditions. onc normalized, we averag 
+over the benchmark to get a singl valu repres an 
+optimizer’ performance. 
+
+the benchmark select be primarili take from the 
+black-box optim benchmark workshop [10] (an 
+academ competit for black–box optimizers), and includ 
+the beale, branin, ellipsoidal, rastrigin, rosenbrock, six 
+hump camel, sphere, and styblinski benchmark functions. 
+
+4.2 empir result 
+
+In figur 6 we look at result qualiti for four optim 
+algorithm current implement in the vizier framework: a 
+multiarm bandit techniqu use a gaussian process regres- 
+sor [29], the smac algorithm [19], the covari matrix 
+adapt evolut strategi (cma-es) [16], and a proba- 
+bilist search method of our own. for a give dimens 𝑑, 
+we gener each benchmark function into a 𝑑 dimension 
+space, ran each optim on each benchmark 100 times, 
+and record the intermedi result (averag these over 
+the multipl runs). figur 6 show their improv over 
+random search; the horizont axi repres the number 
+of trial have be evaluated, while the vertic axi indic 
+each optim gap a a fraction of the random search 
+optim gap at the same point. the 2×random search 
+curv be the random search algorithm when it be al- 
+low to sampl two point for each point the other algo- 
+rithm evaluated. while some author have claim that 
+2×random search be highli competit with bayesian op- 
+timiz method [20], our data suggest thi be onli true 
+when the dimension of the problem be suffici high 
+(e.g., over 16). 
+
+
+
+100 101 102 103 104 
+
+batch (log scale) 
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+1.2 
+
+1.4 
+
+R 
+e 
+d 
+u 
+ct 
+
+io 
+n 
+i 
+n 
+o 
+
+p 
+ti 
+
+m 
+a 
+lit 
+
+y 
+g 
+
+a 
+p 
+
+re 
+la 
+
+ti 
+v 
+e 
+t 
+
+o 
+R 
+
+a 
+n 
+d 
+o 
+m 
+
+S 
+e 
+a 
+rc 
+
+h 
+
+dimens = 4 
+
+100 101 102 103 104 
+
+batch (log scale) 
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+1.2 
+
+1.4 
+
+dimens = 8 
+
+100 101 102 103 104 
+
+batch (log scale) 
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+1.2 
+
+1.4 
+
+dimens = 16 
+
+100 101 102 103 104 
+
+batch (log scale) 
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+1.2 
+
+1.4 
+
+dimens = 32 
+
+2xrandom 
+
+GP bandit 
+
+smac 
+
+cma-e 
+
+probabilist search 
+
+100 101 102 103 104 
+
+batch (log scale) 
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+1.2 
+
+1.4 
+
+dimens = 64 
+
+figur 6: ratio of the averag optim gap of each optim to that of random search at a give number of 
+samples. the 2×random search be a random search allow to sampl two point at everi step (a oppos 
+to a singl point for the other algorithms). 
+
+0 5 10 15 20 25 30 
+
+number of transfer learn step (i.e. studies) 
+
+5.0 
+
+5.5 
+
+6.0 
+
+6.5 
+
+lo 
+g 
+(b 
+
+e 
+st 
+
+o 
+p 
+ti 
+
+m 
+a 
+lit 
+
+y 
+g 
+
+a 
+p 
+s 
+
+e 
+e 
+n 
+i 
+n 
+s 
+
+tu 
+d 
+y 
+) 
+
+figur 7: converg of transfer learn in a 10 
+dimension space. thi show a sequenc of stud- 
+y with progress transfer learn for both GP 
+bandit (blue diamonds) and random search (red 
+squares) optimizers. the x-axi show the index of 
+the study, i.e. the number of time that transfer 
+learn have be applied; the y-axi show the log 
+of the best mean optim gap see in the studi 
+(see section 4.1). each studi contain six trials; for 
+the GP bandit-bas optim the previou studi 
+be use a prior for transfer learning. note that the 
+GP bandit show a consist improv in opti- 
+maliti gap from studi to study, thu demonstr 
+an effect transfer of knowledg from the earli 
+trials; random search do not do transfer learning. 
+
+4.3 transfer learn 
+
+We display the valu of transfer learn in figur 7 with a 
+seri of short studies; each studi be just six trial long. even 
+so, one can see that transfer learn from one studi to the 
+next lead to steadi progress toward the optimum, a the 
+stack of regressor gradual build up inform about the 
+shape of the object function. 
+
+thi experi be conduct in a 10 dimension space, 
+use the 8 black-box function describ in section 4.1. 
+We run 30 studi (180 trials) and each studi us transfer 
+learn from all previou studies. 
+
+As one might hope, transfer learn caus the GP ban- 
+dit algorithm to show a strong systemat decreas in the 
+optim gap from studi to study, with it final averag 
+optim gap 37% the size of random search’s. As ex- 
+pected, random search show no systemat improv 
+in it optim gap from studi to study. 
+
+note that a systemat improv in the optim gap 
+be a difficult task sinc each studi get a budget of onli 6 
+trial whilst oper in a 10 dimension space, and the GP 
+regressor be optim 8 intern hyperparamet for each 
+study. By ani reason measure, a singl study’ data be 
+insuffici for the regressor to learn much about the shape 
+of the object function. 
+
+4.4 autom stop 
+
+4.4.1 perform curv stop rule. In our experi- 
+ments, we found that the use of the perform curv stop- 
+ping rule result in achiev optim gap compar to 
+those achiev without the stop rule, while use approx- 
+imat 50% few cpu-hour when tune hyperparamet 
+for deep neural networks. our result be in line with figur 
+report by other researchers, while use a more flexibl 
+non-parametr model (e.g., domhan et al. [9] report reduc- 
+tion in the 40% to 60% rang on three ML hyperparamet 
+tune benchmarks). 
+
+4.4.2 median autom stop rule. We evalu the 
+median stop rule for sever hyperparamet search 
+problems, includ a state-of-the-art residu network archi- 
+tectur base on [17] for imag classif on cifar10 
+with 16 tunabl hyperparameters, and an lstm architec- 
+ture [33] for languag model on the penn treebank data 
+set with 12 tunabl hyperparameters. We observ that in all 
+case the stop rule consist achiev a factor two to 
+three speedup over random search, while alway find the 
+best perform trial. Li et al. [20] argu that “2x random 
+
+
+
+search”, i.e., random search at twice the speed, be competit 
+with sever state-of-the-art black-box optim method 
+on a broad rang of benchmarks. the robust of the stop- 
+ping rule be also evalu by run repeat simul 
+on a larg set of complet random search trial under ran- 
+dom permutation, which show that the algorithm almost 
+never decid to stop the ultimately-best-perform trial 
+early. 
+
+5 use case 
+
+vizier be use for a number of differ applic domains. 
+
+5.1 hyperparamet tune and 
+hypertun 
+
+vizier be use across googl to optim hyperparamet 
+of machin learn models, both for research and produc- 
+tion models. our implement scale to servic the entir 
+hyperparamet tune workload across alphabet, which be 
+extensive. As one (admittedli extreme) example, collin et al. 
+[6] use vizier to perform hyperparamet tune studi that 
+collect contain million of trial for a research project 
+investig the capac of differ recurr neural net- 
+work architectures. In thi context, a singl trial involv 
+train a distinct machin learn model use differ 
+hyperparamet values. that research project would not be 
+possibl without effect black–box optimization. for other 
+research projects, autom the arduou and tediou task 
+of hyperparamet tune acceler their progress. 
+
+perhap even more importantly, vizier have make notabl 
+improv to product model underli mani googl 
+products, result in measur good user experi for 
+over a billion people. extern research and develop 
+can achiev the same benefit use googl cloud machin 
+learn hypertun subsystem, which benefit from our 
+experi and technology. 
+
+5.2 autom a/b test 
+
+In addit to tune hyperparameters, vizier have a number 
+of other uses. It be use for autom a/b test of googl 
+web properties, for exampl tune user–interfac paramet 
+such a font and thumbnail sizes, color schema, and spacing, 
+or traffic-serv paramet such a the rel import 
+of variou signal in determin which item to show to a user. 
+An exampl of the latter would be “how should the search 
+result return from googl map trade off search-relev 
+for distanc from the user?” 
+
+5.3 delici chocol chip cooki 
+
+vizier be also use to solv complex black–box optim 
+problem aris from physic design or logist problems. 
+here we present an exampl that highlight some addit 
+capabl of the system: find the most delici chocol 
+chip cooki recip from a parameter space of recipes. 
+
+paramet includ bake soda, brown sugar, white 
+sugar, butter, vanilla, egg, flour, chocolate, chip type, salt, 
+cayenne, orang extract, bake time, and bake temperature. 
+
+We provid recip to contractor respons for provid- 
+ing dessert for googl employees. the head chef among 
+the contractor be give discret to alter paramet if 
+(and onli if) they strongli believ it to be necessary, but 
+would care note what alter be made. the cooki 
+be baked, and distribut to the cafe for taste–testing. 
+cafe goer tast the cooki and provid feedback via a 
+survey. survey result be aggreg and the result be 
+sent back to vizier. the “machin learn cookies” be 
+provid about twice a week over sever weeks. 
+
+the cooki improv significantli over time; late round 
+be extrem well-rat and, in the authors’ opinions, deli- 
+cious. however, we wish to highlight the follow capabl 
+of vizier the cooki design experi exercised: 
+
+∙ infeas trials: In real applications, some trial may 
+be infeasible, mean they cannot be evalu for 
+reason that be intrins to the paramet settings. 
+veri high learn rate may caus train to diverge, 
+lead to garbag models. In thi example: veri low 
+level of butter may make your cooki dough imposs 
+crumbl and incohesive. 
+∙ manual overrid of suggest trials: sometim you 
+cannot evalu the suggest trial or els mistakenli 
+evalu a differ trial than the one ask for. for 
+example, when bake you might be run low on 
+an ingredi and have to settl for less than the rec- 
+ommend amount. 
+∙ transfer learning: befor start to bake at larg scale, 
+we bake some recip in a small scale run-through. 
+thi provid use data that we could transfer learn 
+from when bake at scale. condit be not iden- 
+tical, however, result in some unexpect conse- 
+quences. for example, the large-scal product the 
+dough be allow to sit longer, which unexpectedly, 
+and somewhat dramatically, increas the subject 
+spici of the cooki for trial that involv cayenne. 
+fortunately, our transfer learn scheme be rel 
+robust to such shifts. 
+
+vizier support mark trial a infeasible, in which case 
+they do not receiv an object value. In the case of bayesian 
+optimization, previou work either assign them a particu- 
+larli bad object value, attempt to incorpor a proba- 
+biliti of infeas into the acquisit function to penal 
+point that be like to be infeas [3], or tri to explicitli 
+model the shape of the infeas region [11, 12]. We take the 
+first approach, which be simpl and fairli effect for the ap- 
+plicat we consider. regard manual overrides, vizier’ 
+stateless design make it easi to support updat or delet 
+trials; we simpli updat the trial state on the database. for 
+detail on transfer learning, refer to section 3.3. 
+
+6 conclus 
+
+We have present our design for vizier, a scalable, state- 
+of-the-art intern servic for black–box optim within 
+google, explain mani of it design choices, and describ it 
+use case and benefits. It have alreadi proven to be a valuabl 
+
+
+
+platform for research and development, and we expect it will 
+onli grow more so a the area of black–box optim 
+grow in importance. also, it design excel cookies, which 
+be a veri rare capabl among comput systems. 
+
+7 acknowledg 
+
+We grate acknowledg the contribut of the following: 
+jeremi kubica, jeff dean, eric christiansen, moritz hardt, 
+katya gonina, kevin jamieson, and abdul salem. 
+
+refer 
+[1] rémi bardenet, mátyá brendel, baláz kégl, and michel sebag. 
+
+2013. collabor hyperparamet tuning. icml 2 (2013), 199. 
+[2] jame S bergstra, rémi bardenet, yoshua bengio, and baláz 
+
+kégl. 2011. algorithm for hyper-paramet optimization. In 
+advanc in neural inform process systems. 2546–2554. 
+
+[3] J bernardo, MJ bayarri, JO berger, AP dawid, D heckerman, 
+afm smith, and M west. 2011. optim under unknown 
+constraints. bayesian statist 9 9 (2011), 229. 
+
+[4] michael bostock, vadim ogievetsky, and jeffrey heer. 2011. D3 
+
+data-driven documents. ieee transact on visual and 
+comput graphic 17, 12 (2011), 2301–2309. 
+
+[5] herman chernoff. 1959. sequenti design of experiments. ann. 
+math. statist. 30, 3 (09 1959), 755–770. https://doi.org/10.1214/ 
+aoms/1177706205 
+
+[6] jasmin collins, jascha sohl-dickstein, and david sussillo. 2017. 
+capac and trainabl in recurr neural networks. In pro- 
+feed of the intern confer on learn represen- 
+tation (iclr). 
+
+[7] andrew R conn, katya scheinberg, and lui N vicente. 2009. 
+introduct to derivative-fre optimization. siam. 
+
+[8] thoma desautels, andrea krause, and joel W burdick. 2014. 
+parallel exploration-exploit tradeoff in gaussian pro- 
+ce bandit optimization. journal of machin learn research 
+15, 1 (2014), 3873–3923. 
+
+[9] tobia domhan, jost tobia springenberg, and frank hutter. 
+2015. speed Up automat hyperparamet optim of 
+deep neural network by extrapol of learn curves.. In 
+ijcai. 3460–3468. 
+
+[10] steffen finck, nikolau hansen, raymond rost, and ann 
+auger. 2009. real-paramet black-box optim 
+benchmark 2009: present of the noiseless func- 
+tions. http://coco.gforge.inria.fr/lib/exe/fetch.php?media= 
+download3.6:bbobdocfunctions.pdf. (2009). [online]. 
+
+[11] jacob R gardner, matt J kusner, zhixiang eddi xu, kilian Q 
+weinberger, and john P cunningham. 2014. bayesian optimiza- 
+tion with inequ constraints.. In icml. 937–945. 
+
+[12] michael A gelbart, jasper snoek, and ryan P adams. 2014. 
+bayesian optim with unknown constraints. In proceed- 
+ing of the thirtieth confer on uncertainti in artifici 
+intelligence. auai press, 250–259. 
+
+[13] josep ginebra and murray K. clayton. 1995. respons surfac 
+bandits. journal of the royal statist society. seri B 
+(methodological) 57, 4 (1995), 771–784. http://www.jstor.org/ 
+stable/2345943 
+
+[14] google. 2017. polymer: build modern app use web components. 
+https://github.com/polymer/polymer. (2017). [online]. 
+
+[15] google. 2017. protocol buffers: google’ data interchang format. 
+https://github.com/google/protobuf. (2017). [online]. 
+
+[16] nikolau hansen and andrea ostermeier. 2001. complet de- 
+random self-adapt in evolut strategies. evolutionari 
+comput 9, 2 (2001), 159–195. 
+
+[17] kaim he, xiangyu zhang, shaoq ren, and jian sun. 2016. 
+deep residu learn for imag recognition. In proceed of the 
+ieee confer on comput vision and pattern recognition. 
+770–778. 
+
+[18] julian heinrich and daniel weiskopf. 2013. state of the art of 
+parallel coordinates.. In eurograph (stars). 95–116. 
+
+[19] frank hutter, holger H hoos, and kevin leyton-brown. 2011. 
+sequenti model-bas optim for gener algorithm config- 
+uration. In intern confer on learn and intellig 
+optimization. springer, 507–523. 
+
+[20] lisha li, kevin G. jamieson, giulia desalvo, afshin ros- 
+tamizadeh, and ameet talwalkar. 2016. hyperband: A novel 
+bandit-bas approach to hyperparamet optimization. corr 
+abs/1603.06560 (2016). http://arxiv.org/abs/1603.06560 
+
+[21] J moćkus, V tiesis, and A źilinskas. 1978. the applic of 
+bayesian method for seek the extremum. vol. 2. elsevier. 
+117–128 pages. 
+
+[22] john A nelder and roger mead. 1965. A simplex method for 
+function minimization. the comput journal 7, 4 (1965), 308– 
+313. 
+
+[23] carl edward rasmussen and christoph K. I. williams. 2005. 
+gaussian process for machin learn (adapt computa- 
+tion and machin learning). the mit press. 
+
+[24] lui miguel rio and nikolao V sahinidis. 2013. derivative-fre 
+optimization: a review of algorithm and comparison of softwar 
+implementations. journal of global optim 56, 3 (2013), 
+1247–1293. 
+
+[25] bobak shahriari, kevin swersky, ziyu wang, ryan P adams, 
+and nando de freitas. 2016. take the human out of the loop: 
+A review of bayesian optimization. proc. ieee 104, 1 (2016), 
+148–175. 
+
+[26] jasper snoek, hugo larochelle, and ryan P adams. 2012. prac- 
+tical bayesian optim of machin learn algorithms. In 
+advanc in neural inform process systems. 2951–2959. 
+
+[27] jasper snoek, oren rippel, kevin swersky, ryan kiros, nadathur 
+satish, narayanan sundaram, md. mostofa ali patwary, prab- 
+hat, and ryan P. adams. 2015. scalabl bayesian optim 
+use deep neural networks. In proceed of the 32nd inter- 
+nation confer on machin learning, icml 2015, lille, 
+france, 6-11 juli 2015 (jmlr workshop and confer pro- 
+ceedings), franci R. bach and david M. blei (eds.), vol. 37. 
+jmlr.org, 2171–2180. http://jmlr.org/proceedings/papers/v37/ 
+snoek15.html 
+
+[28] jost tobia springenberg, aaron klein, stefan falkner, and 
+frank hutter. 2016. bayesian optim with robust 
+bayesian neural networks. In advanc in neural infor- 
+mation process system 29, D. D. lee, M. sugiyama, 
+U. V. luxburg, I. guyon, and R. garnett (eds.). cur- 
+ran associates, inc., 4134–4142. http://papers.nips.cc/paper/ 
+6117-bayesian-optimization-with-robust-bayesian-neural-networks. 
+pdf 
+
+[29] niranjan srinivas, andrea krause, sham kakade, and matthia 
+seeger. 2010. gaussian process optim in the bandit set- 
+ting: No regret and experiment design. icml (2010). 
+
+[30] kevin swersky, jasper snoek, and ryan prescott adams. 
+2014. freeze-thaw bayesian optimization. arxiv preprint 
+arxiv:1406.3896 (2014). 
+
+[31] andrew gordon wilson, zhite hu, ruslan salakhutdinov, and 
+eric P xing. 2016. deep kernel learning. In proceed of the 
+19th intern confer on artifici intellig and 
+statistics. 370–378. 
+
+[32] dani yogatama and gideon mann. 2014. effici transfer learn- 
+ing method for automat hyperparamet tuning. jmlr: 
+w&cp 33 (2014), 1077–1085. 
+
+[33] wojciech zaremba, ilya sutskever, and oriol vinyals. 2014. 
+recurr neural network regularization. arxiv preprint 
+arxiv:1409.2329 (2014). 
+
+https://doi.org/10.1214/aoms/1177706205 
+https://doi.org/10.1214/aoms/1177706205 
+http://coco.gforge.inria.fr/lib/exe/fetch.php?media=download3.6:bbobdocfunctions.pdf 
+http://coco.gforge.inria.fr/lib/exe/fetch.php?media=download3.6:bbobdocfunctions.pdf 
+http://www.jstor.org/stable/2345943 
+http://www.jstor.org/stable/2345943 
+https://github.com/polymer/polym 
+https://github.com/google/protobuf 
+http://arxiv.org/abs/1603.06560 
+http://jmlr.org/proceedings/papers/v37/snoek15.html 
+http://jmlr.org/proceedings/papers/v37/snoek15.html 
+http://papers.nips.cc/paper/6117-bayesian-optimization-with-robust-bayesian-neural-networks.pdf 
+http://papers.nips.cc/paper/6117-bayesian-optimization-with-robust-bayesian-neural-networks.pdf 
+http://papers.nips.cc/paper/6117-bayesian-optimization-with-robust-bayesian-neural-networks.pdf 
+
+abstract 
+1 introduct 
+1.1 relat work 
+1.2 definit 
+
+2 system overview 
+2.1 design goal and constraint 
+2.2 basic user workflow 
+2.3 interfac 
+2.4 infrastructur 
+2.5 the algorithm playground 
+2.6 benchmark suit 
+2.7 dashboard and visual 
+
+3 the vizier algorithm 
+3.1 autom earli stop 
+3.2 autom stop algorithm 
+3.3 transfer learn 
+
+4 result 
+4.1 perform evalu 
+4.2 empir result 
+4.3 transfer learn 
+4.4 autom stop 
+
+5 use case 
+5.1 hyperparamet tune and hypertun 
+5.2 autom a/b test 
+5.3 delici chocol chip cooki 
+
+6 conclus 
+7 acknowledg 
+refer 
+

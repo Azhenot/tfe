@@ -1,0 +1,2851 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+journal of machin learn research 17 (2016) 1-47 submit 5/15; revis 1/16; publish 7/16 
+
+monoton calibr interpol look-up tabl 
+
+maya gupta mayagupta@google.com 
+andrew cotter acotter@google.com 
+jan pfeifer janpf@google.com 
+konstantin voevodski kvodski@google.com 
+kevin canini canini@google.com 
+alexand mangylov amangy@google.com 
+wojciech moczydlowski wojtekm@google.com 
+alexand van esbroeck alexve@google.com 
+googl 
+
+1600 amphitheatr pkwi 
+
+mountain view, CA 94301, usa 
+
+editor: saharon rosset 
+
+abstract 
+
+real-world machin learn applic may have requir beyond accuracy, such a 
+fast evalu time and interpretability. In particular, guarante monoton of the 
+learn function with respect to some of the input can be critic for user confidence. 
+We propos meet these goal for low-dimension machin learn problem by learn- 
+ing flexible, monoton function use calibr interpol look-up tables. We extend 
+the structur risk minim framework of lattic regress to monoton function by 
+add linear inequ constraints. In addition, we propos jointli learn interpret 
+calibr of each featur to normal continu featur and handl categor or miss- 
+ing data, at the cost of make the object non-convex. We address large-scal learn 
+through parallelization, mini-batching, and random sampl of addit regular terms. 
+case studi on real-world problem with up to sixteen featur and up to hundr of 
+million of train sampl demonstr the propos monoton function can achiev 
+state-of-the-art accuraci in practic while provid great transpar to users. 
+
+keywords: interpretability, interpolation, look-up tables, monoton 
+
+1. introduct 
+
+mani challeng issu aris when make machin learn use in practice. evalu 
+of the train model may need to be fast. featur may be categorical, missing, or poorli 
+calibrated. A blackbox model may be unacceptable: user may requir guarante that 
+the function will behav sensibl for all samples, and prefer function that be easi to 
+understand and debug. In thi paper we address these practic issues, without trading-off 
+for accuracy. 
+
+We have found that a key interpret issu in practic be whether the learn model 
+can be guarante to be monoton with respect to some features. for example, suppos 
+the goal be to estim the valu of a use car, and one of the featur be the number of km 
+it have be driven. If all the other featur valu be held fixed, we expect the valu of the 
+
+c©2016 maya gupta, andrew cotter, jan pfeifer, konstantin voevodski, kevin canini, alexand mangylov, wojciech moczydlowski, alexand van esbroeck. 
+
+
+
+gupta, cotter, pfeifer, voevodski, canini, mangylov, moczydlowski, et al. 
+
+θ[2] = 0.4 
+
+θ[0] = 0.0 θ[1] = 1.0 
+
+θ[3] = 0.4 
+
+1.0 
+
+0.0 
+
+0.5 
+
+scale monoton monoton not monoton not monoton 
+(a) (b) (c) (d) (e) 
+
+figur 1: exampl 2× 2 interpol look-up tabl function over a unit square, with color 
+scale show in (a). each function be defin by a 2×2 lattic with four parameters, 
+which be the valu of the function in the four corner (shown). the function be 
+linearli interpol from it paramet (see figur 2 for a pictori descript 
+of linear interpolation). the function in (b) be strictli monoton increas 
+in both features, which can be verifi by check that each upper paramet 
+be larg than the paramet below it, and that each paramet on the right be 
+larg than the paramet to it left. the function in (c) be strictli monoton 
+increas in the first feature, and monoton increas in the second featur 
+(but not strictli so sinc the paramet on the left be both zero). the function 
+in (d) be monoton increas in the first featur (one verifi thi by note 
+that 1 ≥ 0 and 0.4 ≥ 0.4), but non-monoton in the second feature: on the 
+left side the function increas from 0 → 0.4, but on the right side the function 
+decreas from 1→ 0.4. the function in (e) be a saddl function interpol an 
+exclusive-or, and be non-monoton in both features. 
+
+use car to never increas a the number of km driven increases. but a model learn from 
+a small set of noisi sampl may not, in fact, respect thi prior knowledge. 
+
+In thi paper, we propos learn monotonic, efficient, and flexibl function by con- 
+strain and calibr interpol look-up tabl in a structur risk minim frame- 
+work. learn monoton function be difficult, and previous publish work have onli 
+be illustr on small problem (see tabl 1). our experiment result demonstr 
+learn flexible, guarante monoton function on more featur and data than prior 
+work, and that these function achiev state-of-the-art perform on real-world problems. 
+
+the paramet of an interpol look-up tabl be simpli valu of the function, 
+regularli space in the input space, and these valu be interpol to comput f(x) for 
+ani x. see figur 1 and 2 for exampl of 2× 2 and 2× 3 look-up tabl and the function 
+produc by interpol them. each paramet have a clear meaning: it be the valu of the 
+function for a particular input, for a set of input on a regular grid. these paramet can 
+be individu read and check to understand the learn function’ behavior. 
+
+interpol look-up tabl be a classic strategi for repres low-dimension func- 
+tions. for example, back of old textbook have page of look-up tabl for one-dimension 
+function like sin(x), and interpol look-up tabl be standard by the icc profil for 
+the three and four dimension nonlinear transform need to color manag printer 
+(sharma and bala, 2002). In thi paper we interpol look-up tabl defin over much 
+
+2 
+
+
+
+monoton look-up tabl 
+
+θ[2] = 0.4 
+
+θ[0] = 0.0 θ[1] = 1.0 
+
+θ[3] = 0.4 
+
+1.0 
+
+0.0 
+
+0.5 
+
+(a) (b) (c) 
+
+figur 2: figur illustr a 3×2 lattic function and multilinear interpolation, with color 
+scale give by (a) and paramet a shown. the lattic function show be contin- 
+uou everywhere, and differenti everywher except at the boundari between 
+lattic cells, which be the vertic edg join the middl paramet 5 and 8. As 
+show in (b), to evalu f(x), ani x that fall in the left cell of the lattic be 
+linearli interpol from the paramet at the vertex of the left cell, here 6, 
+3, 5 and 8. linear interpol be linear not in x but in the lattic parameters, 
+that be f(x) be a weight combin of the paramet valu 6, 3, 5, and 8. the 
+weight on the paramet be the area of the four box form by the dot 
+line drawn orthogon through x, with each paramet weight by the area 
+of the box farthest from it, so that a x move closer to a paramet the weight 
+on that paramet get bigger. becaus the dot line partit a unit squar 
+cell, the sum of these linear interpol weight be alway one. As show in (c), 
+sampl like the mark x that fall in the right cell of the lattic be interpol 
+from that cell’ parameters: 8, 5, 6 and 8. 
+
+larg featur spaces. use an effici linear interpol method we refer to a sim- 
+plex interpolation, the interpol of a d-dimension look-up tabl can be comput in 
+o(d logd) time. for example, we found that interpol a look-up tabl defin over 
+D = 20 featur take onli 2 microsecond on a standard cpu. the number of paramet 
+in the look-up tabl scale a 2d, which limit the size of D, but still enabl u to learn 
+higher-dimension flexibl monoton function than ever before. 
+
+estim the paramet of an interpol look-up tabl use structur risk mini- 
+mizat be propos by garcia and gupta (2009) and call lattic regression. lattic 
+regress can be view a a kernel method that us the explicit nonlinear featur transfor- 
+mation form by map an input x ∈ [0, 1]d to a vector of linear interpol weight 
+φ(x) ∈ ∆2d over the 2D vertex of the look-up tabl cell that contain x, where ∆ de- 
+note the standard simplex. then the function be linear in these transform features: 
+f(x) = θtφ(x). We will refer to the look-up tabl paramet θ a the lattice, and to the 
+interpol look-up tabl f(x) a the lattic function. earlier work in lattic regress 
+focu on learn highli nonlinear function over 2 to 4 featur with fine-grain lattices, 
+such a a 17 × 17 × 17 lattic for model a color printer or super-resolut of spheric 
+
+3 
+
+
+
+gupta, cotter, pfeifer, voevodski, canini, mangylov, moczydlowski, et al. 
+
+imag (garcia et al., 2010, 2012). In thi paper, we appli lattic regress to more gener 
+machin learn problem with D = 5 to 16 features, and show that 2D lattic work well 
+for mani real-world classif and rank problems, especi when pair with jointli 
+train one-dimension pre-process functions. 
+
+We begin with a survey of relat work in machin learn of interpret and mono- 
+tonic functions. then we review lattic regress in section 3. the main contribut be 
+learn monoton lattic in section 4. We discu effici linear interpol in section 
+5. We propos an interpret torsion lattic regular in section 6. We propos jointli 
+learn one-dimension calibr function in section 7, and consid two strategi for 
+supervis handl of miss data for lattic regress in section 8. In section 9, we 
+consid strategi for speed up train and handl large-scal problem and large- 
+scale constraint-handling. A seri of case studi in section 10 experiment explor the 
+paper’ proposals, and demonstr that monoton lattic regress achiev similar ac- 
+curaci a a random forest, and that monoton be a common issu that aris in mani 
+differ applications. the paper end with conclus and open question in section 11. 
+
+2. relat work 
+
+We give a brief overview of relat work in interpret machin learning, then survey 
+relat work in learn monoton functions. 
+
+2.1 relat work in interpret machin learn 
+
+two key theme of the prior work on interpret machin learn be (i) interpret 
+function classes, and (ii) prefer simpler function within a function class. 
+
+2.1.1 interpret function class 
+
+the function class of decis tree and rule be gener regard a rel inter- 
+pretable. näıv bay classifi can be interpret in term of weight of evid (good, 
+1965; spiegelhalt and knill-jones, 1984). similarly, linear model form an interpret 
+function class in that the paramet dictat the rel import of each feature. lin- 
+ear approach can be gener to sum nonlinear components, a in gener addit 
+model (hasti and tibshirani, 1990) and some kernel methods, while still retain some 
+of their interpret aspects. 
+
+the function class of interpol look-up tabl be interpret in that the function’ 
+paramet be the look-up tabl values, and so be semant meaningful: they be simpli 
+exampl of the function’ output, regularli space in the domain. given two look-up tabl 
+with the same structur and the same features, one can analyz how their function differ 
+by analyz how the look-up tabl paramet differ. analyz which paramet chang 
+by how much can help answer question like “if I add train exampl and re-train, what 
+chang about the model?” 
+
+2.1.2 prefer simpler function 
+
+anoth bodi of work focu on choos simpler function within a function class, opti- 
+mize an object of the form: minim empir error and maxim simplicity, where 
+
+4 
+
+
+
+monoton look-up tabl 
+
+simplic be usual defin a some manifest of occam’ razor or variant of kol- 
+mogorov complexity. for example, ishibuchi and nojima (2007) minim the number of 
+fuzzi rule in a rule set, osei-bryson (2007) prune a decis tree for interpretability, 
+rätsch et al. (2006) find a spars convex combin of kernel for a multi-kernel sup- 
+port vector machine, and nock (2002) prefer small committe of ensembl classifiers. 
+similarly, garcia et al. (2009) measur the interpret of rule-bas classifi in term 
+of the number of rule and number of featur used. more generally, thi categori of in- 
+terpret includ model select criterion like the bayesian inform criterion and 
+akaik inform criterion (hasti et al., 2001), sparsiti regular like spars linear re- 
+gression models, and featur select methods. other approach to simplic may includ 
+simplifi structur in graphic model or neural nets, such a the structur neural net 
+of strannegaard (2012). 
+
+while sparsity-bas approach to interpret can provid regular that re- 
+duce over-fit and henc increas accuracy, it have also be note that such strategi 
+may creat a trade-off between interpret and accuraci (casilla et al., 2002; nock, 
+2002; Yu and xiao, 2012; shukla and tripathi, 2012). We hypothes thi occur when the 
+assum simpler structur be a poor model of the true function. 
+
+monoton be anoth way to choos a semant simpler function to increas in- 
+terpret (and regularize). our case studi in section 10 illustr that when appli 
+to problem where monoton be warrant true, we do not see a trade-off with accuracy. 
+
+2.2 relat work in monoton function 
+
+A function f(x) be monoton increas with respect to featur d if f(xi) ≥ f(xj) for 
+ani two featur vector xi, xj ∈ RD where xi[d] ≥ xj [d] and xi[m] = xj [m] for m 6= d. 
+
+A number of approach have be propos for enforc and encourag monoton 
+in machin learning. the comput complex of these algorthim tend to be high, 
+and most method scale poorli in the number of featur D and sampl n, a summar 
+in tabl 1. 
+
+We detail the relat work in the follow section organ by the type of machin 
+learning, but these method could instead be organ by strategy, which mostli fall into 
+one of four categories: 
+
+1. constrain a more flexibl function class to be monotonic, such a linear function with 
+posit coefficients, or a sigmoid neural network with posit weights. 
+
+2. post-process by prune or reduc monoton violat after training. 
+
+3. penal monoton violat by pair of sampl or sampl deriv when train- 
+ing. 
+
+4. re-label sampl to be monoton befor training. 
+
+2.2.1 monoton linear and polynomi function 
+
+linear function can be easili constrain to be monoton in certain input by requir 
+the correspond slope coeffici to be non-negative, but linear function be not suf- 
+
+5 
+
+
+
+gupta, cotter, pfeifer, voevodski, canini, mangylov, moczydlowski, et al. 
+
+ficient flexibl for mani problems. polynomi function (equivalently, linear function 
+with pre-defin cross of features) can also be easili forc to be monoton by requir 
+all coeffici to be positive. however, thi be onli a suffici and not necessari condition: 
+there be monoton polynomi whose coeffici be not all positive. for example, con- 
+sider the simpl case of second degre multilinear polynomi defin over the unit squar 
+f : [0, 1]2 → R such that: 
+
+f(x) = a0 + a1x[0] + a2x[1] + a3x[0]x[1]. (1) 
+
+restrict the function to a bound domain the domain x ∈ [0, 1]2 and forc the deriva- 
+tive to be posit over that domain, one see that the complet set of monoton function 
+of the form (1) on the unit squar be describ by four linear inequalities: 
+
+a1 > 0 a2 > 0 
+a1 + a3 > 0 a2 + a3 > 0. 
+
+the gener problem of check whether a particular choic of polynomi coeffici 
+produc a monoton function requir check whether the polynomial’ deriv (also 
+a polynomial) be posit everywhere, which be equival to check if the deriv have 
+ani real roots, which can be comput challeng (see, for example, sturm’ theorem 
+for details). 
+
+function of the form (1) can be equival express a a 2 × 2 lattic interpol 
+with multilinear interpolation, but a we will show in section 4, with thi altern param- 
+eter it be easi to check and enforc the complet set of monoton functions. 
+
+2.2.2 monoton spline 
+
+In thi paper we extend lattic regression, which be a spline method with fix knot on 
+a regular grid and a linear kernel (garcia et al., 2012), to be monotonic. there have 
+be a number of propos to learn monoton one-dimension splines. for example, 
+build on ramsay (1998), shive et al. (2009) parameter the set of all smooth and 
+strictli monoton one-dimension function use an integr exponenti form f(x) = 
+a+ 
+
+∫ x 
+0 e 
+
+b+u(t)dt, and show good perform than the monoton function estim of 
+neelon and dunson (2004) and holm and heard (2003) for smooth functions. In other 
+relat spline work, villalobo and wahba (1987) consid smooth spline with linear 
+inequ constraints, but do not address monotonicity. 
+
+2.2.3 monoton decis tree and forests: 
+
+stump and forest of stump be easili constrain to be monotonic. however, for deeper 
+or broader trees, all pair of leaf must be check to verifi monoton (potharst and 
+feelders, 2002b). non-monoton tree can be prune to be monoton use variou strate- 
+gy that iter reduc the non-monoton branch (ben-david, 1992; potharst and 
+feelders, 2002b). mononton can also be encourag dure tree construct by pe- 
+naliz the split criterion to reduc the number of non-monoton leaf a split would 
+creat (ben-david, 1995). potharst and feelder (2002a) achiev complet flexibl mono- 
+tonic tree use a strategi akin to bogosort (gruber et al., 2007): train mani tree on 
+differ random subset of the train samples, then select one that be monotonic. 
+
+6 
+
+
+
+M 
+o 
+n 
+o 
+t 
+o 
+n 
+ic 
+
+L 
+o 
+o 
+k 
+-U 
+
+p 
+T 
+a 
+b 
+l 
+e 
+s 
+
+method monoton strategi guarante monotonic? max D max n 
+
+archer and wang (1993) neural net constrain function ye 2 50 
+wang (1994) neural net constrain function ye 1 150 
+mukarje and stern (1994) kernel estim post-process ye 2 2447 
+ben-david (1995) tree penal split ye 8 125 
+sill and abu-mostafa (1997) neural net penal pair no 6 550 
+sill (1998) neural net constrain function ye 10 196 
+kay and ungar (2000) neural net constrain function ye 1 100 
+potharst and feelder (2002a) tree random ye 8 60 
+potharst and feelder (2002b) tree prune ye 11 1090 
+spoug et al. (2003) isoton regress constrain ye 2 100,000 
+duivesteijn and feelder (2008) k-nn re-label sampl no 12 768 
+lauer and bloch (2008) svm sampl deriv no none none 
+duga et al. (2000, 2009) neural net constrain function ye 4 3434 
+shive et al. (2009) spline constrain function ye 1 100 
+kotlowski and slowinski (2009) rule-bas re-label sampl ye 11 1728 
+daniel and velikova (2010) neural net constrain function ye 6 174 
+riihimäki and vehtari (2010) gaussian process sampl deriv no 7 1222 
+Qu and Hu (2011) neural net deriv / constrain ye 1 30 
+neumann et al. (2013) neural net sampl deriv no 3 625 
+
+tabl 1: some relat work in learn monoton functions. mani of these method guarante a monoton solution, but some 
+onli encourag monotonicity. the last two column give the larg number of featur D and the larg number of 
+sampl n use in ani of the experi in that paper (gener not the same experiment). 
+
+7 
+
+
+
+gupta, cotter, pfeifer, voevodski, canini, mangylov, moczydlowski, et al. 
+
+2.2.4 monoton support vector machin 
+
+with a linear kernel, it may be easi to check and enforc monoton of support vector 
+machines, but for nonlinear kernel it will be more challenging. lauer and bloch (2008) 
+encourag support vector machin to be more monoton by constrain the deriv of 
+the function at the train samples. riihimäki and vehtari (2010) use the same strategi 
+to encourag more monoton gaussian processes. 
+
+2.2.5 monoton neural network 
+
+In perhap the earli work on monoton neural networks, archer and wang (1993) adap- 
+tive down-weight sampl dure train whose gradient updat would violat mono- 
+tonicity, to produc a posit weight neural net. other research explicitli propos 
+constrain the weight to be posit in a singl hidden-lay neural network with the 
+sigmoid or other monoton nonlinear transform (wang, 1994; kay and ungar, 2000; 
+duga et al., 2000, 2009; minin et al., 2010). duga et al. (2009) show with simul 
+of four featur and 400 train sampl that both bia and varianc be reduc by en- 
+forc monotonicity. however, daniel and velikova (2010) show thi approach requir 
+D hidden layer to arbitrarili approxim ani d-dimension monoton function. In ad- 
+dition to a gener proof, they provid a simpl and realist exampl of a two-dimension 
+monoton function that cannot be fit with one hidden layer and posit weights. 
+
+abu-mostafa (1993) and sill and abu-mostafa (1997) propos regular a function 
+to be more monoton by penal squar deviat in monoton for virtual pair 
+of input sampl that be add for thi purpose. unfortunately, it gener do not 
+guarante monoton everywhere, onli with respect to those virtual input pairs. (and in 
+fact, to guarante monoton for the sampl pairs, an exact penalti function would be 
+need with a suffici larg regular paramet to ensur the regular be 
+equival to a constraint). 
+
+lauer and bloch (2008), riihimäki and vehtari (2010), and neumann et al. (2013) 
+encourag extrem learn machin to be more monoton by constrain the deriv 
+of the function to be posit for a set of sampl points. 
+
+Qu and Hu (2011) do a small-scal comparison of encourag monoton by con- 
+strain input pair to be monotonic, versu encourag monoton neural net by con- 
+strain the function’ deriv at a subset of sampl (analog to lauer and bloch 
+(2008)), versu use a sigmoid function with posit weights. they conclud the 
+positive-weight sigmoid function be best. 
+
+sill (1998) propos a guarante monoton neural network with two hidden layer 
+by requir the first linear layer’ weight to be positive, use hidden node that take 
+the maximum of group of first layer variables, and a second hidden layer that take the 
+minimum of the maxima. the result surfac be piecewis linear, and a such can repres 
+ani continu differenti function arbitrarili well. the result object function 
+be not strictli convex, but the author propos train such monoton network use 
+gradient descent where sampl be associ with one activ hyperplan at each iteration. 
+daniel and velikova (2010) gener thi approach to handl the “partial monotonic” 
+case that the function be onli monoton with respect to some features. 
+
+8 
+
+
+
+monoton look-up tabl 
+
+2.2.6 isoton regress and monoton nearest neighbor 
+
+isoton regress re-label the input sampl with valu that be monoton and close to 
+the origin labels. these monoton re-label sampl can then be used, for example, 
+to defin a monoton piecewis constant or piecewis linear surface. thi be an old approach; 
+see barlow et al. (1972) for an earli survey. isoton regress can be solv in o(n) time 
+if monoton impli a total order of the n samples. but for usual multi-dimension 
+machin learn problems, monoton impli onli a partial order, and solv the n- 
+paramet quadrat program be gener o(n4), and o(n3) for two-dimension sampl 
+(spoug et al., 2003). also problemat for larg n be the o(n) evalu time for new 
+samples. 
+
+mukarje and stern (1994) propos a suboptim monoton kernel regress that be 
+comput easi to train than isoton regression. It comput a standard kernel 
+estimate, then local upper and low bound it to enforc monotonicity. 
+
+the isoton separ method of chandrasekaran et al. (2005) be like the work of abu- 
+mostafa (1993) in that it penal violat of monoton by pair of train samples. 
+like isoton regression, the output be a re-label of the origin samples, the solut be 
+at least o(n3) in the gener case, and evalu time be o(n). 
+
+ben-david et al. (1989); ben-david (1992) construct a monoton rule-bas classifi 
+by sequenti add train exampl (each of which defin a rule) that do not violat 
+monoton restrictions. 
+
+duivesteijn and feelder (2008) propos re-label sampl befor appli near 
+neighbor base on a monoton violat graph with the train exampl at the ver- 
+tices. coupl with a propos modifi version of k-nn, they can enforc monoton 
+outputs. similar pre-process of sampl can be use to encourag ani subsequ 
+train classifi to be more monoton (feelders, 2010). 
+
+similarly, kotlowski and slowinski (2009) tri to solv the isoton regress problem to 
+re-label the dataset to be monotonic, then fit a monoton ensembl of rule to the re-label 
+data, requir zero train error. they show overal good perform than the ordin 
+learn model of ben-david et al. (1989) and isoton separ (chandrasekaran et al., 
+2005). 
+
+3. review of lattic regress 
+
+befor propos monoton lattic regression, we review lattic regress (garcia and 
+gupta, 2009; garcia et al., 2012). key notat be list in tabl 2. 
+
+let Md ∈ N be a hyperparamet specifi the number of vertex in the look-up 
+tabl (that is, lattice) for the dth feature. then the lattic be a regular grid of M 
+
+4 
+= 
+
+M1 × M2 × . . .md paramet place at natur number so that the lattic span the 
+hyper-rectangl M 4= [0,m1 − 1]× [0,m2 − 1]× . . . [0,md − 1]. see figur 1 for exampl 
+of 2× 2 lattices, and figur 2 for an exampl 3× 2 lattice. for machin learn problem 
+we find Md = 2 for all d to often work well in practice, a detail in the case studi in 
+section 10. for imag process applic with onli two to four features, much larg 
+valu of Md be need (garcia et al., 2012). 
+
+9 
+
+
+
+gupta, cotter, pfeifer, voevodski, canini, mangylov, moczydlowski, et al. 
+
+D number of featur 
+n number of sampl 
+Md ∈ N number of vertex in the lattic along the dth featur 
+M ∈ N total number of vertex in the lattice: M = 
+
+∏ 
+dmd 
+
+M hyper-rectangular span of the lattice: [0,m1 − 1]× . . .× [0,md − 1] 
+xi ith train sampl with D components. domain depend on section. 
+yi ∈ R ith train sampl label 
+x[d] dth compon of featur vector x 
+φ(x) ∈ [0, 1]m linear interpol weight for x 
+θ ∈ RM lattic valu (parameters) 
+vj ∈ {0, 1}d jth vertex of a 2D lattic 
+
+tabl 2: key notat 
+
+the featur valu be assum to be bound and linearli scale to fit the lattice, so 
+that the dth featur vector valu x[d] lie in [0,md − 1]. (we propos learn non-linear 
+scale of featur jointli with the lattic paramet in section 7.) 
+
+lattic regress be a kernel method that map x ∈M to a transform featur vector 
+φ(x) ∈ [0, 1]m . the valu of φ(x) be the interpol weight for x for the 2D index 
+correspond to the 2D vertex of the hypercub surround x; for all other indices, 
+φ(x) = 0. 
+
+the function f(x) be linear in φ(x) such that f(x) = θtφ(x). that is, the function 
+paramet θ each correspond to a vertex in the lattice, and f(x) linearli interpol the 
+θ for the lattic cell contain x. 
+
+befor review the lattic regress object for learn the paramet θ, we review 
+standard multilinear interpol to defin φ(x). 
+
+3.1 multilinear interpol 
+
+multilinear interpol be the multi-dimension gener of the familiar bilinear 
+interpol that be commonli use to up-sampl images. see figur 2 for a pictori 
+explanation. 
+
+for notat simplicity, we assum a 2D lattic such that x ∈ [0, 1]d. for multi-cel 
+lattices, the same math and logic be appli to the lattic cell contain the x. denot the 
+kth compon of φ(x) a φk(x). let vk ∈ {0, 1}d be the kth vertex of the unit hypercube. 
+the multilinear interpol weight on the vertex vk be 
+
+φk(x) = 
+
+d−1∏ 
+d=0 
+
+x[d]vk[d](1− x[d])1−vk[d]. (2) 
+
+note the expon in (2) be vk and 1 − vk[d], which either equal 0 and 1, or equal 1 
+and 0, so these expon act like selector that multipli in either x[d] or 1− x[d] for each 
+
+10 
+
+
+
+monoton look-up tabl 
+
+dimens d. equivalently, one can write 
+
+φk(x) = 
+
+d−1∏ 
+i=0 
+
+((1− bit[i, k]) (1− x[i]) + bit[i, k]x[i]) , (3) 
+
+where bit[i, k] ∈ {0, 1} denot the ith bit of vertex vk, and can be comput bit[i, k] = 
+(k � i) &1 use bitwis arithmetic. 
+
+the result f(x) = θtφ(x) be a multilinear polynomi over each lattic cell. for 
+example, a 2× 2 lattic interpol with multilinear interpol gives: 
+
+f(x) = θ[0](1− x[0])(1− x[1]) + θ[1]x[0](1− x[1]) + θ[2](1− x[0])x[1] + θ[3]x[0]x[1]. (4) 
+
+expand (4), one see it be a differ parameter of the multilinear function give 
+in (1), where the paramet vector be relat by a linear matrix transform: a = Tθ 
+for T ∈ r4×4. but the θ parameter have the advantag that each paramet be the 
+function valu for a featur vector at the vertex of the lattic (see figur 1), and a we show 
+in section 4, make it easi to learn the complet set of monoton functions. 
+
+the linear interpol be appli per lattic cell. At lattic cell boundari the result 
+function be continuous, but not differentiable. the overal function be piecewis polynomial, 
+and henc a spline, and can be equival formul use a linear basi function. higher- 
+order basi function like the popular cubic spline will lead to smoother and potenti 
+slightli more accur function (garcia et al., 2012). however, higher-ord basi function 
+destroy the interpret local effect of the parameters, and increas the comput 
+complexity. 
+
+the multilinear interpol weight be just one type of linear interpolation. In general, 
+linear interpol weight be defin a solut to the system of D + 1 equations: 
+
+2d∑ 
+k=0 
+
+φk(x)vk = x and 
+2d∑ 
+k=0 
+
+φk(x) = 1. (5) 
+
+thi system of equat be under-determin and have mani solut for an x in the 
+convex hull of a lattic cell. the multilinear interpol weight give in (2) be the 
+maximum entropi solut to (5) (gupta et al., 2006), and thu have good nois averag 
+and smooth properti compar to other solutions. We discu a more effici linear 
+interpol in sec. 5.2. 
+
+3.2 the lattic regress object 
+
+consid the standard supervis machin learn set-up of a train set of randomli 
+sampl pair {(xi, yi)} pairs, where xi ∈ M and yi ∈ R, for i = 1, . . . , n. historically, 
+peopl creat look-up tabl by first fit a function h(x) to the {xi, yi} use a regress 
+algorithm such a a neural net or local linear regression, and then evalu h(x) on a 
+regular grid to produc the look-up tabl valu (sharma and bala, 2002). however, even 
+if they fit the function to minim empir risk on the train samples, they do not 
+minim the actual empir risk becaus these approach do not take into account that 
+the train look-up tabl would be interpol at run-time, and thi interpol chang 
+the error on the train samples. 
+
+11 
+
+
+
+gupta, cotter, pfeifer, voevodski, canini, mangylov, moczydlowski, et al. 
+
+garcia and gupta (2009) propos directli optim the look-up tabl paramet 
+θ to minim the actual empir error between the train label and the interpol 
+look-up table: 
+
+arg min 
+θ∈rm 
+
+n∑ 
+i=1 
+
+`(yi, θ 
+tφ(xi)) +r(θ), (6) 
+
+where ` be a loss function such a squar error, φ(xi) ∈ [0, 1]m be the vector of linear 
+interpol weight over the lattic for train sampl xi (detail in section 3.1 and sec. 
+5.2), f(xi) = θ 
+
+tφ(xi) be the linear interpol of xi from the look-up tabl paramet θ, 
+and r(θ) be a regular on the lattic parameters. In general, we assum the loss ` and 
+regular R be convex function of θ so that solv (6) be a convex optimization. prior 
+work focu on squar error loss, and use graph regular r(θ) of the form θtkθ for 
+some psd matrix K, in which case (6) have a closed-form solut which can be comput 
+with spars matrix invers (garcia and gupta, 2009; garcia et al., 2010, 2012). 
+
+4. monoton lattic 
+
+In thi section we propos constrain lattic regress to learn monoton functions. 
+
+4.1 monoton constraint for a lattic 
+
+In general, simpli check whether a nonlinear function be monoton can be quit difficult 
+(see the relat work in section 2.2). but for a linearli interpol look-up table, check 
+for monoton be rel easy: if the lattic valu increas in a give direction, then 
+the function increas in that direction. see figur 1 for examples. specifically, one must 
+check that θs > θr for each pair of adjac look-up tabl paramet θr and θs. If all 
+featur be specifi to be monoton for a 2D lattice, thi result in d2d−1 pairwis linear 
+inequ constraint to check. 
+
+these same pairwis linear inequ constraint can be impos when learn the 
+paramet θ to ensur a monoton function be learned. the follow result establish 
+these constraint be suffici and necessari for a 2D lattic to be monoton increas 
+in the dth featur (the result extend trivial to larg lattices): 
+
+lemma 1 (monoton constraints) let f(x) = θtφ(x) for x ∈ [0, 1]d and φ(x) 
+give in (2). the partial deriv ∂f(x)/∂x[d] > 0 for fix d and ani x iff θk′ > θk for 
+all k, k′ such that vk[d] = 0, vk′ [d] = 1 and vk[m] = vk′ [m] for all m 6= d. 
+
+proof first we show the constraint be necessari to ensur monotonicity. consid 
+the function valu f(vk) and f(vk′) for some adjac pair of vertex vk, vk′ that differ 
+onli in the dth feature. for f(vk) and f(vk′), all of the interpol weight fall on θk 
+or θk′ respectively, such that f(vk) = θk and f(vk′) = θk′ . So θk′ > θk be necessari for 
+∂f(x)/∂x[d] > 0 everywhere. 
+
+next we show the constraint be suffici to ensur monotonicity. pair the term in 
+the interpol f(x) = θtφ(x) correspond to adjac paramet θk, θk′ so that for 
+
+12 
+
+
+
+monoton look-up tabl 
+
+each k, k′ it hold that vk[d] = 0, vk′ [d] = 1, vk[m] = vk′ [m] for m 6= d: 
+
+f(x) = 
+∑ 
+k,k′ 
+
+θkφk(x) + θk′φk′(x), then expand φk(x) and φk′(x) use (2) : 
+
+= 
+∑ 
+k,k′ 
+
+αk 
+
+( 
+θkx[d] 
+
+vk[d](1− x[d])(1−vk[d]) + θk′x[d]vk′ [d](1− x[d])(1−vk′ [d]) 
+) 
+, 
+
+where αk be the product of the m 6= d term in (2) that be the same for k and k′, 
+
+= 
+∑ 
+k,k′ 
+
+αk (θk(1− x[d]) + θk′x[d]) by the definit of vk and vk′ . (7) 
+
+the partial deriv of (7) be ∂f(x)∂x[d] = 
+∑ 
+
+k,k′ αk(θk′ − θk). becaus each αk ∈ [0, 1], it be 
+suffici that θk′ > θk for each k, k 
+
+′ pair to guarante thi partial be posit for all x. 
+
+4.2 monoton lattic regress object 
+
+We relax strict monoton to monoton by allow equal in the adjac paramet 
+constraint (for an example, see the second function from the left in figur 1). then the set 
+of pairwis constraint can be express a Aθ ≤ 0 for the appropri spars matrix A with 
+one 1 and −1 per row of A, and one row per constraint. each featur can independ 
+be left unconstrained, or constrain to be either monoton increas or decreas by 
+the specif of A. 
+
+thu the propos monoton lattic regress object be convex with linear inequ 
+constraints: 
+
+arg min 
+θ 
+
+n∑ 
+i=1 
+
+`(yi, θ 
+tφ(xi)) +r(θ), s.t. Aθ ≤ b. (8) 
+
+addit linear constraint can be includ in Aθ ≤ b to also constrain the fit function 
+in other practic ways, such a f(x) ∈ [0, 1] or f(x) ≥ 0. 
+
+the approach extend to the standard learn to rank from pair problem (liu, 2011), 
+where the train data be pair of sampl x+i and x 
+
+− 
+i and the goal be to learn a function 
+
+such that f(x+i ) ≥ f(x 
+− 
+i ) for a mani pair a possible. for thi case, the monoton lattic 
+
+regress object is: 
+
+arg min 
+θ 
+
+n∑ 
+i=1 
+
+`(1, θtφ(x+i )− θ 
+tφ(x−i )) +r(θ), s.t. Aθ ≤ b. (9) 
+
+the loss function in (6), (8) and (9) all have the same form, for example, squar loss 
+`(y, z) = (y − z)2, hing loss `(y, z) = max(0, 1 − yz), or logist loss `(y, z) = log(1 + 
+exp(i − z)). 
+
+5. faster linear interpol 
+
+interpol a look-up tabl have long be consid an effici way to specifi and 
+evalu a low-dimension non-linear function (sharma and bala, 2002; garcia et al., 2012). 
+
+13 
+
+
+
+gupta, cotter, pfeifer, voevodski, canini, mangylov, moczydlowski, et al. 
+
+but comput linear interpol weight with (3) requir o(d) oper for each of 
+the 2D interpol weights, for a total cost of o(d2d) to evalu a sample. In section 5.1, 
+we show the multilinear interpol weight of (3) can be comput in o(2d) operations. 
+then, in section 5.2, we review and analyz a differ linear interpol that we refer to 
+a simplex interpol that take onli o(d logd) operations. 
+
+5.1 fast multilinear interpol 
+
+much of the comput in (3) can be share between the differ weights. In algorithm 
+1 we give a dynam program solut that loop D times, where the dth loop take 
+2d time, so in total there be 
+
+∑d−1 
+d=0 2 
+
+d = o(2d) operations. 
+
+algorithm 1 comput the multilinear interpol weight and correspond vertex 
+index for a unit lattic cell [0, 1]d and an x ∈ [0, 1]d. let the lattic paramet be 
+index such that sd = 2 
+
+d be the differ in the index of the paramet correspond to 
+ani two vertex that be adjac in the dth dimension, for example, for the 2× 2 lattice, 
+order the vertex [0 0], [1 0], [0 1], [1 1] and index the correspond lattic paramet in 
+that order. 
+
+calculatemultilinearinterpolationweightsandparameterindices(x) 
+1 initi indices[] = [0], weights[] = [1] 
+2 for d = 0 to D − 1: 
+3 for k = 0 to 2d − 1: 
+4 append sd + indices[k] to index 
+5 append x[d]× weights[k] to weight 
+6 updat weights[k] = (1− (x[d]))× weights[k] 
+7 return index and weight 
+
+the follow lemma establish the correct of algorithm 1. 
+
+lemma 2 (fast multilinear interpolation) under it assumptions, algorithm 1 re- 
+turn the index of the 2D paramet correspond to the vertex of the lattic cell con- 
+tain x: 
+
+indices[k] = 
+d−1∑ 
+d=0 
+
+(bx[d]c+ biti(k)) sd, for k = 1, 2, . . . , 2D (10) 
+
+and the correspond 2D multilinear interpol weight give by (3). 
+
+proof At the end of the d′th iter over the dimens in algorithm 1: 
+
+size (indices) = size (weights) = 2D 
+′+1 
+
+indices[k] = 
+
+d′∑ 
+d=0 
+
+(bx[d]c+ bitd(k)) sd 
+
+weights[k] = 
+
+d′∏ 
+d=0 
+
+((1− bitd(k)) (1− (x[d]− bxdc)) + bitd(k)(x[d]− bxdc)) . 
+
+14 
+
+
+
+monoton look-up tabl 
+
+θ[2] = 0.4 
+
+θ[0] = 0.0 θ[1] = 1.0 
+
+θ[3] = 0.4 
+
+1.0 
+
+0.0 
+
+0.5 
+
+0 1 0 1 
+
+0 0.5 0 0.5 
+scale simplex interpol multilinear interpol 
+
+figur 3: illustr of two differ linear interpol of the same 2 × 2 look-up tabl 
+with paramet 0, 0, 0.5 and 1. the simplex interpol split the unit squar 
+into two simplic (the upper and low triangle) and interpol within each. 
+the function be continu becaus the point along the diagon be interpol 
+from onli the two corner vertices, and the interpol function be linear over each 
+simplex. both interpol produc monoton function over both features. 
+
+the abov hold for the D′ = 1 case by the initi and inspect of the loop. It be 
+straightforward to verifi that if the abov hold for d′, then they also hold for d′+ 1. then 
+by induct it hold for D′ = D − 1, a claimed. 
+
+5.2 simplex linear interpol 
+
+for speed, we propos use a more effici linear interpol for lattic regress that 
+linearli interpol each x from onli D+ 1 of the 2D surround vertices. mani differ 
+linear interpol strategi have be propos to interpol look-up tabl use onli 
+a subset of the 2D vertex (for a review, see kang (1997)). however, most such strategi 
+suffer from be too comput expens to determin the subset of vertex need 
+to interpol a give x. the wonder of simplex interpol be that it take onli o(d logd) 
+oper to determin the d+1 vertex need to interpol ani give x, and then onli 
+o(d) oper to interpol the identifi D + 1 vertices. An illustr comparison of 
+simplex and multilinear interpol be give in figur 3 for the same lattic parameters. 
+
+simplex interpol be propos in the color manag literatur by kasson et al. 
+(1993), and independ late by rovatti et al. (1998). simplex interpol be also know 
+a the lovasz extens in submodular optimization, where it be use to extend a function 
+defin on the vertex of a unit hypercub to be defin on it interior (bach, 2013). 
+
+after review how simplex interpol works, we show in section 5.2.3 that it re- 
+quir the same constraint for monoton a multilinear interpolation, and then we 
+discu how it rotat depend impact it use for machin learn in section 5.2.4. 
+We give exampl runtim comparison in section 10.7. 
+
+15 
+
+
+
+gupta, cotter, pfeifer, voevodski, canini, mangylov, moczydlowski, et al. 
+
+figur 4: simplex interpol decompos the d-dimension unit hypercub into D! sim- 
+plices. left: for the unit square, there be two simplices, one be defin by the 
+three vertex [0 0], [0 1], and [1 1], and the other be defin by the three vertex 
+[0 0], [1 0], and [1 1]. right: for the unit cube there be 3! = 6 simplices, each 
+defin by four vertices. the first have vertices: [0 0 0], [0 0 1], [0 1 1] , [1 1 1]. the 
+second have vertices: [0 0 0], [0 0 1], [1 0 1], [1 1 1]. and so on. all six simplic 
+have vertex [0 0 0] and [1 1 1], and thu share the diagon between those two 
+vertices. 
+
+5.2.1 partit of the unit hypercub into simplic 
+
+simplex interpol implicitli partit the hypercub into the set of D! congruent sim- 
+plice that satisfi the following: each simplex includ the all 0’ vertex, one vertex be all 
+zero but have a singl 1, one vertex be all zero but have two 1’s, and so on, end with 
+one vertex that be all 1’s, for a total of D + 1 vertex in each simplex. figur 4 show the 
+partit for the D = 2 and D = 3 unit hypercubes. 
+
+thi decomposit can also be describ by the hyperplan xk = xr for 1 ≤ k ≤ r ≤ D 
+(schimdt and simon, 2007). knop (1973) discuss thi decomposit a a special case 
+of eulerian partit of the hypercube, and mead (1979) show thi be the small 
+possibl equivolum decomposit of the unit hypercube. 
+
+5.2.2 simplex interpol 
+
+given x ∈ [0, 1]d, the D + 1 vertex that specifi the simplex that contain x can be 
+comput in o(d logd) oper by sort the D valu of the featur vector x, and 
+then the dth simplex vertex have one in the first d sort compon of x. for example, if 
+x =[.8 .2 .3], the D + 1 vertex of it simplex be [0 0 0], [1 0 0], [1 0 1], [1 1 1]. 
+
+let V be the d+1 by D matrix whose dth row be the dth vertex of the simplex contain 
+x. then the simplex interpol weight ψ(x) must satisfi the linear interpol equa- 
+
+tion give in (5) such that 
+
+[ 
+V T 
+
+1T 
+
+] 
+ψ(x) = 
+
+[ 
+x 
+1 
+
+] 
+. thu ψ(x) = 
+
+[ 
+V T 
+
+1T 
+
+]−1 [ 
+x 
+1 
+
+] 
+, where becaus 
+
+of the highli structur natur of the simplex decomposit the requir invers alway 
+exists, and have a simpl form such that ψ(x) be the vector of differ of sequenti sort 
+compon of x. for example, for a 2×2×2 lattice, and an x such that x[0] > x[1] > x[2], 
+the simplex interpol weight ψ(x) = [1−x[0], x[0]−x[1], x[1]−x[2], x[2]] on the vertex 
+
+16 
+
+
+
+monoton look-up tabl 
+
+[0, 0, 0], [1, 0, 0], [1, 1, 0], [1, 1, 1], respectively. the gener formula be detail in algorithm 
+2; for more mathemat detail see rovatti et al. (1998). 
+
+algorithm 2 comput the simplex interpol weight and correspond vertex index 
+for a unit lattic cell [0, 1]d and an x ∈ [0, 1]d. let the lattic paramet be index such 
+that sd = 2 
+
+d be the differ in the index of the paramet correspond to ani two 
+vertex that be adjac in the dth dimension, for example, for the 2× 2 lattice, order the 
+vertex [0 0], [1 0], [0 1], [1 1] and index the correspond lattic paramet in that order. 
+
+calculatesimplexinterpolationweightsandparameterindices(x) 
+1 comput the sort order π of the compon of x such that x[π[k]] be the kth larg valu of x, 
+2 that is, x[π[1]] be the larg valu of x, etc. 
+3 initi index = 0, z = 1, indices[] = [], weights[] = [] 
+4 for d = 0 to D − 1: 
+5 append index to index 
+6 append z − x[π[d]] to weight 
+7 updat index = index + sπ[d] 
+8 updat z = x[π[d]] 
+9 append index to index 
+
+10 append z to weight 
+11 return index and weight 
+
+5.2.3 simplex interpol and monoton 
+
+We show that the same linear inequ constraint that guarante monoton for mul- 
+tilinear interpol also guarante monoton with simplex interpolation: 
+
+lemma 3 (monoton constraint with simplex interpolation) let f(x) = θtφ(x) 
+for φ(x) give in algorithm 2. the partial deriv ∂f(x)/∂x[d] > 0 iff θk′ > θk for all 
+k, k′ such that vk[d] = 0, vk′ [d] = 1, and vk[m] = vk′ [m] for all m 6= d. 
+
+proof simplex interpol linearli interpol from D + 1 vertex at a time, and thu 
+the result function be linear over each simplex. thu to prove that the function be mono- 
+tonic everywhere, we need onli to show that each local linear function be monoton 
+increas in dimens d, and that the function be continu everywhere. each simplex 
+onli have one pair of vertex vk and vk′ that differ in dimens d such that vk[d] = 0, 
+vk′ [d] = 1, and vk[m] = vk′ [m] for all m 6= d. In addition, we can verifi that for the linear 
+function over thi simplex, ∂f(x)/∂x[d] = θk′ − θk, where θk and θk′ be the paramet 
+correspond to these vertices. therefor if θk′ > θk, then the linear function over that 
+simplex must be increas with respect to d. conversely, if it do not hold that θk′ > θk, 
+then the linear function over that simplex must have non-posit slope with respect to d. 
+further, f(x) be continu for all x, becaus ani x on a boundari between simplic onli 
+have nonzero interpol weight on the vertex defin that boundary. In conclusion, the 
+function be piecewis monoton and continuous, and thu monoton everywhere. 
+
+17 
+
+
+
+gupta, cotter, pfeifer, voevodski, canini, mangylov, moczydlowski, et al. 
+
+figur 5: illustr rotat depend of simplex interpol for a 2 × 2 lattic and 
+it impact on a binari classif problem. green thick line denot the true 
+decis boundari of a binari classif problem. red thin line denot the 
+piecewis linear decis boundari fit by lattic regress use simplex interpo- 
+lation. dot gray line separ the two simplices; the function be local linear 
+over each simplex. left: the true decis boundari (green) cross the two sim- 
+plices. the simplex decis boundari (red) have two linear piec and can fit the 
+green boundari well. right: the same green boundari have be rotat nineti 
+degrees, and now lie entir in one simplex. the simplex decis boundari (in 
+red) be linear within each simplex, and henc have less flexibl to fit the true 
+green decis boundary. 
+
+5.2.4 use simplex interpol for machin learn 
+
+simplex interpol produc a local linear continu function made-up of D! hyper- 
+plane orient around the main diagon axi of the unit hypercube. compar to multi- 
+linear interpolation, simplex interpol be not a smooth (though continuous), and it be 
+rotationally-dependent. 
+
+for low-dimension regress problem use a look-up tabl with mani cells, perfor- 
+manc of the two interpol method have be found to be similar, particularli if one be 
+use a fine-grain lattic with mani cells. for example, in a comparison by sun and zhou 
+(2012) for the three-dimension regress problem of color manag an lcd monitor, 
+multilinear interpol of a 9 × 9 × 9 look-up tabl (also call trilinear interpol in 
+the special case of three-dimensions) produc around 1% bad averag error than simplex 
+interpolation, but the maximum error with multilinear interpol be onli 60% of the 
+maximum simplex interpol error. anoth studi by kang (1995) use simul 
+conclud that the interpol error of these method be “about the same.” 
+
+however, when use a coarser lattic like 2d, a we have found use in practic for 
+machin learning, the rotat depend of simplex interpol can caus problem 
+becaus the flexibl of the interpol function f(x) differ in differ part of the 
+featur space. figur 5 illustr thi for a binari classifi on two features. 
+
+To address the rotat dependence, we recommend use prior knowledg to defin 
+the featur posit or neg in a way that align the simplices’ share diagon axi 
+along the assum slope of f(x). If there be monoton constraints, thi be do by 
+specifi each featur so that it be monoton increasing, rather than monoton 
+
+18 
+
+
+
+monoton look-up tabl 
+
+decreasing. for binari classification, featur should be specifi so that the featur vector 
+for the most prototyp exampl of the neg class be the all-zero featur vector, and 
+the featur vector for the most prototyp exampl of a posit class be the all-on featur 
+vector. thi should put the decis boundari a orthogon to the share diagon axi 
+a possible, provid the interpol function the most flexibl to model that decis 
+boundary. In addition, for low-dimension problems, use a finer-grain lattic will 
+produc more flexibl overall, so that the flexibl within each lattic cell be less of an 
+issue. 
+
+follow these guidelines, we surprisingli and consist find that simplex interpola- 
+tion of 2D lattic be roughli a accur a multilinear interpolation, and much faster for 
+D ≥ 8. thi be demonstr in the case studi of section 10 (runtim comparison give 
+in section 10.7). 
+
+6. regular the lattic regress To Be more linear 
+
+We propos a new regular that take advantag of the lattic structur and encourag 
+the fit function to be more linear by penal differ in parallel edges: 
+
+rtorsion(θ) = 
+
+D∑ 
+d=1 
+
+D∑ 
+d̃=1 
+d̃ 6=d 
+
+∑ 
+r,s,t,u such that 
+
+vr and v adjac in dimens d, 
+vt and vu adjac in dimens d, 
+
+vr and vt adjac in dimens d̃ 
+
+((θr − θs)− (θt − θu))2. (11) 
+
+thi regular penal how much the lattic function twist from side-to-side, and 
+henc we refer to thi a the torsion regularizer. the larg the weight on the torsion 
+regular in the object function, the more linear the lattic function will be over each 
+2D lattic cell. 
+
+figur 6 illustr the torsion regular and compar it to previous propos lattic 
+regularizers, the standard graph laplacian (garcia and gupta, 2009) and graph hessian 
+(garcia et al., 2012). As show in the figure, for multi-cel lattices, the torsion and graph 
+hessian regular make the function more linear in differ ways, and may both be 
+need to close approxim a linear function. like the graph laplacian and graph hessian 
+regularizers, the propos torsion regular be convex but not strictli convex, and can be 
+express in quadrat form a θtkθ, where K be a posit semidefinit matrix. 
+
+7. jointli learn featur calibr 
+
+one can learn arbitrari bound function with a suffici fine-grain lattice, but in- 
+creas the number of lattic vertex Md for the dth featur multipl grow the 
+total number of paramet M = 
+
+∏ 
+dmd. however, we find in practic that if the featur 
+
+be first each transform appropriately, then mani problem requir onli a 2D lattic to 
+captur the featur interactions. for example, a featur that measur distanc might be 
+good specifi a log of the distance. instead of reli on a user to determin how to 
+best transform each feature, we autom thi featur pre-process by augment our 
+function class with D one-dimension transform cd(x[d]) that we learn jointli with 
+the lattice, a show in figur 7. 
+
+19 
+
+
+
+gupta, cotter, pfeifer, voevodski, canini, mangylov, moczydlowski, et al. 
+
+A B 
+
+C D 
+
+A B 
+
+C D 
+
+A B 
+
+C D 
+
+E F 
+
+AC BD 
+
+AC 
+
+graph laplacian: 
+flatter function 
+
+penalizes: 
+(a-c)2 + (a-b)2 + (c-d)2 + (b-d)2 
+= AC 
+
+2 + AB 
+2 + CD 
+
+2 + BD 
+2 
+
+graph hessian: 
+more linear function 
+
+penalizes: 
+((a-c) - (c-e))2 + ((b-d) - (d-f))2 
+= ( AC 
+
+- ce) 
+2 + ( BD 
+
+- df) 
+2 
+
+torsion regularizer: 
+more linear function 
+
+penalizes: 
+((a-c) - (b-d))2 + ((a-b) - (c-d))2 
+= ( AC - 
+
+
+bd) 
+
+2 + ( AB - cd) 
+2 
+
+CE DF 
+
+BD 
+
+CD 
+
+AB 
+
+AC BD 
+
+CD 
+
+AB 
+
+figur 6: comparison of lattic regularizers. the lattic paramet be denot by 
+a,b,c,d,e, and F . the delta indic the differ between adjac pa- 
+ramet along each edge, and thu each delta be the slope of the function along 
+it edge. each color correspond to a differ addit term in a regularizer. the 
+graph laplacian regular (left) minim the sum of the squar slopes, pro- 
+duce a flatter function. the graph hessian regular (middle) minim the 
+chang in slope in each direct of a multi-cel lattice, keep the function from 
+bend too much between lattic cells. the propos torsion regular (right) 
+minim the chang in slope between side of the lattice, for each direction, 
+minim the twist of the function. 
+
+7.1 calibr continu featur 
+
+We calibr each continu featur with a one-dimension monoton piecewis linear 
+function, a illustr in figur 8. our approach be similar to the work of howard and 
+jebara (2007), which jointli learn monoton piecewis linear one-dimension transforma- 
+tion and a linear function. 
+
+thi joint estim make the object non-convex, discuss further in section 9.3. 
+To simplifi estim the parameters, we treat the number of changepoint Cd for the dth 
+featur a a hyperparameter, and fix the Cd changepoint locat (also call knots) at 
+equally-spac quantil of the featur values. the changepoint valu be then optim 
+jointli with the lattic parameters, detail in section 9.3. 
+
+20 
+
+
+
+monoton look-up tabl 
+
+x 2 RD 
+... 
+
+x(2) 2 R 
+x(1) 2 R 
+
+x(3) 2 R 
+
+x(d ) 2 R 
+
+c1(¢) 
+
+... 
+
+c2(¢) 
+c3(¢) 
+
+cD (¢) 
+
+c1(x 
+(1)) 2 R 
+
+c2(x 
+(2)) 2 R 
+
+c3(x 
+(3)) 2 R 
+
+cD (x 
+(D )) 2 R 
+
+c(x) 2 RD f (¢) f (c(x)) 2 R 
+
+figur 7: block diagram show one-dimension calibr function {cd(·)} to pre- 
+process each featur befor the lattic f(·) fuse the featur togeth nonlinearly. 
+
+distanc calibr address similar calibr 
+
+figur 8: learn one-dimension piecewis linear calibr function for a distanc and 
+address-similar featur for the business-match case studi in section 10.2. 
+left: the raw distanc be measur in meters, and it calibr have a log- 
+like effect. right: the raw address featur be calibr with a sigmoid-lik 
+transformation. 
+
+7.2 calibr categor featur 
+
+If the dth featur be categorical, we propos use a calibr function cd(·) to map each 
+categori to a real valu in [0,md − 1]. that is, let the set of possibl categori for the 
+dth featur be denot gd, then cd : Gd → [0,md − 1], add |gd| addit paramet 
+to the model. figur 9 show an exampl lattic with a categor countri featur that 
+have be calibr to lie on [0, 2]. If prior knowledg be give about the order of the 
+origin discret valu or categories, then partial or full pairwis constraint can be add 
+on the map valu to respect the know order information. these can be express 
+a addit spars linear constraint on pair of parameters. 
+
+8. calibr miss data and use miss data vertic 
+
+We propos two supervis approach to handl miss valu in the train or test set. 
+
+first, one can do a supervis imput of miss data valu by calibr a miss 
+data valu for each feature. thi be the same approach propos for calibr categor 
+
+21 
+
+
+
+gupta, cotter, pfeifer, voevodski, canini, mangylov, moczydlowski, et al. 
+
+figur 9: A 2× 2× 3 lattic illustr calibr a categor feature. In thi example, 
+each sampl be a pair of busi listings, and the problem be to classifi whether 
+the two list be about the same business, base on the similar of their street 
+names, titles, and the country. A score f(x) be interpol from the paramet 
+correspond to the vertex of the 2 × 2 × 2 lattic cell in which x lies, then 
+threshold at 0.5. the red paramet valu be below the match threshold 
+of 0.50, and the green paramet be abov the match threshold. the blue 
+arrow denot that the lattic be constrain to be monoton increas in 
+the street name similar and the titl similarity. In thi toy example, we onli 
+show the calibr valu for a few countries: US map to 0, great britain map 
+to .3, brazil to .4, netherland to .9, germani to 1, argentina to 1.5, and canada 
+to 2. one can interpret thi lattic a model three classifiers, slice along the 
+countri vertices: a classifi for countri = 0, one for countri = 1, and one for 
+countri = 2. sampl from argentina (ar) be interpol equal from the 
+paramet where countri = 1 and countri = 2. sampl from great britain, 
+and netherland be interpol from the two classifi specifi at countri = 0 
+and 1, with netherland put the most weight on the classifi where countri 
+= 1. the lattic paramet can be interpret a show that both the street 
+name and titl featur be strong posit evid in the US than in canada. 
+
+valu in section 7.2: learn the numer valu in [0,md − 1] to imput if the dth featur be 
+miss that minim the structur risk minim obejctive. In thi approach, miss 
+data be handl by a calibr function cd(·), and like the other calibr function pa- 
+rameters. other research have also consid joint train of classifi and imput 
+for miss data, for exampl van esbroeck et al. (2014) and liao et al. (2007). 
+
+second, a more flexibl option be to give miss data it own miss data vertex in 
+the lattice, a show in figur 10. thi be similar to a decis tree handl a miss 
+data valu by split a node on whether that featur be missing. for example, the non- 
+
+22 
+
+
+
+monoton look-up tabl 
+
+θ[2] = 0.4 
+
+θ[0] = 0.0 θ[1] = 1.0 
+
+θ[3] = 0.4 
+
+1.0 
+
+0.0 
+
+0.5 
+
+scale lattic with miss data vertic 
+
+figur 10: illustr of handl miss data by assign miss data to it own slice 
+of vertex in the lattice. In thi example, one featur be a titl similar and 
+be alway given, and the other featur be a street name similar that can be 
+missing. the lattic have 3 × 2 = 6 parameters, with the paramet valu 
+shown. for example, give a featur vector x with titl similar 0.5 and miss 
+street name similarity, the two paramet correspond to the miss street 
+name slice of the lattic would be interpol with equal weights, produc 
+the output f(x) = 0.25. 
+
+miss featur valu can be scale to [0,md − 2], and if the data be miss be it map 
+to Md − 1. thi increas the number of paramet but give the model the flexibl 
+to handl miss data differ than non-miss data. for example, miss the street 
+number in a busi descript may correl with low qualiti inform for all the 
+features. 
+
+To regular the lattic paramet correspond to miss data vertices, we appli the 
+graph regular detail in section 6. these could be use to tie ani of the paramet to 
+the miss data parameters. In our experiments, for the purpos of graph regularization, 
+we treat the miss data vertex a though they be adjac to the minimum and 
+maximum vertex of that featur in the lattice. 
+
+with either of these two propos strategies, linear inequ can be add on the 
+appropri paramet (the calibr paramet in the first proposal, or the miss data 
+vertex paramet in the second proposal) to ensur that the function valu for miss data 
+be bound by the minimum and maximum function values, that is, that miss x[d] never 
+produc a small f(x) than x[d] = 0, nor a larg f(x) than x[d] = md. 
+
+9. large-scal train 
+
+for convex loss function `(θ) and convex regular r(θ), ani solver for convex problem 
+with linear inequ constraint can be use to optim the lattic paramet θ in (8). 
+however, for larg n and for even rel small D, train the propos calibr mono- 
+tonic lattic be challeng due to the number of linear inequ constraints, the number 
+
+23 
+
+
+
+gupta, cotter, pfeifer, voevodski, canini, mangylov, moczydlowski, et al. 
+
+of term in the graph-regularizers, and the non-convex creat by use calibr func- 
+tions. 
+
+In thi section we discu variou standard and new strategi we found use in prac- 
+tice: our use of stochast gradient descent (sgd), stochast handl of the regularizers, 
+parallelizing-and-averag for distribut training, handl the larg number of constraint 
+in the context of sgd, and final some detail on how we optim the non-convex problem 
+of train the calibr function and the lattic parameters. throughout thi section, we 
+assum the standard set of (8); the gener to the pairwis rank problem of 
+(9) be straightforward. 
+
+9.1 sgd and reduc varianc of the subgradi 
+
+To scale to a larg number of sampl n, we use sgd for all our experiments. for each sgd 
+iter t, a label train sampl (xi, yi) be sampl uniformli from the set of train 
+sampl pairs. one find the correspond subgradi of (8), and take a tini step in it 
+neg gradient direction. (the result paramet may then violat the constraints, 
+which we discu in section 9.4.) 
+
+A straightforward sgd implement for (8) would use the subgradient: 
+
+∆ = ∇θ` 
+( 
+θtφ (xi) , yi 
+
+) 
++∇θr (θ) , (12) 
+
+where the ∇θ oper find an arbitrari subgradi of it argument w.r.t. θ. ideally, these 
+subgradi should be cheap-to-compute, so each iter be fast. the comput cost 
+be domin by comput the regularizer, if use ani of the graph regular discuss 
+in section 6. 
+
+becaus the train exampl (xi, yi) in (12) be randomli sampled, the abov subgradi 
+be a realiz of a stochast subgradi whose expect be equal to the true gradient. 
+the number of iter need for the sgd to converg depend on the squar euclidean 
+norm of the stochast subgradi (nemirovski et al., 2009), with larg norm result 
+in slow convergence. the expect squar norm of the stochast subgradi can be 
+decompos into the sum of two terms: the squar expect subgradi magnitude, and 
+the variance. We can do littl about the expect magnitude, but we can improv the trade- 
+off between the comput cost of each subgradi and the varianc of the stochast 
+subgradients. In the next two sub-sections, we describ two such strategies. 
+
+9.1.1 mini-batch 
+
+We reduc the varianc of the stochast subgradient’ loss term by mini-batch over 
+multipl random sampl (dekel et al., 2012). let S` denot a set of k` train index 
+sampl uniformli with replac from 1, . . . , n, then the mini-batch subgradi is: 
+
+∆ = 
+1 
+
+k` 
+
+∑ 
+i∈s` 
+
+∇θ` 
+( 
+θtφ (xi) , yi 
+
+) 
++∇θr (θ) . (13) 
+
+thi simultan reduc the varianc and increas the comput cost of the loss 
+term by a factor of k`. for suffici small k`, thi be a net win becaus differenti the 
+regular be the domin comput term. 
+
+24 
+
+
+
+monoton look-up tabl 
+
+9.1.2 stochast subgradi for regular 
+
+We propos to reduc the comput cost of each sgd iter by randomli sampl 
+the addit term of the regularizer, for regular that can be express a a sum of 
+terms: r(θ) = 
+
+∑m 
+j=1 rj(θ). for example, for a 2 
+
+D lattice, each calcul of the graph 
+
+laplacian regular subgradi sum over m = d2d−1 terms, and the graph torsion 
+regular subgradi sum over m = d(d − 1)2d−3 terms. 
+
+let SR denot a set of kR index sampl uniformli with replac from 1, l . . . ,m, 
+then defin the subgradient: 
+
+∆ = 
+1 
+
+k` 
+
+∑ 
+i∈s` 
+
+∇θ` 
+( 
+θtφ (xi) , Yi 
+
+) 
++ 
+m 
+
+kR 
+
+∑ 
+j∈sr 
+
+∇θrj (θ) . (14) 
+
+while thi make the subgradient’ regular term stochastic, and henc increas the 
+subgradi variance, we find that good choic of k` and kR in (14) can produc a use 
+tradeoff between the comput cost of comput each subgradi and the number of 
+sgd iter need for accept converge. for example, in one real-world applic 
+use torsion regularization, the choic of kR = 1024 and k` = 1 lead to a 150× speed-up in 
+train and produc statist indistinguish accuraci on a held-out test set. 
+
+9.2 parallel and averag 
+
+for a larg number of train sampl n, one can split the n train sampl into K sets, 
+then independ and in-parallel train a lattic on each of the K sets. onc trained, the 
+vector lattic paramet for the K lattic can simpli be averaged. thi parallelize-and- 
+averag approach be investig for large-scal train of linear model by mann et al. 
+(2009). their result show similar accuraci to distribut gradient descent, but 1000× 
+less network traffic and reduc wall-clock time for larg datasets. In our implement 
+of the parallelize-and-averag approach we do multipl syncs: averag the lattices, then 
+send out the averag lattic to parallel worker to keep improv with further 
+training. We illustr the perform and speed-up of thi simpl parallelize-and-averag 
+for learn monoton lattic in section 10.6 and section 10.7. A more complic imple- 
+mentat of thi strategi would use the altern direct method of multipli with 
+a consensu constraint (boyd et al., 2010), but that requir an addit regular 
+toward a local copi of the most recent consensu parameters. 
+
+note that if calibr function be used, they must be held fix dure the paralleliza- 
+tion of the lattic training, a it do not make mathemat sens to averag differ 
+calibr lattices. 
+
+9.3 jointli optim lattic and calibr function 
+
+To learn a calibr monoton lattice, we jointli optim the calibr function and the 
+lattic parameters. let x denot a featur vector with D components, each of which be either 
+a continu or categor valu (discret featur can be model either a continu 
+featur or categor a the user see fit). let cd(x[d];α 
+
+(d)) be a calibr function that 
+act on the dth compon of x and have paramet α(d). 
+
+If the dth featur be continuous, we assum it have a bound domain such that x[d] ∈ 
+[ld, ud] for finit ld, ud ∈ R. then the dth calibr function cd(x[d];α(d)) be a monoton 
+
+25 
+
+
+
+gupta, cotter, pfeifer, voevodski, canini, mangylov, moczydlowski, et al. 
+
+piecewis linear transform with fix knot at ld, ud, and the cd−2 equally-spac quantil 
+of dth featur over the train set. let the first and last knot of the piecewis linear 
+function map to the lattic bound 0 and Md − 1 respect (a show in figur 8), 
+that is, if Cd = 2 then cd(x[d];α 
+
+(d)) simpli linearli scale the raw rang [ld, ud] to the 
+lattic domain [0,md − 1] and there be no paramet α(d). for Cd > 2, the paramet 
+α(d) ∈ [0,md − 1]cd−2 be the Cd − 2 output valu of the piecewis linear function for the 
+middl Cd − 2 knots. 
+
+If the dth featur be categor with finit categori set Gd such that x[d] ∈ gd, then 
+the dth calibr function map the categori to the lattic span such that cd(x[d];α 
+
+(d)) : 
+Gd → [0,md−1] and the paramet be the |gd| categor map such that cd(x[d];α(d)) = 
+α(d)[k] if x[d] belong to categori k and α(d) ∈ [0,md − 1]|gd|. 
+
+let c(x;α) denot the vector function with dth compon function cd(x[d];α 
+(d)), and 
+
+note c(x;α) map a featur vector x to the domain M of the lattic function. use ed to 
+denot the standard unit basi vector that be one for the dth compon and zero elsewher 
+with length D, then one can write: 
+
+c(x;α) = 
+D∑ 
+d=1 
+
+edcd( 
+T 
+d x;α 
+
+(d)), (15) 
+
+then the propos calibr monoton lattic regress object expand the mono- 
+tonic lattic regress object (8) to: 
+
+arg min 
+θ,α 
+
+n∑ 
+i=1 
+
+`(yi, θ 
+tφ(c(xi, α)) +r(θ) s.t. Aθ ≤ b and ãα ≤ b̃, 
+
+where each row of A specifi a monoton constraint for a pair of adjac lattic pa- 
+ramet (a before), and each row of Ã similarli specifi a monoton constraint for a 
+pair of adjac calibr paramet for one of the piecewis linear calibr functions. 
+
+thi turn the convex optim problem (8) into a non-convex problem that be 
+margin convex in the lattic paramet θ for fix α, but not necessarili convex with 
+respect to α even if θ be fixed. despit the non-convex of the objective, in our experi 
+we found sensibl and effect solut by use project sgd, updat θ and α with the 
+appropri stochast subgradi for each xi. calcul the subgradi w.r.t. θ hold 
+α constant, essenti the same a before. calcul the subgradi w.r.t α by hold θ 
+constant and use the chain rule: 
+
+∂θtφ(c(xi, α)) 
+
+∂α(d) 
+= 
+∂θtφ(c(xi, α)) 
+
+∂c(xi, α) 
+
+∂c(xi, α) 
+
+∂α(d) 
+. (16) 
+
+If the dth featur be categorical, the partial deriv be 1 for the calibr map 
+paramet correspond to the categori of xi[d] and zero otherwise: 
+
+∂c(xi, α) 
+
+∂α(d)[k] 
+= 1 if xi[d] be the kth categori and 0 otherwise. (17) 
+
+If the dth featur be continuous, then the paramet α(j)[d] be the valu of the cali- 
+bration function at the knot of the piecewis linear function. If xi[d] lie between the kth 
+
+26 
+
+
+
+monoton look-up tabl 
+
+and (k + 1)th knot at (fixed) posit βk and βk+1, then 
+
+∂c(xi, α) 
+
+∂α(d)[k] 
+= 
+
+(βk+1 − xi[d]) 
+(βk+1 − βk) 
+
+∂c(xi, α) 
+
+∂α(d)[k + 1] 
+= 
+
+(xi[d]− βk) 
+(βk+1 − βk) 
+
+, 
+
+and the partial dervi be zero for all other compon of α(d). after take an sgd 
+step that updat α(d)[k] and α(d)[k+ 1], the α(d) may violat the monoton constraint 
+that ensur a monoton calibr function, which can be fix with a project onto the 
+constraint (see section 9.4 for details). 
+
+A standard strategi with nonconvex gradient descent be to tri multipl random ini- 
+tializ of the parameters. We do not explor thi avenue; instead we simpli tri to 
+initi sensibly. each lattic paramet be initi to be the sum of it monoton 
+increas compon (multipli by -1 for ani monoton decreas components) so 
+that the lattic initi respect the monoton constraint and be a linear function. 
+the piecewis linear calibr function be initi to scale linearli to [0,md−1]. the 
+categor calibr paramet be order by their mean label, then space uniformli 
+on [0,md − 1] in that order. 
+
+9.4 large-scal project handl 
+
+standard project stochast gradient descent project the paramet onto the constraint 
+after each stochast gradient update. given the extrem larg number of linear inequ 
+constraint need to enforc monoton for even small D, we found a full project each 
+iter impract and un-necessary. We avoid the full project at each iter by use 
+one of two strategies. 
+
+9.4.1 suboptim project 
+
+We found that modifi the sgd updat to approxim the project work well. 
+specifically, for each new stochast subgradi η∆, we creat a set of activ constraint 
+initi to ∅, and, start from the last paramet values, move along the portion of 
+η∆ that be orthogon to the current activ set until we encount a constraint, add thi 
+constraint to the activ set, and then continu until the updat η∆ be exhaust or it be not 
+possibl to move orthogon to the current activ set. At all times, the paramet satisfi 
+the constraints. It can be particularli fast becaus it be possibl to exploit the sparsiti 
+of the monoton constraint (each of which depend on onli two parameters) and the 
+sparsiti of ∆ (when use simplex interpolation) to optim the implementation. 
+
+but, thi strategi be sub-optim becaus we do not remov ani constraint from the 
+activ set dure each iteration, and thu paramet can “get stuck” at a corner of the 
+feasibl set, a illustr in figur 11. In practice, we found such problem resolv them- 
+self becaus the stochast of the subsequ stochast gradient eventu jiggl the 
+paramet free. experimentally, we found thi suboptim strategi to be veri effect and 
+to produc statist similar object function valu and test accuraci more optim 
+approaches. all of the experiment result report in thi paper use thi strategy. see 
+section 10.7 for exampl runtimes. 
+
+27 
+
+
+
+gupta, cotter, pfeifer, voevodski, canini, mangylov, moczydlowski, et al. 
+
+* 
+
+* 
+
+(a) (b) 
+* 
+
+* 
+
+(c) (d) 
+
+figur 11: four exampl of the suboptim project stochast gradient descent step de- 
+scribe in section 9.4. In each case, the constraint be mark by thin solid 
+lines, the black dot repres the paramet at the end of the last sgd itera- 
+tion, and the new full stochast gradient descent updat be mark by the dash 
+line, end in a star. the optim project of the star onto the constraint 
+be mark by the dot line. the stochast gradient be follow until it hit 
+a constraint, and then the compon of the remain gradient orthogon to 
+the activ constraint be applied. the updat end at the light gray dot. In case 
+(a) and (b), the result light dot be the optim project of the star onto the 
+constraints. but in case (c), first one constraint be hit, and then anoth con- 
+straint be hit, and the updat get stuck at the corner of the feasibl set without 
+be abl to appli all of the stochast gradient. the result light gray dot be 
+not the project of the star onto the constraints, henc the project for thi 
+iter be suboptimal. however, it be like that a futur stochast gradient 
+will jiggl the optim loose, a pictur in (d), produc an updat that 
+be again an optim project of the late stochast gradient. 
+
+9.4.2 stochast constraint with lighttouch 
+
+An optim approach we compar with for handl large-scal constraint be call light- 
+touch (cotter et al., 2015). At each iteration, lighttouch do not project onto ani 
+constraints, but rather move the constraint into the objective, and appli a random sub- 
+
+28 
+
+
+
+monoton look-up tabl 
+
+set of constraint each iter a stochast gradient updat to the parameters, where the 
+distribut over the constraint be learn a the optim proce to focu on con- 
+straint that be more like to be active. thi replac the per-iter project with 
+cheap gradient updates. intermedi solut may not satisfi all the constraints, but one 
+full project be perform at the veri end to ensur final satisfact of the constraints. 
+experimentally, we found lighttouch gener converg faster (see cotter et al. (2015) for 
+it theoret converg rate), while produc similar experiment result to the abov 
+approxim project sgd. lighttouch do requir a more complic implement 
+to effect learn the distribut over the constraints. 
+
+9.4.3 adapt stepsiz with adagrad 
+
+one can gener improv the speed of sgd with adagrad (duchi et al., 2011), even for 
+nonconvex problem (gupta et al., 2014). adagrad decay the step-siz adapt for each 
+parameter, so that paramet updat more often or with larg magnitud gradient have 
+a small step size. We found adagrad do speed up converg slightly, but requir 
+a complic implement to correctli handl the constraint becaus the project 
+must be with respect to the adagrad norm rather than the euclidean norm. We experi- 
+ment with approxim the adagrad norm project with the euclidean projection, 
+but found thi approxim result in poor convergence. the experiment result do 
+not make use of adagrad. 
+
+10. case studi 
+
+We present a seri of experiment case studi on real world problem to demonstr 
+differ aspect of the propos methods, follow by some exampl runtim for inter- 
+polat and train in section 10.7, and some observ about the practic valu of 
+impos monoton in section 10.8. 
+
+previou dataset use to evalu monoton algorithm have be small, both in the 
+number of sampl and the number of dimensions, a detail in tabl 1. In order to produc 
+statist signific experiment results, and to good demonstr the practic need 
+for monoton constraints, we use real-world case studi with rel larg datasets, 
+and for which the applic engin have confirm that they expect or want the learn 
+function to be monoton with respect to some subset of features. the dataset use be 
+detail in tabl 3, and includ dataset with eight thousand to 400 million samples, and 
+nine to sixteen features, most of which be constrain to be monotonic. 
+
+the case studi demonstr that for problem where the monoton assumpt be 
+warranted, the propos calibr monoton lattic regress produc similar accuraci 
+to random forests. random forest be an unconstrain method that consist provid 
+competit result on benchmark datasets, compar to mani other type of machin 
+learn method (fernandez-delgado et al., 2014)). 
+
+becaus ani bound function can be express use a suffici fine-grain interpo- 
+lation look-up table, we expect that with appropri use of regularizers, monoton lattic 
+regress will perform similarli to other guarante monoton method that use a flex- 
+ibl function class and be appropri regularized, such a monoton neural net (see 
+2.2.5). however, of guarante monoton methods, the onli monoton strategi that have 
+
+29 
+
+
+
+gupta, cotter, pfeifer, voevodski, canini, mangylov, moczydlowski, et al. 
+
+# train # test # lattic 
+dataset sampl sampl # featur paramet 
+
+busi match 8,000 4,000 9 1728 
+ad–queri match 235,996 58,224 5 32 
+render classifi 20,000 2,500 16 65,536 
+fuse pipelin 1.6 million 390k 12 24,576 
+video rank 400 million 25 million 12 531,441 
+
+tabl 3: summari of dataset use in the case studies. 
+
+be demonstr to scale to the number of train sampl and the number of featur 
+treat in our case studi be linear regress with non-neg coeffici (see tabl 1). 
+
+10.1 gener experiment detail 
+
+We use ten-fold cross-valid on each train set to choos hyperparameters, including: 
+whether to use graph laplacian regular or torsion regularization, how much regular- 
+izat (in power of ten), whether to calibr miss data or use a miss data vertex, the 
+number of change-point if featur calibr be use from the choices: {2, 3, 5, 10, 20, 50}, 
+and the number of vertex for each featur be start at 2 and increas by 1 a long a 
+cross-valid accuraci increased. the step size be tune use ten-fold cross-valid 
+and choic be power of 10; it be usual chosen to be one of {.01, .1, 1}. If calibr 
+function be used, a hyperparamet be use to scale the step size for the calibr 
+function gradient compar to the lattic function gradients; thi calibr step size scale 
+be also chosen use ten-fold cross-valid and power of 10, and be usual chosen to 
+be one of {.01, .1, 1, 10}. multilinear interpol be use unless it be note that simplex 
+interpol be used. the loss function be squar error, unless note that logist loss 
+be used. 
+
+comparison be make to random forest (breiman, 2001), and to linear models, with 
+either the logist loss (logist regression) or squar error loss (linear regression), and a 
+ridg regular on the linear coefficients, with ani categor or miss featur con- 
+vert to boolean features. all comparison be train on the same train set, hyper- 
+paramet be tune use cross-validation, and test on the same test set. statist 
+signific be measur use a binomi statist signific test with a p-valu of .05 
+on the test sampl rat differ by two models. 
+
+10.2 case study: busi entiti resolut 
+
+In thi case study, we compar the rel impact of sever of our propos extens to 
+lattic regression. the busi entiti resolut problem be to determin if two busi 
+descript refer to the same real-world business. thi problem be also treat by dalvi 
+et al. (2014), where they focu on defin a good titl similarity. here, we consid onli 
+the problem of fuse differ similar (such a a titl similar and phone similarity) 
+into one score that predict whether a pair of busi be the same business. the learn 
+function be requir to be monoton increas in seven attribut similarities, such a 
+
+30 
+
+
+
+monoton look-up tabl 
+
+the similar between the two busi titl and the similar between the street names. 
+there be two other featur with no monoton constraints, such a the geograph 
+region, which take on one of 14 categor values. each sampl be deriv from a pair of 
+busi descriptions, and a label provid by an expert human rater indic whether that 
+pair of busi descript describ the same real-world business. We measur accuraci 
+in term of whether a predict label match the ground truth label, but in actual usage, 
+the learn function be also use to rank multipl match that pa the decis threshold, 
+and thu a strictli monoton function be prefer to a piecewis constant function. the 
+train and test sets, detail in tabl 3, be randomli split from the complet label 
+set. most of the sampl be drawn use activ sampling, so most of the sampl be 
+difficult to classifi correctly. 
+
+tabl 4 report results. the linear model perform poorly, becaus there be mani 
+import high-ord interact between the features. for example, the pair of busi 
+might describ two pizza place at the same location, one of which recent closed, and the 
+other recent opened. In thi case, location-bas featur will be strongli positive, but the 
+classifi must be sensit to low titl similar to determin the busi be different. 
+On the other hand, high titl similar be not suffici to classifi the pair a the same, for 
+example, two starbuck cafe across the street from each other in downtown london. 
+
+the lattic regress model be first optim use cross-validation, and then we 
+make the seri of minor chang (with all els held constant) list in tabl 4 to illustr 
+the impact of these chang on accuracy. first, remov the monoton constraint re- 
+sult in a statist signific drop in accuraci of half a percent. thu it appear the 
+monoton constraint be success regular give the small amount of train 
+data and the know high bay error in some part of the featur space. lattic regres- 
+sion without the monoton constraint perform similarli to random forest (and not 
+statist significantli better), a expect due to the similar model abil of the 
+methods. 
+
+the cross-valid lattic be 3 × 3 × 3 × 26, where the first three featur use a 
+miss data vertex (so the non-miss data be interpol from a 29 lattice). calibr 
+the miss valu for those three featur instead of use miss data vertex statist 
+significantli drop the accuraci from 81.9% to 80.7%. (however, if one subsampl the 
+train set down to 3000 samples, then the less flexibl option of calibr the miss 
+valu work good than use miss data vertices.) 
+
+the cross-valid calibr use five changepoint for two of the four continu 
+features, and no calibr for the two other continu features. figur 8 show the 
+calibr learn in the optim lattic regression. remov the continu signal 
+calibr result in a statist signific drop in accuracy. 
+
+anoth import propos of thi paper be calibr categor featur to real- 
+valu features. for thi problem, thi be appli to a featur specifi which of 14 possibl 
+geograph categori the busi be in. remov thi geograph featur statist 
+significantli reduc the accuraci by half a percent. 
+
+the amount of torsion regular be cross-valid to be 10−4. chang to graph 
+laplacian and re-optim the amount of regular decreas accuraci slightly, but 
+not statist significantli so. thi be consist with what we often find: torsion be 
+
+31 
+
+
+
+gupta, cotter, pfeifer, voevodski, canini, mangylov, moczydlowski, et al. 
+
+test set accuraci monoton guarantee? 
+
+linear model 66.6% ye 
+random forest 81.2% no 
+lattic regression, optim 81.9% ye 
+... remov monoton constraint 81.4% no 
+... calibr all miss data 80.7% ye 
+... remov calibr 81.1% ye 
+... remov the geograph featur 81.4% ye 
+... chang to graph laplacian 81.7% ye 
+... chang to simplex interpol 81.6% ye 
+
+tabl 4: comparison on a busi entiti resolut problem. 
+
+often slightli better, but often not statist significantli so, than the graph laplacian 
+regularizer. 
+
+chang the multilinear interpol to simplex interpol (see section 5.2) drop 
+the accuraci slightly, but not statist significantly. for some problem we even see 
+simplex interpol provid slightli good results, but gener the accuraci differ 
+between simplex and multilinear interpol be negligible. 
+
+10.3 case study: score ad–queri pair 
+
+In thi case study, we demonstr the potenti of the calibr functions. the goal be to 
+score how well an ad match a web search query, base on five differ featur that each 
+measur a differ notion of a good match. the score be requir to be monoton with 
+respect to all five features. the label be binary, so thi be train and test a a classi- 
+ficat problem. the train and test set be independ and ident distributed, 
+and be detail in tabl 3. 
+
+result be show in tabl 5. the cross-valid lattic size be 2× 2× 2× 2× 2, and 
+the calibr function each use 5 changepoints. remov the calibr function and 
+re-cross-valid the lattic size result in a larg lattic size 4×4×4×4×4, and slightli 
+bad (but not statist significantli worse) accuracy. In total, the uncalibr lattic 
+model use 1024 parameters, wherea the calibr lattic model use onli 57 parameters. 
+We hypothes that the small calibr lattic will be more robust to featur nois and 
+drift in the test sampl distribut than the larg uncalibr lattic model. In general, 
+we find that the one-dimension calibr function be a veri effici way to captur 
+the flexibl needed, and that in conjunct with good one-dimension calibrations, onli 
+coarse-grain (e.g. 2d) lattic be needed. 
+
+both with and without calibr functions, the lattic regress model be statis- 
+tical significantli good than the linear model. the random forest perform well, but 
+be not statist significantli good than the lattic regression. 
+
+A boost stump model be also train for thi problem. see fig. 12 for a comparison 
+of two-dimension slice of the boost stump and lattic functions. the boost stumps’ 
+test set accuraci be rel low at 75.4%. In practice, the goal of thi problem be to have 
+
+32 
+
+
+
+monoton look-up tabl 
+
+test set accuraci monoton guarantee? 
+
+linear model 77.2% ye 
+random forest 78.8% no 
+lattic regress 78.7% ye 
+... remov continu signal calibr 78.4% ye 
+
+tabl 5: comparison on an ad-queri score problem. 
+
+θ[2] = 0.4 
+
+θ[0] = 0.0 θ[1] = 1.0 
+
+θ[3] = 0.4 
+
+1.0 
+
+0.0 
+
+0.5 
+
+scale boost stump lattic regress 
+
+figur 12: slice of the learn ad-queri match function for boost stump and a 2× 
+2×2×2×2 lattic regression, plot a a function of two of the five features, with 
+median valu chosen for the other three features. the boost stump requir 
+hundr of stump to approxim the function, and the result function be 
+piecewis constant, creat frequent tie when rank a larg number of ad 
+for a give query, despit a priori knowledg that the output should be strictli 
+monoton in each of the features. 
+
+a score use for rank candid a well a determin if they be a suffici good 
+match. even with mani trees, thi model produc mani tie due it piecewise-const 
+surface. In addition, the live experi with the boost stump show that the output 
+be problemat sensit to featur noise, which would caus sampl near the boundari 
+of two piecewis constant surfac to experi fluctuat scores. 
+
+10.4 case study: render classifi 
+
+thi case studi demonstr train a flexibl function (use a lattice) that be monoton 
+with respect to fifteen features. the goal be to score whether a particular display element 
+should be render on a webpage. the score be requir to be monoton in fifteen of the 
+features, and there be a sixteenth boolean featur that be not constrained. the train and 
+test set (detail in tabl 3) consist almost entir of sampl know to be difficult to 
+correctli classifi (henc the rather low accuracies). 
+
+We use a fix 216 lattic size, a fix 5 changepoint per featur for the six continu 
+signal (the other ten signal be boolean), and no graph regularization, so no hyperpa- 
+
+33 
+
+
+
+gupta, cotter, pfeifer, voevodski, canini, mangylov, moczydlowski, et al. 
+
+test set accuraci monoton guarantee? 
+
+linear model 54.6% ye 
+random forest 61.3% no 
+lattic regress 63.0% ye 
+
+tabl 6: comparison on a render classifier. 
+
+ramet be optim for thi case study. simplex interpol be use for speed. A 
+singl train loop through the 20,000 train sampl take around five minut on a 
+xeon-typ intel desktop use a single-thread c++ implement with spars vectors, 
+with the train time domin by the constraint handling. train in total take around 
+five hours. 
+
+result in tabl 6 show substanti gain over the linear model, while still produc a 
+monotonic, smooth function. the lattic regress be also statist significantli good 
+than random forests, we hypothes due to the regular provid by the monoton 
+constraint which be import in thi case due to the difficulti of the problem on the give 
+exampl and the rel small number of train samples. 
+
+10.5 case study: fuse pipelin 
+
+while thi paper focu on learn monoton functions, we believ it be also the first 
+paper to propos appli lattic regress to classif problems, rather than onli 
+regress problems. with that in mind, we includ thi case studi demonstr that 
+lattic regress without constraint also perform similarli to random forest on a real- 
+world large-scal multi-class problem. 
+
+the goal in thi case studi be to fuse the predict from two pipelines, each of which 
+make a predict about the likelihood of seven user categori base on a differ set of 
+high-dimension features. becaus each pipeline’ probabl estim sum to one, onli 
+the first six probabl estim from each pipelin be need a featur to the fusion, 
+for a total of twelv features. the train and test set be split by time, with the old 
+1.6 million sampl use for training, and the new 390,000 sampl use a a test set. 
+
+the lattic be train with a multi-class logist loss, and use simplex interpol 
+for speed. the cross-valid model be a 212 lattic for six of the output class (with the 
+probabl of the seventh class be subtract from one) and no calibr functions, 
+result in a total of 212 × 6 = 24, 576 parameters. 
+
+the result be report in tabl 7. even though pipelin 2 alon be 6.5% more accur 
+than pipelin 1 alone, the test set accuraci can be increas by fuse the estim from 
+both pipelines, with a small improv in accuraci by lattic regress over the random 
+forest classifier, logist regression, or simpli averag the two pipelin estimates. 
+
+10.6 case study: video rank and large-scal learn 
+
+thi case studi demonstr large-scal train of a larg monoton lattic and learn 
+from rank pairs. the goal be to learn a function to rank video a user might like to watch, 
+
+34 
+
+
+
+monoton look-up tabl 
+
+test set accuraci gain 
+on top of pipelin 1 accuraci 
+
+pipelin 2 onli 6.5% 
+averag the two pipelin estim 7.4% 
+fuse with linear model 8.5% 
+fuse with random forest 9.3% 
+fuse with lattic regress 9.7% 
+
+tabl 7: comparison on fuse user categori predict pipelines. 
+
+base on the video they have just watched. experi be perform on anonym 
+data from youtube. 
+
+each featur vector xi be a vector of featur about a pair of videos, xi = h(vj , vk), where 
+vj be the watch video, vk be a candid video to watch next, and h be a function that 
+take a pair of video and output a twelve-dimension featur vector xi. for example, a 
+featur might be the number of time that video vj and video vk be watch in the same 
+session. 
+
+each of the twelv featur be specifi to be posit correl with user view 
+preference, and thu we constrain the model to be monoton increas with respect 
+to each. Of course, human prefer be complic and these monoton constraint 
+cannot fulli model human judgement. for example, know that a video that have be 
+watch mani time be gener a veri good indic that it be good to suggest, and yet 
+a veri popular video at some point will flare out and becom less popular. 
+
+monoton constraint can also be use to enforc secondari objectives. for ex- 
+ample, all other featur equal, one might prefer to serv fresher videos. while user in 
+the long-run want to see fresh videos, they may preferenti click on familiar videos, thu 
+click data may not captur thi desire. thi secondari goal can be enforc by constrain- 
+ing the learn function to be monoton in a featur that measur video freshness. thi 
+achiev a multi-object function without overly-compl or distort the train 
+label definition. 
+
+there be billion of video in youtube, and thu mani mani pair of watched-and- 
+candid video to score and re-scor a the underli featur valu chang over time. 
+thu it be import the learn rank function to be cheap to evaluate, and so we use 
+simplex interpol for it evalu speed; see section 10.7 for comparison of evalu 
+speeds. 
+
+We train to minim the rank pair object from (9), such that the learn 
+function f be train for the goal of minim pairwis rank errors, 
+
+f(h(vj , v 
++ 
+k )) > f(h(vj , v 
+
+− 
+k )), 
+
+for each train event consist of a watch video vj , and a pair of candid video v 
++ 
+k 
+
+and v−k where there be inform that a user who have just watch video vj prefer to 
+watch v+k next over v 
+
+− 
+k . 
+
+35 
+
+
+
+gupta, cotter, pfeifer, voevodski, canini, mangylov, moczydlowski, et al. 
+
+10.6.1 which pair of candid videos? 
+
+A key question be which sampl pair of candid video v+k and v 
+− 
+k should be use a the 
+
+prefer and unpref video for a give watch video vj . We use anonym click 
+data from youtube’ current video-suggest system. for each watch video vj , if a user 
+click a suggest video in the second posit or below, then we take the click video 
+a the prefer video v+k , and the video suggest right abov the click video a the 
+unpref video v−j . We call thi choic of v 
+
++ 
+k and v 
+
+− 
+k a bottom-click pair. thi choic 
+
+be consist with the find of joachim et al. (2005), whose eye-track experi on 
+webpag search result show that user on averag look at least at one result abov the 
+click result, and that these pair of preferred/unpref sampl correl strongli with 
+explicit relev judgements. also, use bottom-click pair remov the trust bia that 
+user know they be be present with a rank list and prefer sampl that be ranked- 
+high (joachim et al., 2005). In a set of preliminari experiments, we also tri train 
+use either a randomli sampl video a v−k , or the video just after the click video, and 
+then test on bottom-click pairs. those result show test accuraci on bottom-click 
+pair be up to 1% more accur if the train set onli includ the bottom-click pairs, 
+even though that meant few train pairs. 
+
+An addit goal (and one that be common in commerci large-scal machin learn 
+system for variou practic reasons) be for the learn rank function to be a similar 
+to the current rank function a possible. that is, we wish to minim chang to the 
+current score if they do not improv accuracy; such accuracy-neutr chang be refer 
+to a churn. To reduc churn, we add in addit pair that reflect the decis of the 
+current rank function. each of these pair also take the click video a the prefer 
+v+k , but set the unpref video v 
+
+− 
+k to be the video that the current system rank ten 
+
+candid low than the click video. the dataset be a 50-50 mix of these churn-reduc 
+pair and bottom-click pairs. 
+
+10.6.2 more experiment detail 
+
+the dataset be randomli split into mutual exclus training, test, and valid set of 
+size 400 million, 25 million, and 25 million pairs, respectively. To ensur privacy, the dataset 
+onli contain the featur vector, and no inform identifi the video or user. the 
+disadvantag of that be the train, test and valid set be like to have some sampl 
+from the same video and same users. however, in total the dataset captur million of 
+uniqu user and uniqu watch videos. 
+
+We use a fix 312 lattice, for a total of 531,441 parameters. the pre-process 
+function be fix in thi case, so no calibr function be learned. We compar 
+train on increasingly-larg randomly-sampl subset of the 400 million train set (see 
+figur 13 for train set sizes). We compar train on a singl worker to the parallelize- 
+and-averag strategi explain in section 9.2. parallel result be parallel over 100 
+workers. the stepsiz be chosen independ for each train set base on accuraci on 
+the valid set. 
+
+We report result with and without monoton constraints. for the unconstrain 
+results, each train (singl or parallel) touch each sampl in the train set once. 
+for the monoton result (singl or parallelized), each sampl be touch ten times, and 
+
+36 
+
+
+
+monoton look-up tabl 
+
+minibatch be use with a minibatch size of 32 stochast gradients. logist loss be 
+used. 
+
+10.6.3 result 
+
+figur 13 compar test set accuraci for singl and parallel train for differ amount 
+of train data, with and without monoton constraints. for each dataset, the singl 
+and parallel train saw the same total number of train sampl and be allow the 
+same total number of stochast gradient updates. 
+
+figur 13: comparison of train with a singl worker versu 100 worker in parallel, a a 
+function of train set size. 
+
+On the click data test set, not use monoton constraint (the dark lines) be about 
+.5% good at pairwis accuraci than if we constrain the function to be monotonic. however, 
+in live experi that requir rank all video (not onli one that have be top-rank 
+in the past, and henc includ in the click data sets), model train with monoton 
+constraint show good perform on the actual measur of user-engag (a op- 
+pose to the train metric of pairwis accuracy). thi discrep appear to be due to 
+the bia sampl of the click data, a the click-data have a bia distribut over the 
+featur space compar to the distribut of all video which must get rank in practice. 
+the bia distribut of the click data appear to caus paramet in sparser region of 
+the featur space to be non-monoton in an effort to increas the flexibl (and accuracy) 
+of the function in the denser regions, thu increas the accuraci on the click data. en- 
+forc monoton help address thi sampl bia problem by not allow the train 
+to ignor the accuraci in sparser region that be import in practic to accur rank 
+all videos. 
+
+even though there be 500k paramet to train, the click-data accuraci be alreadi veri 
+good with onli 500k train samples, and test accuraci increas onli slightli when train 
+on 400 million sampl compar to 10 million samples. thi be larg becaus the click- 
+
+37 
+
+
+
+gupta, cotter, pfeifer, voevodski, canini, mangylov, moczydlowski, et al. 
+
+data sampl be dens cluster in the featur space, and with simplex interpolation, 
+onli a small fraction of the 500k paramet control the function over the dens part of the 
+featur space. 
+
+the darker line of figur 13 show the parallel versu single-machin result 
+without monoton constraints. unconstrained, the parallel run appear to perform 
+slightli good to the single-machin train give the same number of train sampl 
+(and the same total number of gradient updates). We hypothes thi slight improv 
+be due to some noise-averag across the 100 parallel train lattices. the lighter line 
+of figur 13 show the parallel versu single-machin result with monoton con- 
+straints. train on 500k pairs, the parallel train and single-machin monoton 
+train produc the same test accuracy. however, a the train set size increases, the 
+parallel train take more data to achiev the same accuraci a the single-machin 
+training. We believ thi be becaus averag the 100 monoton lattic be a convex combi- 
+nation of lattic like on the edg of the monoton constraint set, produc an averag 
+lattic in the interior of the constraint set, that is, the averag lattic be over-constrained. 
+
+10.7 run time 
+
+We give some time exampl for the differ interpol and for training. 
+
+figur 14 show averag evalu time for multilinear and simplex interpol of 
+one sampl from a 2D lattic for D = 4 to D = 20 use a single-thread 3.5ghz intel ivi 
+bridg processor. note the multilinear evalu time be report on a log-scale, and 
+on a log scale the evalu time increas roughli linearli in D, match the theoret 
+o(2d) complex give in section 5.1. the simplex evalu time scale roughli linearli 
+with D, consist with the theoret o(d logd) complexity. for D = 6 features, simplex 
+interpol be alreadi three time faster than multilinear. with D = 20 features, the 
+simplex interpol be still onli 750 nanoseconds, but the multilinear interpol be 
+about 15, 000 time slower, at around 12 milliseconds. 
+
+train time be difficult to report in an accur or meaning way due to the 
+high-vari of run on a large, shared, distribut cluster. here be one example: 
+with everi featur constrain to be monotonic, a singl worker train one loop of a 212 
+
+lattic on 4 million sampl usual take around 15 minutes, wherea with 100 parallel 
+worker one loop through 400 million sampl (4 million sampl for each worker) usual 
+take around 20 minutes. larg step-siz can take much longer than small stepsizes, 
+becaus larg updat tend to violat more monoton constraint and thu requir more 
+expens projections. minibatch be particularli effect at speed up train becaus 
+the averag batch of stochast gradient reduc the number of monoton violat 
+and the need for projections. without monoton constraints, train be gener 10× 
+to 1000× faster, depend on how non-monoton the data is. 
+
+10.8 interpret in practic 
+
+It be difficult to quantifi interpretability, but we summar our observ from work 
+with around 50 differ user on around a dozen differ real-world machin learn 
+problem where there be a rel small number of semant meaning features. 
+
+38 
+
+
+
+monoton look-up tabl 
+
+(a) multilinear interpol (b) simplex interpol 
+
+figur 14: averag evalu time to interpol a sampl from a 2D lattice. figur (a) 
+show the multilinear interpol time on a log2 scale in nanoseconds. figur 
+(b) show the much faster simplex interpol time in nanoseconds. simplex 
+interpol be 10× faster than multilinear for D = 9 features, about 100× 
+faster for D = 13 features, and over 1, 000× faster for D = 17 features. 
+
+first, we do find that be abl to summar a model a be a posit or neg 
+function with respect to each input featur do help user feel that they understand and can 
+predict the model’ behavior good than a compar unconstrain model. In particular, 
+while aggreg measur like accuracy, precision, or recal over a test set provid summari 
+statist over that particular test set, we find that user in some case do worri about 
+the unknown unknown of use a machin learn model, and that add monoton 
+constraint give these user more confid that the model can be trust not to behav 
+unreason for ani examples. and thi confid be well-founded: a discuss in the 
+video rank case studi in section 10.6, monoton constraint do in practic guard 
+against potenti strang behavior of highli nonlinear function in rarer part of the 
+featur space. 
+
+We have also found that monoton constraint make debug highli nonlinear 
+model easier. We find that one particularli use debug tool be sensit plot like 
+the one show in figur 15, which show how f(x) relat to each featur valu of x, for 
+a particular sampl x. monoton constraint make these sensit plot monotonic, 
+which we find make it easi to identifi problem with signal and train data. 
+
+apart from the issu of monotonicity, we expect that use one-dimension calibra- 
+tion function and interpol look-up tabl would produc paramet that be inter- 
+pretable. these expect be half-right. We do find it help and common for user to 
+check and analyz the signals’ calibr functions, and that the calibr provid use- 
+ful inform to user about what the model have learned, and help identifi unexpect 
+behavior or problem with features. but, we do not find that user examin the lattic 
+paramet directli veri often, and that the readabl of the lattic paramet becom 
+gener less use a D increases. user be more like to util other analytics, such a 
+how correl the output be with each calibr feature. while thi inform do not 
+
+39 
+
+
+
+gupta, cotter, pfeifer, voevodski, canini, mangylov, moczydlowski, et al. 
+
+control for between-featur correl (so a featur might be highli correl with the 
+output but not need if it correl with anoth feature), user can conclud the model 
+behav a lot like highly-correl features, and thi aid model understanding. low corre- 
+lation between a calibr featur and the output either indic an unimport feature, 
+or, if the featur be know to be import (becaus drop it hurt accuracy), that it 
+play an import role interact or condit other features. 
+
+To understand featur interactions, again we find that rather than analyz the lattic 
+paramet explicitly, user gener prefer to analyz two-dimension visual of 
+the model over pair of featur (averag or slice over the other features), or to examin 
+exampl to check their hypothesi about expect higher-ord interactions. 
+
+anoth common problem be to understand how two similar model be differ (for 
+example, one might have be train with more train data, or one might use an ad- 
+dition feature). for thi purpose, we find it be again rare that user want to directli 
+analyz differ in model paramet except for veri tini models, prefer instead to 
+look at exampl that be score differ by the two models, and analyz these exampl 
+sampl in their raw form (for example, look at the video that have be promot or 
+demot by a new model, in conjunct with the featur use by the model). 
+
+figur 15: illustr of a sensit plot for a calibr monoton lattic with respect 
+to one of the D features. the blue line show how the output f(x) (y-axis) of a 
+calibr monoton lattic chang if onli thi one featur valu of x (x-axis) be 
+changed, but all other compon of x be kept fixed. the green dot mark the 
+current input and output. the yellow line show the model output if the first 
+featur be missing. the red dot line show the binari classif thresh- 
+old. thi plot be piecewis linear becaus the calibr function be piecewis 
+linear and the simplex interpol be also piecewis linear, and monoton 
+increas becaus the function be constrain to be monoton with respect to 
+thi feature. In thi example, one see that to chang the classif decis 
+without chang ani other features, thi featur would have to be increas 
+from it current valu of 0.67 to at least 0.84 at which point it would cross the 
+red line mark the decis threshold. 
+
+40 
+
+
+
+monoton look-up tabl 
+
+11. discuss and some open question 
+
+We have propos use constrain interpol look-up tabl to effect learn flexible, 
+monoton function for low-dimension machin learn problem of classification, rank- 
+ing, and regression. We address a number of practic issues, includ interpretability, 
+evalu speed, autom pre-process of features, miss data, and categor fea- 
+tures. experiment result show state-of-the-art perform on the larg train set 
+and larg number of featur publish for monoton methods. 
+
+practic experi have show u that be abl to check and ensur monoton help 
+user trust the model, and lead to model that gener better. for us, the monoton 
+constraint have come from engin who believ the output should be monoton in the 
+feature. In the absenc of clear prior inform about monotonicity, it may be tempt to 
+use the direct of a linear fit to specifi a monoton direct and then use monoton 
+a a regularizer. magdon-ismail and sill (2008) point out that use the linear regress 
+coeffici for thi purpos can be mislead if featur be correl and not jointli 
+gaussian. 
+
+for classifiers, requir the entir function to be monoton be a strong requir 
+than need to simpli guarante that the decis boundari (and henc classifier) be mono- 
+tonic. It be an open question how to enforc onli the threshold function to be monotonic, 
+and whether that would be more use in practice. 
+
+one surpris be that for practic machin learn problem like those of section 10, 
+we found a simpl 2D lattic be often suffici to captur the interact of D features, 
+especi if we jointli optim D one-dimension featur calibr functions. when 
+we begin thi work, we expect to have to use much more fine-grain lattic with mani 
+vertex in each feature, or perhap irregular lattic to achiev state-of-the-art accuracy. 
+In fact, calibr function help approxim linear each featur with respect to the 
+label, make a 2D lattic suffici flexibl for most of the real-world problem we have 
+encountered. 
+
+for some cases, a 2D lattic be too flexible. We reduc lattic flexibl with new 
+regularizers: monotonicity, and the torsion regular that encourag a more linear model. 
+while good for interpret and accuracy, these regular strategi do not reduc 
+the model size. 
+
+for a larg number of featur D, the exponenti model size of a 2D lattic be a memori 
+issue. On a singl machine, train and evalu with a few million paramet be viable, 
+but thi still limit thi approach to not much more than D = 20 features. An open question 
+be how such larg model could be sparsified, and if use sparsif approach could 
+also provid addit use regularization. 
+
+A second surpris be that simplex interpol provid similar accuraci to multi- 
+linear interpolation. the rotat depend of simplex interpol seem at first 
+troubling, but the propos approach of align the share axi of the simplic with the 
+main increas axi of the function appear to solv thi problem in practice. the geom- 
+etri of the simplic at first seem odd in that it produc a local linear surfac over 
+elong simplices. however, thi partit turn out to work well becaus it provid 
+a veri flexibl piecewis linear decis boundary. lastly, we found that the theoret 
+
+41 
+
+
+
+gupta, cotter, pfeifer, voevodski, canini, mangylov, moczydlowski, et al. 
+
+o(d logd) comput complex do result in practic in order of magnitud faster 
+interpol than multilinear interpol a D increases. 
+
+A common practic issu in machin learn be handl categor data. We propos 
+to learn a map from mutual exclus categori to featur values, jointli with the 
+other model parameters. We found categorical-map to be interpretable, flexible, and 
+accurate. the propos categor map can be view a learn a one-dimension 
+emb of the categories. though we gener onli need two vertex in the lattic 
+for continu features, for categor featur we often find it help to use more vertex 
+(a finer-grain lattice) for more flexibility. some preliminari experi learn two- 
+dimension embed of categori (that is, map one categori to [0, 1]2) show 
+promise, but we found thi requir more care initi and handl of the increas 
+non-convexity. 
+
+learn the monoton lattic be a convex problem, but compos the lattic and the 
+one-dimension calibr function creat a non-convex objective. We use onli one 
+initi of the lattic and calibr for all our experiments, but tune the stepsiz 
+of the stochast gradient descent separ for the set of lattic paramet and the set 
+of calibr parameters. In some case we saw a substanti sensit of the accuraci 
+to the initi sgd stepsizes. We hypothes that thi be caus by some interplay of the 
+rel stepsiz and the rel size of the local optima. 
+
+We employ a number of strategi to speed up training. one of the big speed-up 
+come from randomli sampl the addit term of the graph regularizers, analog to the 
+random sampl of the addit term of the empir loss that sgd uses. We show that 
+a parallelize-and-averag strategi work for train the lattices. the larg comput 
+bottleneck remain the project onto the monoton constraints. mini-batch the 
+sampl reduc the number of project and provid speed-ups, but a faster approach 
+to optim give possibl hundr of thousand of constraint would be valuable. 
+
+lastly, thi work leaf open a number of theoret question for the function class of 
+interpol look-up tables, for exampl how monoton constraint theoret affect 
+converg speed. 
+
+12. acknowledg 
+
+We thank sugato basu, david cardoze, jame chen, emmanuel christophe, brendan 
+collins, mahdi milani fard, jame muller, biswanath panda, and alex vodomerov for help 
+with experi and help discussions. 
+
+refer 
+
+Y. S. abu-mostafa. A method for learn from hints. In advanc in neural inform 
+process systems, page 73–80, 1993. 
+
+N. P. archer and S. wang. applic of the back propag neural network algorithm 
+with monoton constraint for two-group classif problems. decis sciences, 
+24(1):60–75, 1993. 
+
+42 
+
+
+
+monoton look-up tabl 
+
+F. bach. learn with submodular functions: A convex optim perspective. foun- 
+dation and trend in machin learning, 6(2), 2013. 
+
+R. E. barlow, D. J. bartholomew, J. M. bremner, and H. D. brunk. statist infer 
+under order restrictions; the theori and applic of isoton regression. wiley, new 
+york, usa, 1972. 
+
+A. ben-david. automat gener of symbol multiattribut ordin knowledg base 
+dss: methodolog and applications. decis sciences, page 1357–1372, 1992. 
+
+A. ben-david. monoton mainten in information-theoret machin learn algo- 
+rithms. machin learning, 21:35–50, 1995. 
+
+A. ben-david, L. sterling, and Y. H. pao. learn and classif of monoton ordin 
+concepts. comput intelligence, 5(1):45–49, 1989. 
+
+S. boyd, N. parikh, E. chu, B. peleato, and J. eckstein. distribut optim and 
+statist learn via the altern direct method of multipliers. foundat and 
+trend in machin learning, 3(1), 2010. 
+
+L. breiman. random forests. machin learning, 45(1):5–32, 2001. 
+
+J. casillas, O. cordon, F. herrera, and L. magdalena (eds.). trade-off between accuraci 
+and interpret in fuzzi rule-bas modelling. physica-verlag, 2002. 
+
+R. chandrasekaran, Y. U. ryu, V. S. jacob, and S. hong. isoton separation. inform 
+journal on computing, 17(4):462–474, 2005. 
+
+A. cotter, M. R. gupta, and J. pfeifer. A light touch for heavili constrain sgd. arxiv 
+preprint, 2015. url http://arxiv.org/abs/1512.04960. 
+
+N. dalvi, M. olteanu, M. raghavan, and P. bohannon. dedupl a place database. 
+proc. acm www conf., 2014. 
+
+H. daniel and M. velikova. monoton and partial monoton neural networks. ieee 
+trans. neural networks, 21(6):906–917, 2010. 
+
+O. dekel, R. gilad-bachrach, O. shamir, and L. xiao. optim distribut onlin predict 
+use mini-batches. journal machin learn research, 13(1):165–202, januari 2012. 
+
+J. duchi, E. hazan, and Y. singer. adapt subgradi method for onlin learn and 
+stochast optimization. journal machin learn research, 12:2121–2159, 2011. 
+
+C. dugas, Y. bengio, F. bélisle, C. nadeau, and R. garcia. incorpor second-ord func- 
+tional knowledg for good option pricing. In advanc in neural inform process 
+system (nips), 2000. 
+
+C. dugas, Y. bengio, F. bélisle, C. nadeau, and R. garcia. incorpor function 
+knowledg in neural networks. journal machin learn research, 2009. 
+
+43 
+
+
+
+gupta, cotter, pfeifer, voevodski, canini, mangylov, moczydlowski, et al. 
+
+W. duivesteijn and A. feelders. nearest neighbour classif with monoton con- 
+straints. proc. european conf. machin learning, page 301–316, 2008. 
+
+A. feelders. monoton relabel in ordin classification. proc. ieee conf. data mining, 
+page 803–808, 2010. 
+
+M. fernandez-delgado, E. cernadas, S. barro, and D. amorim. Do we need hundr of 
+classifi to solv real world classif problems? journal machin learn research, 
+2014. 
+
+E. K. garcia and M. R. gupta. lattic regression. In advanc in neural inform 
+process system (nips), 2009. 
+
+E. K. garcia, S. feldman, M. R. gupta, and S. srivastava. complet lazi learning. ieee 
+trans. knowledg and data engineering, 22(9):1274–1285, sept. 2010. 
+
+E. K. garcia, R. arora, and M. R. gupta. optim regress for effici function 
+evaluation. ieee trans. imag processing, 21(9):4128–4140, sept. 2012. 
+
+S. garcia, A. fernandez, J. luengo, and F. herrera. A studi of statist techniqu and 
+perform measur for genetics-bas machin learning: accuraci and interpretability. 
+soft computing, 13:959–977, 2009. 
+
+I. J. good. the estim of probabilities: An essay on modern bayesian methods. mit 
+press, 1965. 
+
+H. gruber, M. holzer, and O. ruepp. sort the slow way: an analysi of pervers aw 
+random sort algorithms. In fun with algorithms, page 183–197. springer, 2007. 
+
+M. gupta, S. bengio, and J. weston. train highli multiclass classifiers. journal machin 
+learn research, 2014. 
+
+M. R. gupta, R. M. gray, and R. A. olshen. nonparametr supervis learn by lin- 
+ear interpol with maximum entropy. ieee trans. pattern analysi and machin 
+intelligence, 28(5):766–781, 2006. 
+
+T. hasti and R. tibshirani. gener addit models. chapman hall, new york, 1990. 
+
+T. hastie, R. tibshirani, and J. friedman. the element of statist learning. springer- 
+verlag, new york, 2001. 
+
+C. C. holm and N. A. heard. gener monoton regress use random chang 
+points. statist in medicine, 22:623–638, 2003. 
+
+A. howard and T. jebara. learn monoton transform for classification. In ad- 
+vanc in neural inform process systems, 2007. 
+
+H. ishibuchi and Y. nojima. analysi of interpretability-accuraci tradeoff of fuzzi sys- 
+tem by multiobject fuzzi genetics-bas machin learning. intern journal of 
+approxim reasoning, 44:4–31, 2007. 
+
+44 
+
+
+
+monoton look-up tabl 
+
+T. joachims, L. granka, B. pan, H. hembrooke, and G. gay. accur interpret 
+clickthrough data a implicit feedback. proc. sigir, 2005. 
+
+H. R. kang. comparison of three-dimension interpol techniqu by simulations. spie 
+vol. 2414, 1995. 
+
+H. R. kang. color technolog for electron imag devices. spie press, usa, 1997. 
+
+J. kasson, W. plouffe, and S. nin. A tetrahedr interpol techniqu for color space 
+conversion. spie vol. 1909, 1993. 
+
+H. kay and L. H. ungar. estim monoton function and their bounds. aich journal, 
+46(12):2426–2434, 2000. 
+
+R. E. knop. A note on hypercub partitions. journal of combinatori theory, ser. A, 15 
+(3):338–342, 1973. 
+
+W. kotlowski and R. slowinski. rule learn with monoton constraints. In proceed 
+intern confer on machin learning, 2009. 
+
+F. lauer and G. bloch. incorpor prior knowledg in support vector regression. machin 
+learning, 70(1):89–118, 2008. 
+
+X. liao, H. li, and L. carin. quadrat gate mixtur of expert for incomplet data 
+classification. proc. icml, 2007. 
+
+t.-y. liu. learn to rank for inform retrieval. springer, 2011. 
+
+malik magdon-ismail and J. sill. A linear fit get the correct monoton directions. 
+machin learning, page 21–43, 2008. 
+
+G. mann, R. mcdonald, M. mohri, N. silberman, and D. D. walker. effici large- 
+scale distribut train of condit maximum entropi models. advanc in neural 
+inform process system (nips), 2009. 
+
+D. G. mead. dissect of the hypercub into simplexes. proc. amer. math. soc., 76: 
+302–304, 1979. 
+
+A. minin, M. velikova, B. lang, and H. daniels. comparison of univers approxim 
+incorpor partial monoton by structure. neural networks, 23(4):471–475, 2010. 
+
+H. mukarje and S. stern. feasibl nonparametr estim of multiargu monoton 
+functions. journal of the american statist association, 89(425):77–80, 1994. 
+
+B. neelon and D. B. dunson. bayesian isoton regress and trend analysis. biometrics, 
+60:398–406, 2004. 
+
+A. nemirovski, A. juditsky, G. lan, and A. shapiro. robust stochast approxim 
+approach to stochast programming. siam journal on optimization, 19(4):1574–1609, 
+januari 2009. 
+
+45 
+
+
+
+gupta, cotter, pfeifer, voevodski, canini, mangylov, moczydlowski, et al. 
+
+K. neumann, M. rolf, and J. J. steil. reliabl integr of continu constraint into ex- 
+treme learn machines. intern journal of uncertainty, fuzzi and knowledge- 
+base systems, 21(supp02):35–50, 2013. 
+
+R. nock. induc interpret vote classifi without trade accuraci for simplic- 
+ity: theoret results, approxim algorithms, and experiments. journal artifici 
+intellig research, 17:137–170, 2002. 
+
+k.-m. osei-bryson. post-prun in decis tree induct use multipl perform 
+measures. comput and oper research, 34:3331–3345, 2007. 
+
+R. potharst and A. J. feelders. classif tree for problem with monoton con- 
+straints. acm sigkdd explorations, page 1–10, 2002a. 
+
+R. potharst and A. J. feelders. prune for monoton classif trees. springer lectur 
+note on comput science, 2810:1–12, 2002b. 
+
+y.-j. Qu and b.-g. hu. gener constraint neural network regress model subject to 
+linear priors. ieee trans. on neural networks, 22(11):2447–2459, 2011. 
+
+J. O. ramsay. estim smooth monoton functions. journal of the royal statist 
+society, seri B, 60:365–375, 1998. 
+
+G. rätsch, S. sonnenburg, and C. schäfer. learn interpret svm for biolog 
+sequenc classification. bmc bioinformatics, 7, 2006. 
+
+J. riihimäki and A. vehtari. gaussian process with monoton information. In inter- 
+nation confer on artifici intellig and statistics, page 645–652, 2010. 
+
+R. rovatti, M. borgatti, and R. guerrieri. A geometr approach to maximum-spe n- 
+dimension continu linear interpol in rectangular grids. ieee trans. on com- 
+puters, 47(8):894–899, 1998. 
+
+F. schimdt and R. simon. some geometr probabl problem involv the eulerian 
+numbers. electron journal of combinatorics, 4(2), 2007. 
+
+G. sharma and R. bala. digit color imag handbook. crc press, new york, 2002. 
+
+T. S. shively, T. W. sager, and S. G. walker. A bayesian approach to non-parametr 
+monoton function estimation. journal of the royal statist society, seri B, 71(1): 
+159–175, 2009. 
+
+P. K. shukla and S. P. tripathi. A review on the interpretability-accuraci trade-off in 
+evolutionari multi-object fuzzi system (emofs). information, 2012. 
+
+J. sill. monoton networks. advanc in neural inform process system (nips), 
+1998. 
+
+J. sill and Y. S. abu-mostafa. monoton hints. advanc in neural inform pro- 
+cess system (nips), page 634–640, 1997. 
+
+46 
+
+
+
+monoton look-up tabl 
+
+D. J. spiegelhalt and R. P. knill-jones. statist and knowledge-bas approach to 
+clinic decis support systems, with an applic in gastroenterology. journal of the 
+royal statist societi A, 147:35–77, 1984. 
+
+J. spouge, H. wan, and W. J. wilbur. least squar isoton regress in two dimensions. 
+journal of optim theori and applications, 117(3):585–605, 2003. 
+
+C. strannegaard. transpar neural networks. proc. artifici gener intelligence, 2012. 
+
+B. sun and S. zhou. studi on the 3D interpol model use in color conversion. iacsit 
+intl. journal engin and technology, 4(1), 2012. 
+
+A. van esbroeck, S. singh, I. rubinfeld, and Z. syed. evalu trauma patients: ad- 
+dress miss covari with joint optimization. proc. aaai, 2014. 
+
+M. villalobo and G. wahba. inequality-constrain multivari smooth spline with 
+applic to the estim of posterior probabilities. journal of the american statist 
+association, 82(397):239–248, 1987. 
+
+S. wang. A neural network method of densiti estim for univari unimod data. 
+neural comput & applications, 2(3):160–167, 1994. 
+
+L. Yu and J. xiao. trade-off between accuraci and interpretability: experience-ori 
+fuzzi model via reduced-set vectors. comput and mathemat with applications, 
+57:885–895, 2012. 
+
+47 
+
+

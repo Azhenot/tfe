@@ -1,0 +1,1557 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+unsupervis monocular depth estim with left-right consist 
+
+clément godard oisin mac aodha gabriel J. brostow 
+univers colleg london 
+
+http://visual.cs.ucl.ac.uk/pubs/monodepth/ 
+
+abstract 
+
+learn base method have show veri promis result 
+for the task of depth estim in singl images. however, 
+most exist approach treat depth predict a a supervis 
+regress problem and a a result, requir vast quantiti 
+of correspond ground truth depth data for training. just 
+record qualiti depth data in a rang of environ be a 
+challeng problem. In thi paper, we innov beyond exist 
+approaches, replac the use of explicit depth data dure 
+train with easier-to-obtain binocular stereo footage. 
+
+We propos a novel train object that enabl our convo- 
+lution neural network to learn to perform singl imag depth 
+estimation, despit the absenc of ground truth depth data. ex- 
+ploit epipolar geometri constraints, we gener dispar 
+imag by train our network with an imag reconstruct 
+loss. We show that solv for imag reconstruct alon re- 
+sult in poor qualiti depth images. To overcom thi problem, 
+we propos a novel train loss that enforc consist be- 
+tween the dispar produc rel to both the left and right 
+images, lead to improv perform and robust com- 
+par to exist approaches. our method produc state of the 
+art result for monocular depth estim on the kitti drive 
+dataset, even outperform supervis method that have be 
+train with ground truth depth. 
+
+1. introduct 
+depth estim from imag have a long histori in comput 
+
+vision. fruit approach have reli on structur from motion, 
+shape-from-x, binocular, and multi-view stereo. however, most 
+of these techniqu reli on the assumpt that multipl obser- 
+vation of the scene of interest be available. these can come 
+in the form of multipl viewpoints, or observ of the scene 
+under differ light conditions. To overcom thi limitation, 
+there have recent be a surg in the number of work that pose 
+the task of monocular depth estim a a supervis learn 
+problem [32, 10, 36]. these method attempt to directli predict 
+the depth of each pixel in an imag use model that have be 
+train offlin on larg collect of ground truth depth data. 
+while these method have enjoy great success, to date they 
+
+figur 1. our depth predict result on kitti 2015. top to bottom: 
+input image, ground truth disparities, and our result. our method be 
+abl to estim depth for thin structur such a street sign and poles. 
+
+have be restrict to scene where larg imag collect 
+and their correspond pixel depth be available. 
+
+understand the shape of a scene from a singl image, 
+independ of it appearance, be a fundament problem in 
+machin perception. there be mani applic such a 
+synthet object insert in comput graphic [29], synthet 
+depth of field in comput photographi [3], grasp 
+in robot [34], use depth a a cue in human bodi pose 
+estim [48], robot assist surgeri [49], and automat 2D 
+to 3D convers in film [53]. accur depth data from one 
+or more camera be also crucial for self-driv cars, where 
+expens laser-bas system be often used. 
+
+human perform well at monocular depth estim by 
+exploit cue such a perspective, scale rel to the 
+know size of familiar objects, appear in the form of 
+light and shade and occlus [24]. thi combin of 
+both top-down and bottom-up cue appear to link full scene 
+understand with our abil to accur estim depth. In 
+thi work, we take an altern approach and treat automat 
+depth estim a an imag reconstruct problem dure 
+training. our fulli convolut model do not requir ani 
+depth data, and be instead train to synthes depth a an 
+intermediate. It learn to predict the pixel-level correspond 
+between pair of rectifi stereo imag that have a know 
+camera baseline. there be some exist method that also 
+address the same problem, but with sever limitations. for 
+exampl they be not fulli differentiable, make train 
+suboptim [16], or have imag format model that do 
+
+1 
+
+ar 
+X 
+
+iv 
+:1 
+
+60 
+9. 
+
+03 
+67 
+
+7v 
+3 
+
+[ 
+c 
+
+.C 
+V 
+
+] 
+1 
+
+2 
+A 
+
+pr 
+2 
+
+01 
+7 
+
+
+
+not scale to larg output resolut [53]. We improv upon 
+these method with a novel train object and enhanc 
+network architectur that significantli increas the qualiti 
+of our final results. An exampl result from our algorithm be 
+illustr in fig. 1. our method be fast and onli take on the 
+order of 35 millisecond to predict a dens depth map for a 
+512×256 imag on a modern gpu. specifically, we propos 
+the follow contributions: 
+1) A network architectur that perform end-to-end unsuper- 
+vise monocular depth estim with a novel train loss that 
+enforc left-right depth consist insid the network. 
+2) An evalu of sever train loss and imag format 
+model highlight the effect of our approach. 
+3) In addit to show state of the art result on a challeng 
+drive dataset, we also show that our model gener to three 
+differ datasets, includ a new outdoor urban dataset that 
+we have collect ourselves, which we make openli available. 
+
+2. relat work 
+there be a larg bodi of work that focu on depth 
+
+estim from images, either use pair [46], sever 
+overlap imag captur from differ viewpoint [14], 
+tempor sequenc [44], or assum a fix camera, static 
+scene, and chang light [52, 2]. these approach be 
+typic onli applic when there be more than one input 
+imag avail of the scene of interest. here we focu on 
+work relat to monocular depth estimation, where there be 
+onli a singl input image, and no assumpt about the scene 
+geometri or type of object present be made. 
+
+learning-bas stereo 
+
+the vast major of stereo estim algorithm have a data 
+term which comput the similar between each pixel in the 
+first imag and everi other pixel in the second image. typic 
+the stereo pair be rectifi and thu the problem of dispar (i.e. 
+scale invers depth) estim can be pose a a 1D search 
+problem for each pixel. recently, it have be show that instead 
+of use hand defin similar measures, treat the match 
+a a supervis learn problem and train a function to 
+predict the correspond produc far superior result 
+[54, 31]. It have also be show that pose thi binocular 
+correspond search a a multi-class classif problem 
+have advantag both in term of qualiti of result and speed 
+[38]. instead of just learn the match function, mayer 
+et al. [39] introduc a fulli convolut [47] deep network 
+call dispnet that directli comput the correspond 
+field between two images. At train time, they attempt to 
+directli predict the dispar for each pixel by minim a 
+regress train loss. dispnet have a similar architectur to 
+their previou end-to-end deep optic flow network [12]. 
+
+the abov method reli on have larg amount of accur 
+ground truth dispar data and stereo imag pair at train 
+time. thi type of data can be difficult to obtain for real world 
+
+scenes, so these approach typic use synthet data for 
+training. synthet data be becom more realistic, e.g. [15], 
+but still requir the manual creation of new content for everi 
+new applic scenario. 
+
+supervis singl imag depth estim 
+
+single-view, or monocular, depth estim refer to the 
+problem setup where onli a singl imag be avail at test 
+time. saxena et al. [45] propos a patch-bas model know 
+a make3d that first over-seg the input imag into patch 
+and then estim the 3D locat and orient of local 
+plane to explain each patch. the predict of the plane 
+paramet be make use a linear model train offlin on 
+a dataset of laser scans, and the predict be then combin 
+togeth use an mrf. the disadvantag of thi method, and 
+other planar base approximations, e.g. [22], be that they can 
+have difficulti model thin structur and, a predict 
+be make locally, lack the global context requir to gener 
+realist outputs. instead of hand-tun the unari and pairwis 
+terms, liu et al. [36] use a convolut neural network (cnn) 
+to learn them. In anoth local approach, ladicki et al. [32] 
+incorpor semant into their model to improv their per 
+pixel depth estimation. karsch et al. [28] attempt to produc 
+more consist imag level predict by copi whole depth 
+imag from a train set. A drawback of thi approach be that 
+it requir the entir train set to be avail at test time. 
+
+eigen et al. [10, 9] show that it be possibl to produc 
+dens pixel depth estim use a two scale deep network 
+train on imag and their correspond depth values. unlik 
+most other previou work in singl imag depth estimation, 
+they do not reli on hand craft featur or an initi over- 
+segment and instead learn a represent directli from 
+the raw pixel values. sever work have built upon the success 
+of thi approach use techniqu such a crf to improv accu- 
+raci [35], chang the loss from regress to classif [5], 
+use other more robust loss function [33], and incorpor 
+strong scene prior in the case of the relat problem of surfac 
+normal estim [50]. again, like the previou stereo methods, 
+these approach reli on have high quality, pixel aligned, 
+ground truth depth at train time. We too perform singl 
+depth imag estimation, but train with an add binocular color 
+image, instead of requir ground truth depth. 
+
+unsupervis depth estim 
+
+recently, a small number of deep network base method for 
+novel view synthesi and depth estim have be proposed, 
+which do not requir ground truth depth at train time. flynn et 
+al. [13] introduc a novel imag synthesi network call deep- 
+stereo that gener new view by select pixel from nearbi 
+images. dure training, the rel pose of multipl camera 
+be use to predict the appear of a held-out nearbi image. 
+then the most appropri depth be select to sampl color 
+from the neighbor images, base on plane sweep volumes. 
+
+
+
+At test time, imag synthesi be perform on small overlap 
+patches. As it requir sever nearbi pose imag at test time 
+deepstereo be not suitabl for monocular depth estimation. 
+
+the deep3d network of xie et al. [53] also address the 
+problem of novel view synthesis, where their goal be to gener 
+the correspond right view from an input left imag (i.e. the 
+sourc image) in the context of binocular pairs. again use an 
+imag reconstruct loss, their method produc a distribut 
+over all the possibl dispar for each pixel. the result 
+synthes right imag pixel valu be a combin of the 
+pixel on the same scan line from the left image, weight 
+by the probabl of each disparity. the disadvantag of 
+their imag format model be that increas the number 
+of candid dispar valu greatli increas the memori 
+consumpt of the algorithm, make it difficult to scale their 
+approach to big output resolutions. In thi work, we perform 
+a comparison to the deep3d imag format model, and show 
+that our algorithm produc superior results. 
+
+closest to our model in spirit be the concurr work of 
+garg et al. [16]. like deep3d and our method, they train 
+a network for monocular depth estim use an imag 
+reconstruct loss. however, their imag format model be 
+not fulli differentiable. To compensate, they perform a taylor 
+approxim to linear their loss result in an object 
+that be more challeng to optimize. similar to other recent 
+work, e.g. [43, 56, 57], our model overcom thi problem by 
+use bilinear sampl [27] to gener images, result in 
+a fulli (sub-)differenti train loss. 
+
+We propos a fulli convolut deep neural network 
+loos inspir by the supervis dispnet architectur of 
+mayer et al. [39]. By pose monocular depth estim 
+a an imag reconstruct problem, we can solv for the 
+dispar field without requir ground truth depth. however, 
+onli minim a photometr loss can result in good qualiti 
+imag reconstruct but poor qualiti depth. among other 
+terms, our fulli differenti train loss includ a left-right 
+consist check to improv the qualiti of our synthes 
+depth images. thi type of consist check be commonli 
+use a a post-process step in mani stereo methods, e.g. 
+[54], but we incorpor it directli into our network. 
+
+3. method 
+thi section describ our singl imag depth predict 
+
+network. We introduc a novel depth estim train loss, 
+featur an inbuilt left-right consist check, which enabl 
+u to train on imag pair without requir supervis in the 
+form of ground truth depth. 
+
+3.1. depth estim a imag reconstruct 
+
+given a singl imag I at test time, our goal be to learn a 
+function f that can predict the per-pixel scene depth, d̂=f(i). 
+most exist learn base approach treat thi a a 
+supervis learn problem, where they have color input 
+
+H x W x D 
+
+2H x 2W x d/2 
+
+UC 
+
+C 
+
+C 
+
+S 
+
+S 
+
+S 
+
+S 
+
+US 
+
+US 
+
+C 
+
+SC 
+
+figur 2. our loss modul output left and right dispar maps, dl 
+
+and dr. the loss combin smoothness, reconstruction, and left-right 
+dispar consist terms. thi same modul be repeat at each of 
+the four differ output scales. C: convolution, uc: up-convolution, 
+S: bilinear sampling, us: up-sampling, sc: skip connection. 
+
+imag and their correspond target depth valu at training. It 
+be present not practic to acquir such ground truth depth data 
+for a larg varieti of scenes. even expens hardware, such 
+a laser scanners, can be imprecis in natur scene featur 
+movement and reflections. As an alternative, we instead pose 
+depth estim a an imag reconstruct problem dure 
+training. the intuit here be that, give a calibr pair of 
+binocular cameras, if we can learn a function that be abl to 
+reconstruct one imag from the other, then we have learn 
+someth about the 3D shape of the scene that be be imaged. 
+
+specifically, at train time, we have access to two imag 
+Il and ir, correspond to the left and right color imag from 
+a calibr stereo pair, captur at the same moment in time. 
+instead of tri to directli predict the depth, we attempt to 
+find the dens correspond field dr that, when appli to the 
+left image, would enabl u to reconstruct the right image. We 
+will refer to the reconstruct imag il(dr) a ĩr. similarly, we 
+can also estim the left imag give the right one, ĩl=ir(dl). 
+assum that the imag be rectifi [19], d correspond to 
+the imag dispar - a scalar valu per pixel that our model 
+will learn to predict. given the baselin distanc b between the 
+camera and the camera focal length f , we can then trivial 
+recov the depth d̂ from the predict disparity, d̂=bf/d. 
+
+3.2. depth estim network 
+
+At a high level, our network estim depth by infer 
+the dispar that warp the left imag to match the right one. 
+the key insight of our method be that we can simultan 
+infer both dispar (left-to-right and right-to-left), use onli 
+the left input image, and obtain good depth by enforc them 
+to be consist with each other. 
+
+our network gener the predict imag with backward 
+map use a bilinear sampler, result in a fulli differen- 
+tiabl imag format model. As illustr in fig. 3, naı̈v 
+learn to gener the right imag by sampl from the left 
+
+
+
+target 
+
+output 
+
+dispar 
+
+sampler 
+
+cnn 
+
+naïv 
+
+input 
+
+No LR our 
+
+figur 3. sampl strategi for backward mapping. with naı̈v 
+sampl the cnn produc a dispar map align with the target 
+instead of the input. No LR correct for this, but suffer from artifacts. 
+our approach us the left imag to produc dispar for both 
+images, improv qualiti by enforc mutual consistency. 
+
+one will produc dispar align with the right imag (target). 
+however, we want the output dispar map to align with the 
+input left image, mean the network have to sampl from the 
+right image. We could instead train the network to gener the 
+left view by sampl from the right image, thu creat a left 
+view align dispar map (no LR in fig. 3). while thi alon 
+works, the infer dispar exhibit ‘texture-copy’ artifact and 
+error at depth discontinu a see in fig. 5. We solv thi by 
+train the network to predict the dispar map for both view 
+by sampl from the opposit input images. thi still onli 
+requir a singl left imag a input to the convolut layer 
+and the right imag be onli use dure train (our in fig. 3). 
+enforc consist between both dispar map use thi 
+novel left-right consist cost lead to more accur results. 
+
+our fulli convolut architectur be inspir by disp- 
+net [39], but featur sever import modif that 
+enabl u to train without requir ground truth depth. our net- 
+work, be compos of two main part - an encod (from cnv1 to 
+cnv7b) and decod (from upcnv7), pleas see the supplementari 
+materi for a detail description. the decod us skip con- 
+nection [47] from the encoder’ activ blocks, enabl it to 
+resolv high resolut details. We output dispar predict 
+at four differ scale (disp4 to disp1), which doubl in spatial 
+resolut at each of the subsequ scales. even though it onli 
+take a singl imag a input, our network predict two dispar 
+map at each output scale - left-to-right and right-to-left. 
+
+3.3. train loss 
+
+We defin a loss Cs at each output scale s, form the 
+total loss a the sum C= 
+
+∑4 
+s=1cs. our loss modul (fig. 2) 
+
+comput Cs a a combin of three main terms, 
+
+cs=αap(c 
+l 
+ap+c 
+
+r 
+ap)+αds(c 
+
+l 
+ds+c 
+
+r 
+ds)+αlr(c 
+
+l 
+lr+c 
+
+r 
+lr), 
+
+(1) 
+where cap encourag the reconstruct imag to appear 
+similar to the correspond train input, cd enforc 
+
+smooth disparities, and clr prefer the predict left and right 
+dispar to be consistent. each of the main term contain 
+both a left and a right imag variant, but onli the left imag 
+be fed through the convolut layers. 
+
+next, we present each compon of our loss in term of the 
+left imag (e.g.clap). the right imag versions, e.g.c 
+
+r 
+ap, requir 
+
+to swap left for right and to sampl in the opposit direction. 
+
+appear match loss dure training, the network 
+learn to gener an imag by sampl pixel from the 
+opposit stereo image. our imag format model us the 
+imag sampler from the spatial transform network (stn) [27] 
+to sampl the input imag use a dispar map. the stn us 
+bilinear sampl where the output pixel be the weight sum of 
+four input pixels. In contrast to altern approach [16, 53], 
+the bilinear sampler use be local fulli differenti and 
+integr seamlessli into our fulli convolut architecture. 
+thi mean that we do not requir ani simplif or 
+approxim of our cost function. 
+
+inspir by [55], we use a combin of an L1 and 
+singl scale ssim [51] term a our photometr imag 
+reconstruct cost cap, which compar the input imag ilij 
+and it reconstruct ĩlij, wheren be the number of pixels, 
+
+clap= 
+1 
+
+N 
+
+∑ 
+
+i,j 
+
+α 
+1−ssim(ilij,ĩlij) 
+
+2 
++(1−α) 
+
+∥∥∥ilij−ĩlij 
+∥∥∥. (2) 
+
+here, we use a simplifi ssim with a 3×3 block filter instead 
+of a gaussian, and set α=0.85. 
+
+dispar smooth loss We encourag dispar to be 
+local smooth with an L1 penalti on the dispar gradient ∂d. 
+As depth discontinu often occur at imag gradients, similar 
+to [21], we weight thi cost with an edge-awar term use the 
+imag gradient ∂i, 
+
+clds= 
+1 
+
+N 
+
+∑ 
+
+i,j 
+
+∣∣∂xdlij 
+∣∣e−‖∂xilij‖+ 
+
+∣∣∂ydlij 
+∣∣e−‖∂yilij‖. (3) 
+
+left-right dispar consist loss To produc more 
+accur dispar maps, we train our network to predict both 
+the left and right imag disparities, while onli be give 
+the left view a input to the convolut part of the network. 
+To ensur coherence, we introduc an L1 left-right dispar 
+consist penalti a part of our model. thi cost attempt 
+to make the left-view dispar map be equal to the project 
+right-view dispar map, 
+
+cllr= 
+1 
+
+N 
+
+∑ 
+
+i,j 
+
+∣∣∣dlij−drij+dlij 
+∣∣∣. (4) 
+
+like all the other terms, thi cost be mirror for the right-view 
+dispar map and be evalu at all of the output scales. 
+
+
+
+method dataset ab rel Sq rel rmse rmse log d1-all δ<1.25 δ<1.252 δ<1.253 
+
+our with deep3d [53] K 0.412 16.37 13.693 0.512 66.85 0.690 0.833 0.891 
+our with deep3d [53] K 0.151 1.312 6.344 0.239 59.64 0.781 0.931 0.976 
+our No LR K 0.123 1.417 6.315 0.220 30.318 0.841 0.937 0.973 
+our K 0.124 1.388 6.125 0.217 30.272 0.841 0.936 0.975 
+our CS 0.699 10.060 14.445 0.542 94.757 0.053 0.326 0.862 
+our CS + K 0.104 1.070 5.417 0.188 25.523 0.875 0.956 0.983 
+our pp CS + K 0.100 0.934 5.141 0.178 25.077 0.878 0.961 0.986 
+our resnet pp CS + K 0.097 0.896 5.093 0.176 23.811 0.879 0.962 0.986 
+our stereo K 0.068 0.835 4.392 0.146 9.194 0.942 0.978 0.989 
+
+lower be good 
+
+higher be good 
+
+tabl 1. comparison of differ imag format models. result on the kitti 2015 stereo 200 train set dispar imag [17]. for training, 
+K be the kitti dataset [17] and CS be cityscap [8]. our model with left-right consist perform the best, and be further improv with the 
+addit of the cityscap data. the last row show the result of our model train and test with two input imag instead of one (see sec. 4.3). 
+
+At test time, our network predict the dispar at the fine 
+scale level for the left imag dl, which have the same resolut 
+a the input image. use the know camera baselin and focal 
+length from the train set, we then convert from the dispar 
+map to a depth map. while we also estim the right dispar 
+dr dure training, it be not use at test time. 
+
+4. result 
+here we compar the perform of our approach to both 
+
+supervis and unsupervis singl view depth estim 
+methods. We train on rectifi stereo imag pairs, and do 
+not requir ani supervis in the form of ground truth depth. 
+exist singl imag datasets, such a [41, 45], that lack 
+stereo pairs, be not suitabl for evaluation. instead we evalu 
+our approach use the popular kitti 2015 [17] dataset. To 
+evalu our imag format model, we compar to a variant 
+of our algorithm that us the origin deep3d [53] imag 
+format model and a modifi one, deep3ds, with an add 
+smooth constraint. We also evalu our approach with and 
+without the left-right consist constraint. 
+
+4.1. implement detail 
+
+the network which be implement in tensorflow [1] con- 
+tain 31 million trainabl parameters, and take on the order of 
+25 hour to train use a singl titan X gpu on a dataset of 30 
+thousand imag for 50 epochs. infer be fast and take less 
+than 35 ms, or more than 28 frame per second, for a 512×256 
+image, includ transfer time to and from the gpu. pleas 
+see the supplementari materi and our code1 for more details. 
+
+dure optimization, we set the weight of the differ 
+loss compon to αap=1 and αlr=1. the possibl output 
+dispar be constrain to be between 0 and dmax use a 
+scale sigmoid non-linearity, where dmax = 0.3× the imag 
+width at a give output scale. As a result of our multi-scal 
+output, the typic dispar of neighbor pixel will differ 
+by a factor of two between each scale (a we be upsampl 
+the output by a factor of two). To correct for this, we scale the 
+dispar smooth termαd with r for each scale to get equiv- 
+alent smooth at each level. thu αds=0.1/r, where r be the 
+
+1avail at https://github.com/mrharicot/monodepth 
+
+downscal factor of the correspond layer with respect to 
+the resolut of the input imag that be pass into the network. 
+
+for the non-linear in the network, we use exponenti 
+linear unit [7] instead of the commonli use rectifi liner unit 
+(relu) [40]. We found that relu tend to prematur fix 
+the predict dispar at intermedi scale to a singl value, 
+make subsequ improv difficult. follow [42], 
+we replac the usual deconvolut with a near neighbor 
+upsampl follow by a convolutions. We train our model 
+from scratch for 50 epochs, with a batch size of 8 use adam 
+[30], where β1 =0.9, β2 =0.999, and �=10−8. We use an 
+initi learn rate of λ=10−4 which we kept constant for the 
+first 30 epoch befor halv it everi 10 epoch until the end. 
+We initi experi with progress updat schedules, 
+a in [39], where low resolut imag scale be optim 
+first. however, we found that optim all four scale at onc 
+lead to more stabl convergence. similarly, we use an ident 
+weight for the loss of each scale a we found that weight 
+them differ lead to unstabl convergence. We experi 
+with batch normal [26], but found that it do not produc 
+a signific improvement, and ultim exclud it. 
+
+data augment be perform on the fly. We flip the input 
+imag horizont with a 50% chance, take care to also 
+swap both imag so they be in the correct posit rel 
+to each other. We also add color augmentations, with a 
+50% chance, where we perform random gamma, brightness, 
+and color shift by sampl from uniform distribut in 
+the rang [0.8,1.2] for gamma, [0.5,2.0] for brightness, and 
+[0.8,1.2] for each color channel separately. 
+
+resnet50 for the sake of completeness, and similar to [33], 
+we also show a variant of our model use resnet50 [20] a 
+the encoder, the rest of the architecture, paramet and train 
+procedur stay identical. thi variant contain 48 million 
+trainabl paramet and be indic by resnet in result tables. 
+
+post-process In order to reduc the effect of stereo disoc- 
+clusion which creat dispar ramp on both the left side of the 
+imag and of the occluders, a final post-process step be per- 
+form on the output. for an input imag I at test time, we also 
+
+https://github.com/mrharicot/monodepth 
+
+
+input GT eigen et al. [10] liu et al. [36] garg et al. [16] our 
+
+figur 4. qualit result on the kitti eigen split. the ground truth velodyn depth be veri sparse, we interpol it for visual 
+purposes. our method do good at resolv small object such a the pedestrian and poles. 
+
+comput the dispar map d′l for it horizont flip imag 
+i′. By flip back thi dispar map we obtain a dispar 
+map d′′l , which align with dl but where the dispar ramp be 
+locat on the right of occlud a well a on the right side of the 
+image. We combin both dispar map to form the final result 
+by assign the first 5% on the left of the imag use d′′l and 
+the last 5% on the right to the dispar from dl. the central 
+part of the final dispar map be the averag of dl and d′l. thi 
+final post-process step lead to both good accuraci and less 
+visual artifact at the expens of doubl the amount of test time 
+computation. We indic such result use pp in result tables. 
+
+4.2. kitti 
+
+We present result for the kitti dataset [17] use two 
+differ test splits, to enabl comparison to exist works. In it 
+raw form, the dataset contain 42,382 rectifi stereo pair from 
+61 scenes, with a typic imag be 1242×375 pixel in size. 
+
+kitti split first we compar differ variant of our 
+method includ differ imag format model and differ- 
+ent train sets. We evalu on the 200 high qualiti dispar 
+imag provid a part of the offici kitti train set, which 
+cover a total of 28 scenes. the remain 33 scene contain 
+30,159 imag from which we keep 29,000 for train and the 
+rest for evaluation. while these dispar imag be much good 
+qualiti than the reproject velodyn laser depth values, they 
+have cad model insert in place of move cars. these cad 
+model result in ambigu dispar valu on transpar 
+surfac such a car windows, and issu at object boundari 
+where the cad model do not perfectli align with the images. 
+In addition, the maximum depth present in the kitti dataset be 
+on the order of 80 meters, and we cap the maximum predict 
+of all network to thi value. result be comput use the 
+depth metric from [10] along with the d1-all dispar error 
+from kitti [17]. the metric from [10] measur error in both 
+meter from the ground truth and the percentag of depth that 
+be within some threshold from the correct value. It be import 
+to note that measur the error in depth space while the ground 
+truth be give in dispar lead to precis issues. In particular, 
+the non-threshold measur can be sensit to the larg error 
+in depth caus by predict error at small dispar values. 
+
+In tabl 1, we see that in addit to have poor scale prop- 
+
+erti (in term of both resolut and the number of dispar it 
+can represent), when train from scratch with the same network 
+architectur a ours, the deep3d [53] imag format model 
+perform poorly. from fig. 6 we can see that deep3d produc 
+plausibl imag reconstruct but the output dispar be in- 
+ferior to ours. our loss outperform both the deep3d baselin 
+and the addit of the left-right consist check increas per- 
+formanc in all measures. In fig. 5 we illustr some zoom 
+in comparisons, clearli show that the inclus of the left- 
+right check improv the visual qualiti of the results. our result 
+be further improv by first pre-train our model with addi- 
+tional train data from the cityscap dataset [8] contain 
+22,973 train stereo pair captur in variou citi across ger- 
+many. thi dataset bring high resolution, imag quality, and 
+varieti compar to kitti, while have a similar setting. We 
+crop the input imag to onli keep the top 80% of the image, 
+remov the veri reflect car hood from the input. interest- 
+ingly, our model train on cityscap alon do not perform 
+veri well numerically. thi be like due to the differ in 
+camera calibr between the two datasets, but there be a clear 
+advantag to fine-tun on data that be relat to the test set. 
+
+eigen split To be abl to compar to exist work, we also 
+use the test split of 697 imag a propos by [10] which 
+cover a total of 29 scenes. the remain 32 scene contain 
+23,488 imag from which we keep 22,600 for train and the 
+rest for evaluation, similarli to [16]. To gener the ground 
+truth depth images, we reproject the 3D point view from the 
+velodyn laser into the left input color camera. asid from onli 
+produc depth valu for less than 5% of the pixel in the 
+input image, error be also introduc becaus of the rotat 
+
+our nolr our nolr our nolr 
+
+our 
+
+nolr 
+
+figur 5. comparison between our method with and without the left- 
+right consistency. our consist term produc superior result on 
+the object boundaries. both result be show without post-processing. 
+
+
+
+method supervis dataset ab rel Sq rel rmse rmse log δ<1.25 δ<1.252 δ<1.253 
+
+train set mean No K 0.361 4.826 8.102 0.377 0.638 0.804 0.894 
+eigen et al. [10] coars ◦ ye K 0.214 1.605 6.563 0.292 0.673 0.884 0.957 
+eigen et al. [10] fine ◦ ye K 0.203 1.548 6.307 0.282 0.702 0.890 0.958 
+liu et al. [36] dcnf-fcsp FT * ye K 0.201 1.584 6.471 0.273 0.68 0.898 0.967 
+our No LR No K 0.152 1.528 6.098 0.252 0.801 0.922 0.963 
+our No K 0.148 1.344 5.927 0.247 0.803 0.922 0.964 
+our No CS + K 0.124 1.076 5.311 0.219 0.847 0.942 0.973 
+our pp No CS + K 0.118 0.923 5.015 0.210 0.854 0.947 0.976 
+our resnet pp No CS + K 0.114 0.898 4.935 0.206 0.861 0.949 0.976 
+garg et al. [16] l12 aug 8× cap 50m No K 0.169 1.080 5.104 0.273 0.740 0.904 0.962 
+our cap 50m No K 0.140 0.976 4.471 0.232 0.818 0.931 0.969 
+our cap 50m No CS + K 0.117 0.762 3.972 0.206 0.860 0.948 0.976 
+our pp cap 50m No CS + K 0.112 0.680 3.810 0.198 0.866 0.953 0.979 
+our resnet pp cap 50m No CS + K 0.108 0.657 3.729 0.194 0.873 0.954 0.979 
+our pp uncrop No CS + K 0.134 1.261 5.336 0.230 0.835 0.938 0.971 
+our resnet pp uncrop No CS + K 0.130 1.197 5.222 0.226 0.843 0.940 0.971 
+
+lower be good 
+
+higher be good 
+
+tabl 2. result on kitti 2015 [17] use the split of eigen et al. [10]. for training, K be the kitti dataset [17] and CS be cityscap [8]. the 
+predict of liu et al. [36]* be gener on a mix of the left and right imag instead of just the left input images. for a fair comparison, we 
+comput their result rel to the correct image. As in the provid sourc code, eigen et al. [10]◦ result be comput rel to the velodyn 
+instead of the camera. garg et al. [16] result be take directli from their paper. all results, except [10], use the crop from [16]. We also show 
+our result with the same crop and maximum evalu distance. the last two row be comput on the uncrop ground truth. 
+
+In 
+pu 
+
+t 
+
+D 
+ee 
+
+p3 
+D 
+
+D 
+ee 
+
+p3 
+D 
+
+s 
+O 
+
+ur 
+s 
+
+reconstruct error (x2) dispar 
+figur 6. imag reconstruct error on kitti. while all method 
+output plausibl right views, the deep3d imag format model 
+without smooth constraint do not produc valid disparities. 
+
+of the velodyne, the motion of the vehicl and surround 
+objects, and also incorrect depth read due to occlus at 
+object boundaries. To be fair to all methods, we use the same 
+crop a [10] and evalu at the input imag resolution. with the 
+except of garg et al.’ [16] results, the result of the baselin 
+method be recomput by u give the authors’ origin 
+predict to ensur that all the score be directli comparable. 
+thi produc slightli differ number than the previous 
+publish ones, e.g. in the case of [10], their predict be 
+evalu on much small depth imag (1/4 the origin size). 
+for all baselin method we use bilinear interpol to resiz 
+the predict to the correct input imag size. 
+
+tabl 2 show quantit result with some exampl 
+output show in fig. 4. We see that our algorithm outperform 
+all other exist methods, includ those that be train with 
+ground truth depth data. We again see that pre-train on the 
+cityscap dataset improv the result over use kitti alone. 
+
+4.3. stereo 
+
+We also implement a stereo version of our model, see 
+fig. 8, where the network’ input be the concaten of both 
+left and right views. perhap unsurprisingly, the stereo model 
+outperform our monocular network on everi singl metric, 
+especi on the d1-all dispar measure, a can be see 
+in tabl 1. thi model be onli train for 12 epoch a it 
+becom unstabl if train for longer. 
+
+4.4. make3d 
+
+To illustr that our method can gener to other datasets, 
+here we compar to sever fulli supervis method on the 
+make3d test set of [45]. make3d consist of onli rgb/depth 
+pair and no stereo images, thu our method cannot train on thi 
+data. We use our network train onli on the cityscap dataset 
+and despit the dissimilar in the datasets, both in content 
+and camera parameters, we still achiev reason results, 
+even beat [28] on one metric and [37] on three. due to the 
+differ aspect ratio of the make3d dataset we evalu on a 
+central crop of the images. In tabl 3, we compar our output to 
+the similarli crop result of the other methods. As in the case 
+of the kitti dataset, these result would like be improv 
+with more relev train data. A qualit comparison to 
+some of the relat method be show in fig. 7. while our 
+numer result be not a good a the baselines, qualitatively, 
+we compar favor to the supervis competition. 
+
+4.5. gener to other dataset 
+
+finally, we illustr some further exampl of our model 
+gener to other dataset in figur 9. use the model onli 
+train on cityscap [8], we test on the camvid drive 
+dataset [4]. In the accompani video and the supplementari 
+materi we can see that despit the differ in location, 
+imag characteristics, and camera calibration, our model still 
+
+
+
+input GT karsch et al. [28] liu et al. [37] laina et al. [33] our 
+
+figur 7. our method achiev superior qualit result on make3d despit be train on a differ dataset (cityscapes). 
+
+In 
+pu 
+
+tl 
+ef 
+
+t 
+St 
+
+er 
+eo 
+
+M 
+on 
+
+o 
+
+figur 8. our stereo results. while the stereo dispar map contain 
+more detail, our monocular result be comparable. 
+
+method Sq rel ab rel rmse log10 
+train set mean* 15.517 0.893 11.542 0.223 
+karsch et al. [28]* 4.894 0.417 8.172 0.144 
+liu et al. [37]* 6.625 0.462 9.972 0.161 
+laina et al. [33] berhu* 1.665 0.198 5.461 0.082 
+our with deep3d [53] 17.18 1.000 19.11 2.527 
+our 11.990 0.535 11.513 0.156 
+our pp 7.112 0.443 8.860 0.142 
+
+tabl 3. result on the make3d dataset [45]. all method mark 
+with an * be supervis and use ground truth depth data from the 
+make3d train set. use the standard C1 metric, error be onli 
+comput where depth be less than 70 meter in a central imag crop. 
+
+produc visual plausibl depths. We also captur a 60,000 
+frame dataset, at 10 frame per second, take in an urban 
+environ with a wide angl consum 1080p stereo camera. 
+finetun the cityscap pre-train model on thi dataset 
+produc visual convinc depth imag for a test set that 
+be captur with the same camera on a differ day, pleas 
+see the video in the supplementari materi for more results. 
+
+figur 9. qualit result on cityscapes, camvid, and our own 
+urban dataset captur on foot. for more result pleas see our video. 
+
+4.6. limit 
+
+even though both our left-right consist check and post- 
+process improv the qualiti of the results, there be still some 
+artifact visibl at occlus boundari due to the pixel in the 
+occlus region not be visibl in both images. explicitli rea- 
+sone about occlus dure train [23, 25] could improv 
+these issues. It be worth note that depend how larg the base- 
+line between the camera and the depth sensor, fulli supervis 
+approach also do not alway have valid depth for all pixels. 
+
+our method requir rectifi and tempor align 
+stereo pair dure training, which mean that it be current 
+not possibl to use exist single-view dataset for train 
+purpos e.g. [41]. however, it be possibl to fine-tun our 
+model on applic specif ground truth depth data. 
+
+finally, our method mainli reli on the imag reconstruc- 
+tion term, mean that specular [18] and transpar surfac 
+will produc inconsist depths. thi could be improv with 
+more sophist similar measur [54]. 
+
+5. conclus 
+We have present an unsupervis deep neural network for 
+
+singl imag depth estimation. instead of use align ground 
+truth depth data, which be both rare and costly, we exploit the 
+eas with which binocular stereo data can be captured. our 
+novel loss function enforc consist between the predict 
+depth map from each camera view dure training, improv 
+predictions. our result be superior to fulli supervis 
+baselines, which be encourag for futur research that do 
+not requir expens to captur ground truth depth. We have 
+also show that our model can gener to unseen dataset 
+and still produc visual plausibl depth maps. 
+
+In futur work, we would like to extend our model to 
+videos. while our current depth estim be perform 
+independ per frame, add tempor consist [28] 
+would like improv results. It would also be interest to 
+investig spars input a an altern train signal [58, 6]. 
+finally, while our model estim per pixel depth, it would be 
+interest to also predict the full occup of the scene [11]. 
+
+acknowledg We would like to thank david eigen, ravi garg, 
+iro laina and fayao liu for provid data and code to recreat the 
+baselin algorithms. We also thank stephan garbin for hi lua skill and 
+peter hedman for hi latex magic. We be grate for epsrc fund 
+for the engd centr ep/g037159/1, and for project ep/k015664/1 
+and ep/k023578/1. 
+
+
+
+refer 
+[1] M. abadi, A. agarwal, P. barham, E. brevdo, Z. chen, C. citro, 
+
+G. S. corrado, A. davis, J. dean, M. devin, et al. tensorflow: 
+large-scal machin learn on heterogen distribut 
+systems. arxiv preprint arxiv:1603.04467, 2016. 5 
+
+[2] A. abrams, C. hawley, and R. pless. heliometr stereo: shape 
+from sun position. In eccv, 2012. 2 
+
+[3] J. T. barron, A. adams, Y. shih, and C. hernández. fast 
+bilateral-spac stereo for synthet defocus. cvpr, 2015. 1 
+
+[4] G. J. brostow, J. fauqueur, and R. cipolla. semant object 
+class in video: A high-definit ground truth database. pattern 
+recognit letters, 2009. 7 
+
+[5] Y. cao, Z. wu, and C. shen. estim depth from monocular 
+imag a classif use deep fulli convolut residu 
+networks. arxiv preprint arxiv:1605.02305, 2016. 2 
+
+[6] W. chen, Z. fu, D. yang, and J. deng. single-imag depth 
+percept in the wild. In nips, 2016. 8 
+
+[7] d.-a. clevert, T. unterthiner, and S. hochreiter. fast and 
+accur deep network learn by exponenti linear unit (elus). 
+arxiv preprint arxiv:1511.07289, 2015. 5 
+
+[8] M. cordts, M. omran, S. ramos, T. rehfeld, M. enzweiler, R. be- 
+nenson, U. franke, S. roth, and B. schiele. the cityscap dataset 
+for semant urban scene understanding. In cvpr, 2016. 5, 6, 7 
+
+[9] D. eigen and R. fergus. predict depth, surfac normal 
+and semant label with a common multi-scal convolut 
+architecture. In iccv, 2015. 2 
+
+[10] D. eigen, C. puhrsch, and R. fergus. depth map predict from 
+a singl imag use a multi-scal deep network. In nips, 2014. 
+1, 2, 6, 7 
+
+[11] M. firman, O. mac aodha, S. julier, and G. J. brostow. 
+structur predict of unobserv voxel from a singl depth 
+image. In cvpr, 2016. 8 
+
+[12] P. fischer, A. dosovitskiy, E. ilg, P. häusser, C. hazırbaş, 
+V. golkov, P. van der smagt, D. cremers, and T. brox. flownet: 
+learn optic flow with convolut networks. In iccv, 
+2015. 2 
+
+[13] J. flynn, I. neulander, J. philbin, and N. snavely. deepstereo: 
+learn to predict new view from the world’ imagery. In 
+cvpr, 2016. 2 
+
+[14] Y. furukawa and C. hernández. multi-view stereo: A tutorial. 
+foundat and trend in comput graphic and vision, 2015. 
+2 
+
+[15] A. gaidon, Q. wang, Y. cabon, and E. vig. virtual world a 
+proxi for multi-object track analysis. In cvpr, 2016. 2 
+
+[16] R. garg, V. kumar bg, and I. reid. unsupervis cnn for 
+singl view depth estimation: geometri to the rescue. In eccv, 
+2016. 1, 3, 4, 6, 7 
+
+[17] A. geiger, P. lenz, and R. urtasun. are we readi for autonom 
+driving? the kitti vision benchmark suite. In cvpr, 2012. 5, 6, 7 
+
+[18] C. godard, P. hedman, W. li, and G. J. brostow. multi-view 
+reconstruct of highli specular surfac in uncontrol 
+environments. In 3dv, 2015. 8 
+
+[19] R. hartley and A. zisserman. multipl view geometri in 
+comput vision. cambridg univers press, 2003. 3 
+
+[20] K. he, X. zhang, S. ren, and J. sun. deep residu learn for 
+imag recognition. In cvpr, 2016. 5 
+
+[21] P. heise, S. klose, B. jensen, and A. knoll. pm-huber: 
+patchmatch with huber regular for stereo matching. In 
+iccv, 2013. 4 
+
+[22] D. hoiem, A. A. efros, and M. hebert. automat photo pop-up. 
+tog, 2005. 2 
+
+[23] D. hoiem, A. N. stein, A. A. efros, and M. hebert. recov 
+occlus boundari from a singl image. In iccv, 2007. 8 
+
+[24] I. P. howard. perceiv in depth, volum 1: basic mechanisms. 
+oxford univers press, 2012. 1 
+
+[25] A. humayun, O. mac aodha, and G. J. brostow. learn to 
+find occlus regions. In cvpr, 2011. 8 
+
+[26] S. ioff and C. szegedy. batch normalization: acceler 
+deep network train by reduc intern covari shift. arxiv 
+preprint arxiv:1502.03167, 2015. 5 
+
+[27] M. jaderberg, K. simonyan, A. zisserman, and K. kavukcuoglu. 
+spatial transform networks. In nips, 2015. 3, 4 
+
+[28] K. karsch, C. liu, and S. B. kang. depth transfer: depth 
+extract from video use non-parametr sampling. pami, 
+2014. 2, 7, 8 
+
+[29] K. karsch, K. sunkavalli, S. hadap, N. carr, H. jin, R. fonte, 
+M. sittig, and D. forsyth. automat scene infer for 3d 
+object compositing. tog, 2014. 1 
+
+[30] D. kingma and J. ba. adam: A method for stochast 
+optimization. arxiv preprint arxiv:1412.6980, 2014. 5 
+
+[31] L. ladickỳ, C. häne, and M. pollefeys. learn the match 
+function. arxiv preprint arxiv:1502.00652, 2015. 2 
+
+[32] L. ladickỳ, J. shi, and M. pollefeys. pull thing out of 
+perspective. In cvpr, 2014. 1, 2 
+
+[33] I. laina, C. rupprecht, V. belagiannis, F. tombari, and N. navab. 
+deeper depth predict with fulli convolut residu 
+networks. In 3dv, 2016. 2, 5, 8 
+
+[34] I. lenz, H. lee, and A. saxena. deep learn for detect 
+robot grasps. the intern journal of robot research, 
+2015. 1 
+
+[35] B. li, C. shen, Y. dai, A. van den hengel, and M. he. depth and 
+surfac normal estim from monocular imag use regres- 
+sion on deep featur and hierarch crfs. In cvpr, 2015. 2 
+
+[36] F. liu, C. shen, G. lin, and I. reid. learn depth from singl 
+monocular imag use deep convolut neural fields. pami, 
+2015. 1, 2, 6, 7 
+
+[37] M. liu, M. salzmann, and X. he. discrete-continu depth 
+estim from a singl image. In cvpr, 2014. 7, 8 
+
+[38] W. luo, A. schwing, and R. urtasun. effici deep learn 
+for stereo matching. In cvpr, 2016. 2 
+
+[39] N. mayer, E. ilg, P. häusser, P. fischer, D. cremers, A. dosovit- 
+skiy, and T. brox. A larg dataset to train convolut network 
+for disparity, optic flow, and scene flow estimation. In cvpr, 
+2016. 2, 3, 4, 5 
+
+[40] V. nair and G. E. hinton. rectifi linear unit improv restrict 
+boltzmann machines. In icml, 2010. 5 
+
+[41] P. K. nathan silberman, derek hoiem and R. fergus. indoor 
+segment and support infer from rgbd images. In eccv, 
+2012. 5, 8 
+
+[42] A. odena, V. dumoulin, and C. olah. deconvolut and 
+checkerboard artifacts. distill, 2016. 5 
+
+
+
+[43] V. patraucean, A. handa, and R. cipolla. spatio-tempor 
+video autoencod with differenti memory. arxiv preprint 
+arxiv:1511.06309, 2015. 3 
+
+[44] R. ranftl, V. vineet, Q. chen, and V. koltun. dens monocular 
+depth estim in complex dynam scenes. In cvpr, 2016. 2 
+
+[45] A. saxena, M. sun, and A. Y. ng. make3d: learn 3d scene 
+structur from a singl still image. pami, 2009. 2, 5, 7, 8 
+
+[46] D. scharstein and R. szeliski. A taxonomi and evalu of 
+dens two-fram stereo correspond algorithms. ijcv, 2002. 
+2 
+
+[47] E. shelhamer, J. long, and T. darrell. fulli convolut 
+network for semant segmentation. pami, 2016. 2, 4 
+
+[48] J. shotton, T. sharp, A. kipman, A. fitzgibbon, M. finocchio, 
+A. blake, M. cook, and R. moore. real-tim human pose 
+recognit in part from singl depth images. commun 
+of the acm, 2013. 1 
+
+[49] D. stoyanov, M. V. scarzanella, P. pratt, and g.-z. yang. 
+real-tim stereo reconstruct in robot assist minim 
+invas surgery. In miccai, 2010. 1 
+
+[50] X. wang, D. fouhey, and A. gupta. design deep network 
+for surfac normal estimation. In cvpr, 2015. 2 
+
+[51] Z. wang, A. C. bovik, H. R. sheikh, and E. P. simoncelli. imag 
+qualiti assessment: from error visibl to structur similarity. 
+transact on imag processing, 2004. 4 
+
+[52] R. J. woodham. photometr method for determin surfac 
+orient from multipl images. optic engineering, 1980. 2 
+
+[53] J. xie, R. girshick, and A. farhadi. deep3d: fulli automat 
+2d-to-3d video convers with deep convolut neural 
+networks. In eccv, 2016. 1, 2, 3, 4, 5, 6, 8 
+
+[54] J. žbontar and Y. lecun. stereo match by train a 
+convolut neural network to compar imag patches. jmlr, 
+2016. 2, 3, 8 
+
+[55] H. zhao, O. gallo, I. frosio, and J. kautz. Is l2 a good loss 
+function for neural network for imag processing? arxiv 
+preprint arxiv:1511.08861, 2015. 4 
+
+[56] T. zhou, P. krähenbühl, M. aubry, Q. huang, and A. A. efros. 
+learn dens correspond via 3d-guid cycl consistency. 
+cvpr, 2016. 3 
+
+[57] T. zhou, S. tulsiani, W. sun, J. malik, and A. A. efros. view 
+synthesi by appear flow. In eccv, 2016. 3 
+
+[58] D. zoran, P. isola, D. krishnan, and W. T. freeman. learn 
+ordin relationship for mid-level vision. In iccv, 2015. 8 
+
+
+
+unsupervis monocular depth estim with left-right consist 
+
+supplementari materi 
+
+1. model architectur 
+
+“encoder” 
+layer k s chn in out input 
+conv1 7 2 3/32 1 2 left 
+conv1b 7 1 32/32 2 2 conv1 
+conv2 5 2 32/64 2 4 conv1b 
+conv2b 5 1 64/64 4 4 conv2 
+conv3 3 2 64/128 4 8 conv2b 
+conv3b 3 1 128/128 8 8 conv3 
+conv4 3 2 128/256 8 16 conv3b 
+conv4b 3 1 256/256 16 16 conv4 
+conv5 3 2 256/512 16 32 conv4b 
+conv5b 3 1 512/512 32 32 conv5 
+conv6 3 2 512/512 32 64 conv5b 
+conv6b 3 1 512/512 64 64 conv6 
+conv7 3 2 512/512 64 128 conv6b 
+conv7b 3 1 512/512 128 128 conv7 
+
+“decoder” 
+layer k s chn in out input 
+upconv7 3 2 512/512 128 64 conv7b 
+iconv7 3 1 1024/512 64 64 upconv7+conv6b 
+upconv6 3 2 512/512 64 32 iconv7 
+iconv6 3 1 1024/512 32 32 upconv6+conv5b 
+upconv5 3 2 512/256 32 16 iconv6 
+iconv5 3 1 512/256 16 16 upconv5+conv4b 
+upconv4 3 2 256/128 16 8 iconv5 
+iconv4 3 1 128/128 8 8 upconv4+conv3b 
+disp4 3 1 128/2 8 8 iconv4 
+upconv3 3 2 128/64 8 4 iconv4 
+iconv3 3 1 130/64 4 4 upconv3+conv2b+disp4* 
+disp3 3 1 64/2 4 4 iconv3 
+upconv2 3 2 64/32 4 2 iconv3 
+iconv2 3 1 66/32 2 2 upconv2+conv1b+disp3* 
+disp2 3 1 32/2 2 2 iconv2 
+upconv1 3 2 32/16 2 1 iconv2 
+iconv1 3 1 18/16 1 1 upconv1+disp2* 
+disp1 3 1 16/2 1 1 iconv1 
+
+tabl 1: our network architecture, where k be the kernel size, s the stride, chn the number of input and output channel for each 
+layer, input and output be the downscal factor for each layer rel to the input image, and input correspond to the input of 
+each layer where + be a concaten and ∗ be a 2× upsampl of the layer. 
+
+2. post-process 
+the post-process dispar map correspond to the per-pixel weight sum of two components: dl the dispar of the input 
+
+image, d′′l the flip dispar of the flip input image. 
+We defin the per-pixel weight map wl for dl a 
+
+wl(i,j)= 
+
+ 
+ 
+ 
+
+1 if j≤0.1 
+0.5 if j>0.2 
+5∗(0.2−i)+0.5 else, 
+
+where i,j be normal pixel coordinates, and the weight map w′l for d′′l be obtain by horizont flip wl. 
+the final dispar be calcul as, 
+
+d=dlwl+d′′lw′l. 
+
+1 
+
+
+
+figur 1: exampl of a post-process dispar map. from left to right: the dispar dl, d′′l, d, and the weight map wl. 
+
+3. deep3d smooth loss 
+In the main paper we also compar to our enhanc version of the deep3d [1] imag format model that includ smooth 
+
+constraint on the disparities. deep3d output an intens imag a a weight sum of offset copi of the input image. the weight 
+wi, see in fig. 2a, can be see a a discret probabl distribut over the dispar for each pixel, a they sum to one. thus, 
+smooth constraint cannot be appli directli onto these distributions. however, we see (in fig. 2c) that if the probabl mass 
+be concentr into one disparity, i.e. max(w)≈1, then the sum of the cumul sum of the weight be equal to the posit of 
+the maximum. To encourag the network to concentr probabl at singl disparities, we add a cost, 
+
+cmax= 
+1 
+
+N 
+‖max(wi)−1‖2, (1) 
+
+and it associ weight αmax=0.02. assum the maximum of each distribut be one, such a in fig. 2b, mean the network 
+onli pick one dispar per pixel, we can see that the (sum of the) cumul sum cs(wi) of the distribut (fig. 2c) directli relat 
+to the locat of the maximum disparity: 
+
+d=argmax 
+i 
+
+(wi)=n− 
+n∑ 
+
+i 
+
+cs(wi), (2) 
+
+where n be the maximum number of disparities. 
+In the exampl present in fig. 2, we can see that the maximum be locat at dispar 3, and that equat 2 give u d=8−6=3. 
+We use thi observ to build our smooth constraint for the deep3d imag format model. 
+We can then directli appli smooth constraint on the gradient of the cumul sum of the weight at each pixel, so 
+
+cds= 
+1 
+
+N 
+
+∑ 
+
+i,j 
+
+|∂xcs(w)ij|+|∂ycs(w)ij|, (3) 
+
+and it associ weight αds=0.1. 
+
+1 0 1 2 3 4 5 6 7 8 
+dispar 
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+pr 
+ob 
+
+ab 
+ili 
+
+ty 
+
+(a) probabl over dispar 
+
+1 0 1 2 3 4 5 6 7 8 
+dispar 
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+pr 
+ob 
+
+ab 
+ili 
+
+ty 
+
+(b) probabl over dispar 
+
+1 0 1 2 3 4 5 6 7 8 
+dispar 
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+pr 
+ob 
+
+ab 
+ili 
+
+ty 
+
+(c) cumul sum of fig. 2b 
+
+figur 2: deep3d per-pixel dispar probabilities. 
+
+4. more kitti qualit result 
+In fig. 3 we show some addit qualit comparison for the kitti dataset use the eigen split. 
+
+
+
+In 
+pu 
+
+t 
+G 
+
+T 
+Ei 
+
+ge 
+n 
+
+et 
+al 
+
+. 
+Li 
+
+u 
+et 
+
+al 
+. 
+
+G 
+ar 
+
+g 
+et 
+
+al 
+. 
+
+O 
+ur 
+
+s 
+In 
+
+pu 
+t 
+
+G 
+T 
+
+Ei 
+ge 
+
+n 
+et 
+
+al 
+. 
+
+Li 
+u 
+
+et 
+al 
+
+. 
+G 
+
+ar 
+g 
+
+et 
+al 
+
+. 
+O 
+
+ur 
+s 
+
+figur 3: addit qualit result on the kitti eigen split. As ground truth velodyn depth be veri sparse, we interpol 
+it for visual purposes. 
+
+5. dispar error map 
+As we train our model with color augmentations, we can appli the same principl at test time and analyz the distribut of 
+
+the results. We appli 50 random augment to each test imag and show the standard deviat of the dispar per pixel 
+(see figur 4). We can see that the network get confus with close-bi objects, texture-less regions, and occlus boundaries. 
+interestingly, one test imag be captur in a tunnel, result in a veri dark image. our network clearli show high uncertainti 
+for thi sampl a it be veri differ from the rest of the train set. 
+
+refer 
+[1] J. xie, R. girshick, and A. farhadi. deep3d: fulli automat 2d-to-3d video convers with deep convolut neural networks. In eccv, 
+
+2016. 2 
+
+
+
+In 
+pu 
+
+t 
+D 
+
+be 
+pa 
+
+rit 
+y 
+
+σ 
+
+figur 4: uncertainti of our model on the kitti dataset. from top to bottom: input image, predict disparity, and standard 
+deviat of multipl differ augmentations. We can see that there be uncertainti in low textur region and at occlus boundaries. 
+
+

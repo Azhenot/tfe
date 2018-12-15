@@ -1,0 +1,1667 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+kernel-predict convolut network for denois 
+mont carlo render 
+
+steve bako∗, univers of california, santa barbara 
+thij vogels∗, eth zürich & disney research 
+brian mcwilliams, disney research 
+mark meyer, pixar anim studio 
+jan novák, disney research 
+alex harvill, pixar anim studio 
+pradeep sen, univers of california, santa barbara 
+toni derose, pixar anim studio 
+fabric rousselle, disney research 
+
+noisi (32 spp)noisi (32 spp) 
+
+refer (1024 spp)refer (1024 spp) 
+
+train 
+
+noisi (32 spp)noisi (32 spp) 
+
+denois (32 spp)denois (32 spp) 
+
+test 
+
+fig. 1. We introduc a deep learn approach for denois mont carlo-rend imag that produc high-qual result suitabl for production. We 
+train a convolut neural network to learn the complex relationship between noisi and refer data across a larg set of frame with vari distribut 
+e�ect from the film find dori (le�). the train network can then be appli to denois new imag from other film with significantli di�er style and 
+content, such a car 3 (right), with production-qu results. 
+
+regression-bas algorithm have show to be good at denois mont 
+carlo (mc) render by leverag it inexpens by-product (e.g., fea- 
+ture bu�ers). however, when use higher-ord model to handl complex 
+cases, these techniqu often over�t to nois in the input. for thi reason, 
+supervis learn method have be propos that train on a larg col- 
+lection of refer examples, but they use explicit �lter that limit their 
+denois ability. To address these problems, we propos a novel, supervis 
+learn approach that allow the �ltere kernel to be more complex and 
+gener by leverag a deep convolut neural network (cnn) architec- 
+ture. In one embodi of our framework, the cnn directli predict the 
+�nal denois pixel valu a a highli non-linear combin of the input 
+features. In a second approach, we introduc a novel, kernel-predict net- 
+work which us the cnn to estim the local weight kernel use to 
+comput each denois pixel from it neighbors. We train and evalu our 
+
+∗joint �rst author 
+
+© 2017 copyright held by the owner/author(s). thi be the author’ version of the 
+work. It be post here for your person use. not for redistribution. the de�nit 
+version of record be publish in acm transact on graphics, https://doi.org/http: 
+//dx.doi.org/10.1145/3072959.3073708. 
+
+network on product data and observ improv over state-of-the- 
+art MC denoisers, show that our method gener well to a varieti of 
+scenes. We conclud by analyz variou compon of our architectur 
+and identifi area of further research in deep learn for MC denoising. 
+
+cc concepts: • comput methodolog → comput graphics; 
+rendering; ray tracing; 
+
+addit key word and phrases: mont carlo rendering, mont carlo 
+denoising, global illumin 
+
+acm refer format: 
+steve bako, thij vogels, brian mcwilliams, mark meyer, jan novák, alex 
+harvill, pradeep sen, toni derose, and fabric rousselle. 2017. kernel- 
+predict convolut network for denois mont carlo renderings. 
+acm trans. graph. 36, 4, articl 97 (juli 2017), 14 pages. 
+doi: http://dx.doi.org/10.1145/3072959.3073708 
+
+1 introduct 
+In recent years, physically-bas imag synthesi have becom wide- 
+spread in featur anim and visual e�ect [keller et al. 2015]. 
+
+acm transact on graphics, vol. 36, no. 4, articl 97. public date: juli 2017. 
+
+
+
+97:2 • bako, S. et al. 
+
+fuel by the desir to produc photorealist imagery, mani produc- 
+tion studio have switch their render algorithm from reyes- 
+style micropolygon architectur [cook et al. 1987] to physically- 
+base mont carlo (mc) path trace [kajiya 1986]. while MC 
+render algorithm can satisfi strict qualiti requirements, they 
+do so at an immens comput cost and with converg char- 
+acterist that requir long render time for noise-fre images, 
+especi for scene with complex light transport. 
+
+fortunately, recent postprocess, image-space, gener MC denois- 
+ing algorithm have demonstr it be possibl to achiev high- 
+qualiti result at consider reduc sampl rate (see zwicker 
+et al. [2015] and sen et al. [2015] for an overview), and commerci 
+render be now incorpor these techniques. for example, 
+chao group’ vray renderer, the corona renderer, and pixar’ 
+renderman now ship with integr denoisers. moreover, mani 
+product hous be develop their own intern solut [god- 
+dard 2014] or use third-parti tool (e.g., the altu denoiser). 
+
+although a wide varieti of image-spac MC denois approach 
+have be proposed, most state-of-the-art techniqu use a regres- 
+sion framework [moon et al. 2014; bitterli et al. 2016]. improv 
+have be achiev thank to more robust distanc metrics, high 
+order regress models, and divers auxiliari bu�er tailor to 
+speci�c light transport components. these advances, however, have 
+come at the cost of ever-increas complexity, while o�er pro- 
+gressiv diminish returns. thi be partial becaus higher- 
+order regress model be prone to over�t to the noisi input. 
+
+To circumv the noise-�t problem, kalantari et al. [2015] 
+recent propos an MC denois base on supervis learn that 
+be train with a set of exampl of noisi input and the correspond- 
+ing refer outputs. however, thi approach use a rel 
+simpl multi-lay perceptron (mlp) for the learn model and 
+be train on a small number of scenes. more importantly, their 
+approach hardcod the �lter to either be a joint bilater or joint 
+non-loc means, which limit the �exibl of their system. 
+
+To address these shortcomings, in thi paper we propos a novel, 
+supervis learn framework that allow for more complex and 
+gener �ltere kernel by leverag deep convolut neural 
+network (cnns). the ever-increas amount of product data 
+o�er the larg and divers dataset requir for train a deep cnn 
+to learn the complex map between a larg collect of noisi 
+input and correspond references. the advantag be that cnn 
+be abl to learn powerful, non-linear model for such a map by 
+leverag inform from the entir set of train images, not 
+just a singl input a in mani of the previou approaches. moreover, 
+onc trained, cnn be fast to evalu and do not requir manual 
+tune or paramet tweaking. finally, such a system can more 
+robustli cope with noisi render to gener high-qual result 
+on a varieti of MC e�ect without over�tting. 
+
+although our approach could be use for other applic of 
+physically-bas imag synthesis, in thi work we focu on high- 
+qualiti denois of static imag for product environments. 
+speci�cally, our contribut be a follows: 
+
+• our main contribut be the �rst deep learn solut for 
+denois MC render which be train and evalu 
+on actual product data. our architectur perform on par 
+or good than exist state-of-the-art denois methods. 
+
+• inspir by the standard approach of estim a pixel 
+valu a a weight averag of it noisi neighborhood, we 
+propos a novel kernel-predict cnn architectur that 
+comput the local optim neighborhood weights. thi 
+provid regular for a good train converg 
+rate and facilit use in product environments. 
+
+• finally, we explor and analyz the variou process and 
+design decis of our system, includ our two-network 
+framework for denois di�us and specular compon 
+of the imag separately, and a simpl normal proce- 
+dure that signi�cantli improv our approach (a well a 
+previou methods) for imag with high dynam range. 
+
+2 previou work 
+both MC denois and deep learn have be the focu of ex- 
+tensiv research, the scope of which be too larg to be cover in 
+thi paper. therefore, for MC denoising, we will restrict ourselv 
+to the most directli relat of the a posteriori methods, which treat 
+the render a a black box. for a more complet overview, we refer 
+reader to the review by zwicker et al. [2015]. for deep learning, we 
+will focu on convolut neural network [lecun et al. 2015]. 
+
+2.1 image-spac gener mont carlo denois 
+We begin by discuss image-spac denois method that �lter 
+the nois from gener distribut mont carlo e�ect (e.g., depth of 
+�eld, motion blur, glossi re�ections, and global illumination). the 
+most success state-of-the-art method build on the idea of use 
+gener non-linear image-spac �lter [rushmeier and ward 1994] 
+and auxiliari featur bu�er a a guid to improv the robust of 
+the �ltere process [mccool 1999]. A key develop introduc 
+by sen and darabi [2012] be to leverag noisi auxiliari bu�er 
+in a joint bilater �ltere scheme, where the bandwidth of the 
+variou auxiliari featur be deriv from the sampl statistics. 
+Li et al. [2012] late propos to estim the �lter error with the 
+sure metric [stein 1981] to set the �lter bandwidths, while moon 
+et al. [2014] use asymptot bia analysi to do so. In our system, 
+the train procedur implicitli learn the appropri weight 
+of the variou auxiliari bu�ers. 
+
+A particularli success applic of these idea be to use 
+the non-loc mean �lter of buad et al. [2005] in a joint �ltere 
+scheme [roussel et al. 2013; moon et al. 2013; zimmer et al. 2015]. 
+the endur appeal of the non-loc mean �lter for denois MC 
+render be larg due to it versatility. indeed, more power 
+image-spac �lters, such a bm3d [dabov et al. 2006], have see 
+less use for MC denois with some notabl except [kalantari 
+and sen 2013]. thi be due to the fact that they have not yet be 
+success extend to leverag auxiliari bu�ers, a key compon 
+of current state-of-the-art methods. In our work, we propos to use 
+machin learn instead of a �xed �lter, which not onli have be 
+show to perform on par with state-of-the-art imag �lter [burger 
+et al. 2012], but also allow u to feed our network with auxiliari 
+bu�er and leverag the robust they provide. 
+
+recently, it be show that joint �ltere methods, such a those 
+cite above, can be interpret a linear regress use a zero- 
+order model, and that, more generally, most state-of-the-art MC 
+denois techniqu be base on a linear regress use a zero- 
+
+acm transact on graphics, vol. 36, no. 4, articl 97. public date: juli 2017. 
+
+
+
+kernel-predict convolut network for denois mont carlo render • 97:3 
+
+or �rst-order model [moon et al. 2014; bitterli et al. 2016]. method 
+leverag a �rst-order model have prove to be veri use for MC 
+denois [bauszat et al. 2011; moon et al. 2014; bitterli et al. 2016], 
+and while higher-ord model have also be explor [moon 
+et al. 2016], it must be do care to prevent over�t to the 
+input noise. In contrast, the deep cnn use in our system can o�er 
+power non-linear mappings, without over�tting, by learn the 
+complex relationship between noisi and refer data across a 
+larg train set. 
+
+recently, kalantari et al. [2015] propos a learning-bas �lter- 
+ing approach, which be close relat to our own work. however, 
+their network us a �xed �lter a a back-end, and therefor inherit 
+it limitations. In contrast, we propos a solut that implicitli 
+learn the �lter itself and therefor produc good results. 
+
+finally, there be concurr work by chakravarti et al. [2017] 
+that also appli deep learn to denois mont carlo renderings, 
+but it target di�er applic than our focu more on 
+interact render with low sampl count instead of high-end, 
+production-qu renderings. To facilit comparison between 
+the two approaches, we both compar to a previou baselin method 
+in our respect paper (see sec. 6). 
+
+2.2 convolut neural network 
+In recent years, convolut neural network (cnns) have emerg 
+a a ubiquit model in machin learning, achiev state-of-the- 
+art perform in a divers rang of task such a imag classi�- 
+cation [he et al. 2016], speech process [oord et al. 2016], and 
+mani others. cnn have also be use a great deal for a varieti 
+of low-level, image-process tasks. In particular, sever work 
+have consid the problem of natur imag denois [xie et al. 
+2012; zhang et al. 2016; gharbi et al. 2016] and the highli relat 
+problem of imag super-resolut [yang et al. 2016]. 
+
+however, a naïv applic of a convolut network to MC 
+denois expos a wide rang of issu that be handl in our 
+framework. first, train a network to comput a denois color 
+from onli a raw, noisi color bu�er caus overblur sinc the 
+network cannot distinguish between scene nois and scene detail. 
+moreover, sinc the render imag have high dynam range, di- 
+rect train can caus unstabl weight (e.g., extrem larg or 
+small values) that caus bright ring and color artifact in the 
+�nal image. By preprocess our featur a well a exploit 
+the di�use/specular decomposition, we be abl to preserv impor- 
+tant detail while denois the image. furthermore, we introduc 
+the novel kernel predict architectur (sec. 4.1) to keep train 
+tractable/stable. In sec. 7, we motiv and explor how these design 
+decis a�ect the perform of our system. 
+
+3 theoret background 
+befor introduc our propos denois framework, we �rst 
+de�n our notat and present the interpret of denois a 
+a supervis learn problem. To begin, the sampl output by a 
+typic MC render can be averag down into a vector of per-pixel 
+data, xp = {cp , fp }, where xp ∈ r3+d . here, cp repres the rgb 
+color channel and fp be a set of D auxiliari featur (e.g., surfac 
+normals, depth, albedo, and their correspond variances). 
+
+the goal of MC denois be to obtain a �ltere estim ĉp that 
+be a close a possibl to a ground truth result cp that would be 
+obtain a the number of sampl go to in�nity. thi estim be 
+usual comput by oper on a block Xp of per-pixel vector 
+around the neighborhood N (p) to produc the �ltere output at 
+pixel p. given a denois function д(xp ;θ ) with paramet θ , the 
+ideal denois paramet at everi pixel can be write as: 
+
+θ̂p = argmin 
+θ 
+`(cp ,д(xp ;θ )), (1) 
+
+where the denois valu be ĉp = д(xp ; θ̂p ) and `(c, ĉ) be a loss 
+function between the ground truth value, c, and the denois value. 
+
+clearly, optim eq. 1 be imposs sinc ground truth valu c 
+be not avail at run time. instead, most MC denois algorithm 
+estim the denois color at a pixel by replac д(xp ;θ ) with 
+θ>ϕ (xq ), where function ϕ : r3+d → RM be a (possibl non-linear) 
+featur transform with paramet θ . they then solv the 
+follow weight least-squar regress on the color values, cq , 
+around the neighborhood, q ∈ N (p): 
+
+θ̂p = argmin 
+θ 
+
+∑ 
+q∈n (p ) 
+
+( 
+cq − θ>ϕ (xq ) 
+
+)2 
+ω (xp , xq ), (2) 
+
+where the �nal denois pixel valu be comput a ĉp = θ̂ 
+> 
+p ϕ (xp ). 
+
+In thi case, the regress kernel ω (xp , xq ) help to ignor valu 
+that be corrupt by noise, e.g., by chang the featur bandwidth 
+in a joint bilater �lter [sen and darabi 2012]. note that ω could 
+potenti also oper on patches, rather than singl pixels, a in 
+the case of a joint non-loc mean �lter. 
+
+As observ previous [moon et al. 2014; bitterli et al. 2016], 
+some of the previou method can be classi� a zero-ord meth- 
+od with ϕ0 (xq ) = 1 [sen and darabi 2012; roussel et al. 2013], 
+�rst-order method with ϕ1 (xq ) = [1; xq ] [moon et al. 2014], or 
+higher-ord method [moon et al. 2016] where ϕm (xq ) enumer- 
+ate all the polynomi term of xq up to degre m (see bitterli et 
+al. [2016] for a detail discussion). 
+
+with thi formul in mind, the limit of these individu 
+approach can be understood in term of bias-vari tradeo� 
+[friedman et al. 2001]. zero-ord method be equival to us- 
+ing an explicit function such a a joint bilater [li et al. 2012] or 
+non-loc mean �lter [roussel et al. 2012]. these repres a 
+restrict class of function that trade reduct in varianc for a 
+high model bias. although a well-chosen weight kernel, ω, 
+can yield good perform [roussel et al. 2013; kalantari et al. 
+2015], such approach be fundament limit by their explicit 
+�lters. In thi work, we seek to remov thi limit by make 
+the �lter kernel more �exibl and powerful. 
+
+furthermore, use a �rst- or higher-ord regress increas 
+the complex of the function, but be prone to over�t a θ̂p be 
+estim local use onli a singl imag and can easili �t to the 
+noise. To address thi problem, kalantari et al. [2015] propos to 
+take a supervis learn approach to estim д use a dataset D 
+of N exampl pair of noisi imag patch and their correspond 
+refer color information, D = {(x1, c1), . . . , (xn , cN )}, where 
+ci correspond to the refer color at the center of patch Xi 
+locat at pixel i of one of the mani input images. here, the goal 
+be to �nd paramet of the denois function, д, that minim 
+
+acm transact on graphics, vol. 36, no. 4, articl 97. public date: juli 2017. 
+
+
+
+97:4 • bako, S. et al. 
+
+irradiancealbedo 
+
+color 
+
+direct 
+or 
+
+weight 
+reconstruct 
+
+diffus cnn 
+
+specular cnn 
+
+100x 
+5x5 
+
+diffus compon 
+
+specular compon 
+
+denois imageexponenti 
+transform 
+
+direct 
+or 
+
+weight 
+reconstruct 
+
+albedo 
+multipli 
+
+logarithm 
+transform & 
+
+normal & 
+gradient extract 
+
+albedo 
+divid 
+
+100x 
+5x5 
+
+100x 
+5x5 
+
+postprocessingpreprocess filter 
+
+Re 
+nd 
+
+er 
+er 
+
+normal & 
+gradient extract 
+
+fig. 2. An overview of our gener framework. We start by preprocess di�us and specular data come from the render system independently, and then 
+feed the inform to two separ network which denois the di�us and specular illumination, respectively. the output from each network undergo 
+reconstruct and postprocess befor be combin to obtain the final, denois image. 
+
+the averag loss with respect to the refer valu across all the 
+patch in D: 
+
+θ̂ = argmin 
+θ 
+
+1 
+N 
+
+N∑ 
+i=1 
+`(ci ,д(xi ;θ )), (3) 
+
+In thi case, the parameters, θ , be optim with respect to all the 
+refer examples, not the noisi inform a in eq. 2. If θ̂ be 
+estim on a larg and repres train data set, then it can 
+adapt to a wide varieti of nois and scene characteristics. 
+
+however, the approach of kalantari et al. [2015] have sever limi- 
+tations, the most import of which be that the function д(xi ;θ ) 
+be hardcod to be either a joint bilater or joint non-loc mean 
+�lter with bandwidth provid by a multi-lay perceptron (mlp) 
+with train weights, θ . becaus the �lter be �xed, the result 
+system lack the �exibl to handl the wide rang of mont 
+carlo nois that can be encount in product environments. 
+
+To address thi limitation, we consid extend the supervis 
+learn approach to handl signi�cantli more complex function 
+forд, which result in more �exibl while still avoid over�tting. 
+thus, we can reduc model bia while simultan ensur 
+the varianc of the estim be kept under control for a suitabl 
+larg N . thi enabl the result denois to gener well to 
+imag not use dure training. 
+
+To do this, we observ that there be three issu inher to the 
+supervis learn framework that must be consid to develop 
+a good MC denois system: 
+
+(i) the function, д, must be �exibl enough to captur the com- 
+plex relationship between input data and refer color 
+for a wide rang of scenarios. In the follow section, we 
+describ how we model д use deep convolut networks. 
+
+(ii) the choic of loss function, `, be critical. ideally, the loss 
+must captur perceptu import di�er between 
+the estim and refer color. however, it must also be 
+easi to evalu and optimize. We use the absolut valu 
+loss function, `1, (sec. 5) and explor it bene�t in sec. 7. 
+
+(iii) In order for our model to be deep yet avoid over�tting, 
+we requir a larg train dataset, D. sinc we requir 
+refer imag render at high sampl counts, obtain 
+
+a larg data set be extrem comput expensive. 
+furthermore, in order to gener well, the network need 
+exampl that be repres of the variou e�ect to 
+be denoised. We describ our data in sec. 5. 
+
+4 deep convolut denois 
+In thi section, we describ our approach to model the denois 
+function д in eq. (3) with a deep convolut neural network 
+(cnn). sinc each layer of a cnn appli multipl spatial kernel 
+with learnabl weight that be share over the entir imag space, 
+they be natur suit for the denois task and have inde be 
+previous use for tradit imag denois [xie et al. 2012]. 
+furthermore, by join mani such layer togeth with activ 
+functions, cnn be abl to learn highli nonlinear function of 
+the input features, which be import for obtain high-qual 
+outputs. fig. 2 illustr our entir denois pipeline. We �rst 
+focu on the �ltere core of the denoiser—th network architectur 
+and the reconstruct �lter—and late describ data decomposit 
+and preprocess that be speci�c to the problem of MC denoising. 
+
+4.1 network architectur 
+We use deep fulli convolut network with no fully-connect 
+layer to keep the number of paramet reason low. thi re- 
+duce the danger of over�t and speed up both train and 
+inference. stack mani convolut layer togeth e�ect 
+increas the size of the input recept �eld to captur more context 
+and long-rang depend [simonyan and zisserman 2014]. 
+
+In each layer l , the network appli a linear convolut to the 
+output of the previou layer, add a constant bias, and then appli 
+an element-wis nonlinear transform f l (·), also know a 
+the activ function, to produc output zl = f l 
+
+( 
+Wl ∗ zl−1 + bl 
+
+) 
+. 
+
+here, Wl and bl be tensor of weight and bia (the weight in 
+W be share appropri to repres linear convolut kernels), 
+and zl−1 be the output of the previou layer. for the �rst layer, we 
+set z0 = Xp , which provid the block of per-pixel vector around 
+pixel p a input to our cnn. 
+
+for all layers, we use recti� linear unit (relu) activations, 
+f l (a) = max(0,a), except for the last layer, L, where f L (a) = a 
+
+acm transact on graphics, vol. 36, no. 4, articl 97. public date: juli 2017. 
+
+
+
+kernel-predict convolut network for denois mont carlo render • 97:5 
+
+(i.e., the ident function). despit their C1 discontinuity, relu 
+have be show to achiev state-of-the-art perform in mani 
+task and be know to encourag the (non-convex) optim 
+procedur to �nd good local minimum [balduzzi et al. 2016]. 
+
+the weight and bia θ = {(w1, b1), . . . , (wl , bL )}, repres 
+the trainabl paramet of д for our l-layer cnn. the dimens 
+of the weight in each layer, which be �xed befor training, be 
+describ in sec. 5.2. 
+
+4.2 reconstruct method 
+In our system, the function д output denois color valu use 
+one of two possibl architectures: a direct-predict convolut 
+network (dpcn) or a novel kernel-predict convolut network 
+(kpcn). We now describ each one in turn. 
+
+direct predict convolut network (dpcn). produc the 
+denois imag use direct predict be straightforward. We simpli 
+choos the size of the �nal layer of the network to ensur that for 
+each pixel, p, the correspond element of the network output, 
+zlp ∈ R3 be the denois color: 
+
+ĉp = дdirect (xp ;θ ) = zlp . 
+
+direct predict achiev good results. however, we found that 
+the unconstrain natur and complex of the problem make 
+optim di�cult. the magnitud and varianc of the stochast 
+gradient comput dure train can be large, which slow con- 
+vergence. for example, in order to obtain good performance, the 
+dpcn architectur requir over a week of training. 
+
+kernel predict convolut network (kpcn). instead of di- 
+rectli output a denois pixel, ĉp , the �nal layer of the network 
+output a kernel of scalar weight that be appli to the noisi neigh- 
+borhood of p to produc ĉp . lettingn (p) be the k ×k neighborhood 
+center around pixel p, the dimens of the �nal layer be chosen 
+so that the output be zlp ∈ rk×k . note that the kernel size k be speci- 
+�ed befor train along with the other network hyperparamet 
+(e.g., layer size, cnn kernel size, and so on) and the same weight 
+be appli to each rgb color channel. 
+
+de�n [zlp ]q a the q-th entri in the vector obtain by �atten- 
+ing zlp , we comput the �nal, normal kernel weight a 
+
+wpq = 
+exp([zlp ]q )∑ 
+
+q′∈n (p ) exp([zlp ]q′ ) 
+, 
+
+and the denois pixel color a 
+
+ĉp = дweight (xp ;θ ) = 
+∑ 
+
+q∈n (p ) 
+cqwpq . 
+
+the kernel weight can be interpret a includ a softmax acti- 
+vation function on the network output in the �nal layer over the 
+entir neighborhood. thi enforc that 0 ≤ wpq ≤ 1, ∀q ∈ N (p) 
+and 
+
+∑ 
+q∈n (p ) wpq = 1. do thi have three speci�c bene�ts: 
+
+(i) It ensur that the �nal color estim alway lie within 
+the convex hull of the respect neighborhood of the input 
+image. thi vastli reduc the search space of output valu 
+a compar to the direct-predict method and avoid 
+potenti artifact (e.g., color shifts). 
+
+(ii) It ensur the gradient of the error with respect to the 
+kernel weight be well behaved, which prevent larg os- 
+cillatori chang to the network paramet caus by the 
+high dynam rang of the input. intuitively, the weight 
+need onli encod the rel import of the neighbor- 
+hood; the network do not need to learn the absolut scale. 
+In general, scale-reparameter scheme have recent 
+proven to be crucial for obtain low-vari gradient 
+and speed up converg [saliman and kingma 2016]. 
+
+(iii) It could potenti be use for denois across layer of 
+a give frame, a common case in production, by appli 
+the same reconstruct weight to each component. 
+
+We analyz the behavior of both of our propos architectur in 
+sec. 7, observ that both converg to a similar overal error, but at 
+di�er speeds. for example, with our train data, the weight 
+kernel predict converg roughli 5-6× faster than the direct 
+reconstruction. due to it faster convergence, we use the kpcn 
+architectur for all result and analysis, unless otherwis noted. 
+
+4.3 di�use/specular decomposit 
+denois the color output of a MC render in a singl �ltere op- 
+erat may be prone to overblur (see sec. 7). thi be becaus the 
+variou compon of the imag have di�er nois characteris- 
+tic and spatial structure, which often lead to con�ict denois 
+constraints. We mitig thi issu by decompos the imag into 
+di�us and specular compon a in zimmer et al. [2015]. these 
+compon be then independ preprocessed, �ltered, and post- 
+processed, befor recombin them to obtain the �nal image, a 
+illustr in figur 2. 
+
+di�use-compon preprocessing. the di�us color—th outgo 
+radianc due to di�us re�ection—i well behav and typic have 
+small ranges. thus, train the di�us cnn be stabl and the result- 
+ing network yield good perform without color preprocessing. 
+however, in practice, we factor out the noisi albedo produc by the 
+render in the preprocess step, to have the cnn use the e�ec- 
+tive irradi [zimmer et al. 2015], c̃di�us = cdi�us � (falbedo + ϵ ), 
+where � be an element-wis (hadamard) divis and ϵ = 0.00316 in 
+our implementation. thi allow for larg �ltere kernels, sinc 
+the irradi bu�er be smoother. our postprocess step invert 
+thi procedur (i.e., multipli back the albedo), therebi restor 
+all textur detail. 
+
+specular-compon preprocessing. denois the specular color 
+be a challeng problem due to the high dynam rang of specular 
+and glossi re�ections; the valu in one imag can span sever 
+order of magnitude. the larg variat and arbitrari correla- 
+tion in the input make the iter optim process highli 
+unstable. We thu appli a log transform to each color channel of 
+the input imag yield c̃specular = log(1 + cspecular),which signi�- 
+cantli reduc the rang of color values. thi transform greatli 
+improv result and avoid artifact in region with high dynam 
+rang (see sec. 7). 
+
+after the two compon have be denois separately, we ap- 
+pli the invers of the preprocess transform to the reconstruct 
+output of each network and comput the �nal denois image, 
+
+ĉ = (falbedo + ϵ ) � ĉdi�us + exp (̂cspecular) − 1, (4) 
+
+acm transact on graphics, vol. 36, no. 4, articl 97. public date: juli 2017. 
+
+
+
+97:6 • bako, S. et al. 
+
+fig. 3. exampl refer imag from our 600 frame train set, sampl 
+from the full find dori film. 
+
+where � be an element-wis (hadamard) product. To train our sys- 
+tem, we pre-train the specular and di�us network separ on 
+the specular and di�us references, respectively. afterwards, we 
+appli eq. 4 and �ne-tun the complet framework by minim 
+the error of the �nal imag for addit iterations. thi allow u 
+to recov miss detail and obtain sharper results. 
+
+5 experiment setup 
+
+5.1 data 
+train a deep neural network requir obtain a larg and repre- 
+sent dataset in order to learn the complex relationship between 
+input and output while avoid over�tting. for our train set, 
+we use 600 repres frame sampl from the entir movi 
+find dori gener use renderman’ path-trac (fig. 3). 
+
+meanwhile, our test set consist of 25 divers frame from the 
+�lm car 3 and coco, and contain e�ect such a motion blur, 
+depth of �eld, glossi re�ections, and global illumination. these 
+�lm signi�cantli di�er in style and content, test how our system 
+gener to new inputs. for example, the test set includ mostli 
+outdoor scene with a wide-rang of color palett that be veri 
+di�er from find dory. 
+
+the refer imag for train be render with 1024 sam- 
+ple per pixel (spp). although we consid remov the residu 
+nois from these use standard MC denoisers, we found that the 
+cnn perform good when train on imag with uncorrel 
+residu nois rather than correl error and artifact introduc 
+by the addit denois step. therefore, we use refer im- 
+age that, although still contain a small amount of visibl noise, 
+be converg enough to properli train with. 
+
+To evalu our propos approach, we trained, validated, and 
+test on input render at a �xed 128 spp (for production-level 
+quality) and 32 spp (for pre-visualization). for each scene, the ren- 
+derer output the di�us and specular rgb color bu�ers, cdi�us and 
+cspecular, the correspond per-pixel, color variances, σ 2di�us and 
+σ 2specular, the featur bu�ers, f , consist of surfac normal (3 chan- 
+nels), albedo (3 channels), depth (1 channel), and the correspond 
+per-pixel featur variances, σf 2. In our implementation, we convert 
+varianc of three channel to a singl channel by comput it 
+luminance. thus, we have 2 channel for the color varianc (for 
+di�us and specular) and 3 channel for the featur variance. 
+
+As be commonli do in machin learning, we process some of 
+the raw data to provid the network with more use featur that 
+facilit learn and convergence. first, sinc the depth valu can 
+have arbitrari ranges, we linearli scale it to the rang [0, 1] for each 
+frame. We also preprocess the color bu�er a describ previous 
+in sec. 4.3 to get c̃di�us and c̃specular. finally, we take the gradient 
+in both x and y directions, Gx and Gy , for all bu�ers, a we found 
+these highlight import detail that facilit training. 
+
+sinc we preprocess the color bu�ers, we must appli an appropri- 
+ate transform to their varianc to make them valid. In general, 
+if we appli a transformation, h, to a random variable, X , we can 
+approxim the correspond transform on it second mo- 
+ment use a taylor seri expansion: σh (X ) ≈ (h′(µx ))2σ 2X , where 
+µX and σ 2X be the mean and varianc of X , respectively, and h 
+
+′ be 
+the deriv with respect to X . thus, for the di�us and specular 
+components, the modi� varianc be give by: 
+
+(σ̃di�use) 
+2 ≈ σ 2di�us � (falbedo + ϵ ) 
+
+2, 
+
+(σ̃specular) 
+2 ≈ σ 2specular � (̃cspecular) 
+
+2. (5) 
+
+after thi processing, we construct our network input as: 
+
+x = {̃c,gx ( {̃c, f }),gi ( {̃c, f }), σ̃ 2,σf 2}, 
+
+where c̃ and σ̃ 2 be either di�us or specular. 
+after process the data at each pixel, we split the imag into 
+
+65 × 65 patch that be sampled, shu�ed, and use to train the 
+network. although uniform sampl could be use to select the 
+patch from each frame, we found that thi be suboptim a the 
+network would be frequent show simpl case contain smooth 
+region that be straightforward to denoise. instead, we want the 
+network to be expos to and learn how to handl di�cult cases. 
+
+To do this, we use the follow sampl strategy, inspir by 
+gharbi et al. [2016], to get 400 patch for each 1920 × 1080 frame. 
+We start with dart throw to �nd candid patches, which we 
+then prune use a pdf base on the varianc of the noisi color 
+bu�er and the shade normals. use the color ensur that we 
+target region that have lot of noise, detail, or texture, while use 
+the normal bu�er provid exampl with geometr complexity. 
+finally, to ensur that we provid a proper balanc between the easi 
+and hard case and avoid bias the network, we automat 
+accept a patch after it have be reject a certain number of times. 
+
+5.2 train 
+We use eight hidden layer (i.e., nine total convolutions, so L = 9) 
+with 100 kernel of 5×5 in each layer for each network. for kpcn, we 
+use an output kernel with size k = 21. weight for both the 128 and 
+32 spp network be initi use the xavier method [glorot 
+and bengio 2010]. speci�cally, we gener random valu from a 
+uniform distribut with a varianc determin by the number of 
+node between layers. 
+
+the specular and di�us network be train independ us- 
+ing the `1 (absolut value) error metric. We observ that thi loss 
+function o�er the best perceptu qualiti while still be fast 
+to comput and optim (see sec. 7 for addit justi�cation). 
+the loss for the di�us network be comput between the recon- 
+struct irradi (i.e., befor multipli with the albedo) and the 
+
+acm transact on graphics, vol. 36, no. 4, articl 97. public date: juli 2017. 
+
+
+
+kernel-predict convolut network for denois mont carlo render • 97:7 
+
+our input (32 spp) rdfc (log) apr (log) nfor (log) lbf-rf (log) our ref. (1k-4k spp) 
+
+rel `2 19.21e-3 1.67e-3 2.66e-3 1.29e-3 2.15e-3 1.16e-3 
+1 − ssim 0.354 0.043 0.058 0.034 0.051 0.032 
+
+rel `2 18.88e-3 1.54e-3 1.95e-3 1.24e-3 2.67e-3 0.93e-3 
+1 − ssim 0.271 0.026 0.028 0.019 0.038 0.016 
+
+rel `2 9.28e-3 2.44e-3 3.35e-3 2.12e-3 4.69e-3 2.16e-3 
+1 − ssim 0.090 0.023 0.030 0.019 0.027 0.019 
+
+rel `2 14.92e-3 1.40e-3 1.68e-3 1.12e-2 1.71e-2 0.97e-2 
+1 − ssim 0.360 0.058 0.059 0.046 0.057 0.045 
+
+rel `2 20.31e-4 3.69e-4 5.33e-4 3.10e-4 5.19e-4 2.67e-4 
+1 − ssim 0.069 0.011 0.016 0.009 0.015 0.008 
+
+fig. 4. We demonstr favor result rel to state-of-the-art denois on 32 spp production-qu data, o�en remov more nois while still keep 
+detail and be�er preserv highlights. pleas see the supplement materi for comparison with 128 spp data typic use in the final stage of production. 
+note that the lbf result show be run with modif that can caus suboptim perform (see text). 
+
+albedo-factor refer image. the loss for the specular cnn 
+be comput in the log domain. 
+
+the network be optim use the adam [kingma and Ba 
+2014] optim in tensorflow [abadi et al. 2015] with a learn 
+rate of 10−5 and mini-batch of size 5. each network be pre-train 
+for approxim 750k iter over the cours of ~1.5 day on 
+an nvidia quadro m6000 gpu. afterwards, the system be combin 
+and �ne-tun (sec. 4.3) for anoth ~0.5 day or 250k iterations. 
+
+6 result 
+To evalu our method, we compar our result to a rang of state- 
+of-the-art methods: rdfc [roussel et al. 2013], apr [moon et al. 
+2016], nfor [bitterli et al. 2016], and lbf [kalantari et al. 2015]. In 
+the supplemental, we also compar against the renderman denoiser, 
+which be use dure the product of the �lm in the train- 
+ing/test sets. We use four metric to evalu the results: `1, rel 
+`1, rel `2 [roussel et al. 2011], and structur similar index 
+(ssim) [wang et al. 2004] (see supplement for a descript of how 
+
+these be computed). for conciseness, we report onli rel `2 and 
+ssim in the paper, a they be the most commonli used. see our 
+supplement materi for full resolut result at 16, 32, and 128 
+sampl per pixel (spp), all metric with heat maps, and a web-bas 
+interact viewer that allow for inspect of the results.1 
+
+all denois be give the same inputs: the color bu�er and the 
+albedo, normal, and depth bu�er correspond to the �rst ray 
+intersection. note that we save the featur bu�er at the �rst di�us 
+intersect in order to handl specular region with littl use 
+inform (e.g., glass). previou method give good result when 
+run with some of our preprocess steps, so we report them like 
+thi in the paper. In particular, we appli all method on top of our 
+di�use/specular decomposition, includ the albedo divid for the 
+di�us compon and the log transform of the specular compo- 
+nent. interestingly, the log transform often signi�cantli increas 
+the robust of these denois and result in much few halo 
+
+1supplement materi can be found here: https://doi.org/10.7919/f4057cvt. 
+
+acm transact on graphics, vol. 36, no. 4, articl 97. public date: juli 2017. 
+
+
+
+97:8 • bako, S. et al. 
+
+0% 
+
+10% 
+
+20% 
+
+30% 
+
+40% 
+
+50% 
+
+60% w/o log transform 
+
+w/ log transform 
+
+rdfc apr nfor lbf-rf kpcn 
+0% 
+
+10% 
+
+20% 
+
+30% 
+
+40% 
+
+50% 
+
+60% 
+
+rdfc apr nfor lbf-rf kpcn rdfc apr nfor lbf-rf kpcn 
+
+32 
+spp 
+
+128 
+spp 
+
+(a) rel `2 (b) `1 (c) 1−ssim 
+
+fig. 5. averag perform of rdfc, apr, nfor, lbf-rf, and our kpcn 
+across test scene for 32 spp (top) and 128 spp (bo�om) inputs. the valu 
+be rel to the noisi input and express a percentag (%); low 
+be be�er. the dark-color bar show the perform of prior art with 
+decomposition, irradi factorization, but without log-transform the 
+specular component. the light-color bar show perform with the log 
+transform. for increas robustness, the rel `2 error be comput a 
+a trim mean, remov 0.01% of the best and the bad pixel per image. 
+
+artifact (see our supplement materi for result use the raw 
+specular component). 
+
+for all the denoisers, we multipli in the albedo bu�er extract 
+from a separate, high sampl rate pa to obtain the �nal image. 
+In practice, thi noise-fre albedo could be gener from either a 
+fast high-sampl count render that ignor illumin calcul 
+or altern from a separ denois process (e.g., pre�ltering). 
+furthermore, for all methods, we current ignor the alpha channel 
+dure the �ltere process, so to gener the �nal image, we simpli 
+use the origin alpha and zero out the appropri region to avoid 
+color bleeding. finally, for the product data we used, renderman 
+have be con�gur to send out 8 shadow ray at the �rst bounc 
+of each sampl to get a good estim of the direct illumination. 
+
+our noisi render use correl sampl becaus of low dis- 
+crepanc sampling, so we cannot directli estim an accur 
+varianc of the per-pixel sampl mean. instead, we instrument 
+renderman to output the two-bu� varianc use in previou 
+work [roussel et al. 2012] to properli evalu rdfc, nfor, and 
+apr on our test data. note that the training/test data for our system 
+have the raw sampl varianc directli from the renderer, rather than 
+the two-bu� varianc use in the aforement methods. 
+
+all method use the default set suggest by the authors, 
+except for lbf, where we train the network on our own data use 
+a joint non-loc mean �lter back-end and the mlp architectur 
+describ in the origin paper. sinc our train dataset do not 
+have the two-bu� varianc expect by lbf, their system cannot 
+pre-�lter the features. thus, for fairer comparisons, we substitut 
+the pre-�lter featur with the rel noise-fre one of the 
+refer imag and denot it a lbf-rf (for refer features). 
+
+however, there be still some distinct di�er from the origi- 
+nal implement that caus lbf to run suboptimally. first, our 
+dataset do not provid some of the primari featur expect by 
+
+lbf, name the secondari albedo and direct visibility, which be 
+use guid featur for the �lter. To compens for thi miss 
+data, we instead replac the lbf secondari featur correspond 
+to these two primari featur with featur calcul from the 
+noisi color bu�ers. however, a observ in their paper, use such 
+bu�er lead to over�t and residu noise. these issu be fur- 
+ther exacerb by substitut the noisi sampl mean varianc 
+into the joint non-loc mean �lter instead of the �ltere two-bu� 
+varianc expect by lbf. As a result, the lbf result show here 
+tend to leav excess residu noise. 
+
+As describ in sec. 5, we train our cnn on 600 frame from 
+the �lm find dory, all render at a uniform sampl rate of 32 
+and 128 spp with refer at 1024 spp. We train two networks, 
+one for each sampl rate, and appli them to the test data with 
+the correspond sampl rate. In fig. 4, we show a subset of 
+result from our test set contain 25 frame from the �lm car 
+3 and coco on 32 spp data (see supplement for all result at both 
+sampl rates). 
+
+overall, we perform a well or good than state-of-the-art tech- 
+niqu both perceptu and quantitatively. for example, row 1, 
+4, and 5 of fig. 4 show how previou method have residu nois 
+in the car decals, child’ face, and car headlight, respectively, while 
+our approach remov the nois and still preserv detail. further- 
+more, our approach gener a smooth result on the glass of row 
+2 and keep the energi of the strong specular highlight in row 3. 
+meanwhile, the other approach tend to introduc �lter artifact 
+and lose energi in bright regions. 
+
+figur 5 show a comparison of the averag perform of each 
+method across all test scene with respect to each error metric for 
+both 32 and 128 spp. We observ that our network consist 
+improv over state of the art across all error metric shown. In 
+fig. 6, we demonstr the �exibl of our method by process 
+input at 16 spp with our network train on 32 spp data. As shown, 
+despit be train on a high sampl rate, our network be 
+abl to success extrapol to thi data while still improv on 
+the state-of-the-art methods. In particular, the previou approach 
+tend to leav excess residu nois rel to our approach along 
+the edg of the cables. 
+
+To facilit futur comparison and demonstr our network’ 
+abil to perform well on noisier data from a di�er render 
+system, we provid result in fig. 7 on publicli avail tung- 
+sten scene [bitterli 2016] and compar our approach to a baselin 
+method, nfor [bitterli et al. 2016]. In particular, the result show 
+slight residu nois in the nfor result even at 128 spp, while our 
+approach more close resembl the reference. A similar �gure in 
+concurr work [chaitanya et al. 2017] allow reader to see the 
+rel improv over the baseline, facilit comparison 
+of these two systems. 
+
+note that to produc these results, we train our system on a set 
+of tungsten train scene (see sec. 7 for result with our origin 
+training). speci�cally, we take 8 tungsten scene not in our test set 
+and randomli modi� them in variou ways, includ swap 
+materials, camera parameters, and environ map to gener 
+1484 uniqu train scenes. pleas see the supplement for a list 
+of the origin tungsten scene use to gener the train set. 
+
+acm transact on graphics, vol. 36, no. 4, articl 97. public date: juli 2017. 
+
+
+
+kernel-predict convolut network for denois mont carlo render • 97:9 
+
+our input (16 spp) rdfc (log) apr (log) nfor (log) lbf-rf (log) our ref. (1k spp) 
+
+rel `2 7.03e-3 1.86e-3 2.10e-3 1.91e-3 1.93e-3 0.99e-3 
+1 − ssim 0.147 0.032 0.038 0.032 0.031 0.023 
+
+fig. 6. our network train on 32 spp data and test on 16 spp data still perform well rel to other approaches. thi demonstr that our techniqu 
+can success extrapol to other sampl rates. see supplement for addit result at 16 spp. 
+
+our input (128 spp) nfor (log) our ref. (32k spp) 
+
+rel `2 29.15e-3 0.90e-3 0.69e-3 
+1 − ssim 0.562 0.019 0.017 
+
+rel `2 38.57e-3 1.12e-3 0.92e-3 
+1 − ssim 0.552 0.025 0.024 
+
+rel `2 77.82e-3 2.92e-3 2.50e-3 
+1 − ssim 0.633 0.041 0.038 
+
+fig. 7. We retrain our network on data render with the tungsten path tracer and compar with a baselin approach (nfor) on scene from bi�erli et al. 
+[2016] use the publicli avail light and camera parameters. see the concurr work of chaitanya et al. [2017] for a similar figure. 
+
+In term of timing, for an HD imag of 1920×1080, our network 
+take about 12 second to evalu and output a full denois image. 
+for comparison, the time for the other gpu-bas approach 
+be approxim 10 second for rdfc, 10-20 second for apr, and 
+20 second for lbf. the cpu version of nfor take 4-6 minutes. 
+It be worth note that these imag take about 100 core hour to 
+render at 128 spp, so no addit sampl can be render in the 
+time it take to evalu ani of the denoisers. 
+
+7 analysi 
+In thi section, we analyz the variou design choic make in our 
+network architectur use hold-out frame from find dori and 
+test frame from car 3. We begin by examin the choic of loss 
+
+function, a crucial aspect of our design a it determin what the 
+network deem important. for MC denoising, we ideal want a loss 
+function that re�ect the perceptu qualiti of the imag rel to 
+the reference. To evalu the behavior of variou error metrics, we 
+optim the network with each and evalu their perform on 
+held-out train data from find dori and valid data from 
+car 3. We evalu �ve common metrics: `1, rel `1, `2, rel 
+`2, and ssim, when optim for each in turn. fig. 8 show that 
+the network train with the `1 metric consist have the low 
+error across all �ve metric for both datasets. due to thi robustness, 
+we chose the `1 error metric for our system. 
+
+It be interest to note that sometim the network optim on 
+a give error be not alway the best perform one. for example, the 
+
+acm transact on graphics, vol. 36, no. 4, articl 97. public date: juli 2017. 
+
+
+
+97:10 • bako, S. et al. 
+
+0 100k 200k 300k 400k 500k 600k 700k 
+iter 
+
+` 1 
+lo 
+
+s 
+(l 
+
+og 
+) 
+
+`1 
+rel `1 
+`2 
+rel `2 
+
+ssim 
+
+0 100k 200k 300k 400k 500k 600k 700k 
+iter 
+
+re 
+la 
+
+ti 
+ve 
+` 1 
+
+lo 
+s 
+
+(l 
+og 
+
+) 
+
+`1 
+rel `1 
+`2 
+rel `2 
+
+ssim 
+
+0 100k 200k 300k 400k 500k 600k 700k 
+iter 
+
+` 2 
+lo 
+
+s 
+(l 
+
+og 
+) 
+
+`1 
+rel `1 
+`2 
+rel `2 
+
+ssim 
+
+0 100k 200k 300k 400k 500k 600k 700k 
+iter 
+
+re 
+la 
+
+ti 
+ve 
+` 2 
+
+lo 
+s 
+
+(l 
+og 
+
+) 
+
+`1 
+rel `1 
+`2 
+rel `2 
+
+ssim 
+
+0 100k 200k 300k 400k 500k 600k 700k 
+iter 
+
+S 
+S 
+
+IM 
+lo 
+
+s 
+(l 
+
+og 
+) 
+
+`1 
+rel `1 
+`2 
+rel `2 
+
+ssim 
+
+(a) `1 (b) rel `1 (c) `2 (d) rel `2 (e) ssim 
+
+fig. 8. here we show converg plot of network optim with common error metric evalu on hold-out data from find dory. for example, 
+(a) show the `1 error of the dataset use network train on `1, rel `1, `2, rel `2, and ssim. the network train with `1 consist have the best 
+perform across all the error metric tested. thi behavior carri over to our valid set of car 3 imag (see supplement materials). 
+
+25 50 75 100 125 150 175 200 
+time [h] 
+
+` 1 
+lo 
+
+s 
+(l 
+
+og 
+) 
+
+dpcn 
+
+kpcn 
+
+25 50 75 100 125 150 175 200 
+time [h] 
+
+` 1 
+lo 
+
+s 
+(l 
+
+og 
+) 
+
+dpcn 
+
+kpcn 
+
+(a) di�us (b) specular 
+
+fig. 9. comparison of optim speed between the dpcn and kpcn 
+architectures. although both approach converg to a similar error on the 
+car 3 valid set, the kpcn system converg 5–6× faster. 
+
+network train on `1 error perform good on `2 than the network 
+optim on `2. one possibl reason for thi be that `2 be sensit 
+to outliers, such a �re�ies, or extrem bright specular highlight 
+that signi�cantli contribut to the error. tri to compens for 
+these region will sacri�c perform elsewhere, while network 
+train on di�er loss be more robust to outliers. 
+
+figur 9 compar the valid loss between the dpcn and 
+kpcn reconstruct scheme a a function of hour train for both 
+the specular and di�us networks. We stop train the kpcn after 
+50 hour and show the averag loss dure the last 10% of train 
+with the horizontal, dash line. We observ that the converg 
+of the dpcn be slow with consider high variance, on averag 
+requir 5-6× longer to reach the same loss value. therefore, by 
+impos reason constraint on the network output, we can 
+greatli speed up train without sacri�c averag performance. 
+
+sinc there have be previou work in use machin learn for 
+natur imag denoising, we evalu the perform of naïv 
+appli a cnn to the problem of MC denoising. speci�cally, we 
+train on the raw color bu�er (without decomposit or the albedo 
+divide) and directli output the denois color. 2 As show in fig. 10, 
+such a network produc overblur result sinc it have no fea- 
+tures/inform to allow it to distinguish between scene nois and 
+detail. furthermore, sinc the input and output have high dynam 
+range, it cannot properli handl bright region and caus ring 
+and color artifact around highlights. moreover, work in the 
+hdr domain caus instabl in the network weight make it 
+di�cult to train properly. 
+
+next, we evalu the e�ect of the variou addit to our frame- 
+work that allevi the aforement issu of a vanilla cnn. 
+2we use the same hyperparamet a report for our �nal architecture: 8 hidden 
+layer of 5×5×100. 
+
+first, we explor the e�ect of includ extra featur a input. 
+one signi�c advantag over deep network use in the denois- 
+ing of photograph be that we can util addit inform 
+output by the render system includ shade normals, depth, 
+and albedo. thus, we train our architectur with and without 
+our addit featur (sec. 5). the network train onli on the 
+color bu�er cannot di�erenti between scene detail and noise, so 
+it overblur compar to our full approach (see fig. 11). 
+
+We found that train with high dynam rang data introduc 
+mani issues. namely, the wide rang of valu for both the input 
+and output creat instabl in the weight and make train 
+di�cult. fig. 12 show how use the log transform of the color 
+bu�er and it correspond transform varianc (eq. 5) reduc 
+artifact in bright regions. interestingly, we found that work in 
+the log domain have bene�t for previou denois techniqu a 
+well, reduc halo and ring issu (see the supplement for 
+result of previou approach with and without the log transform). 
+
+both the di�use/specular decomposit and albedo factor 
+also improv our method signi�cantly. the decomposit allow 
+the network to separ handl the fundament di�er dif- 
+fuse and specular noise. furthermore, by divid out the albedo 
+from the di�us illumin and therebi denois the e�ect 
+irradiance, we can preserv textur detail more easily. We retrain 
+our system without the albedo divid and observ overblurring. for 
+example, fig. 13 show how the decal on the car becom overblur 
+and illeg without the albedo divide. moreover, if we perform the 
+albedo divid without the decomposition, the network preserv 
+detail but have clear artifact in specular regions. In thi experiment, 
+we still perform the log transform to handl the high dynam range. 
+
+figur 14 further demonstr the abil of our network to gen- 
+eral to new scene with di�er artist style than be present 
+in our train set. thi be a frame from the photorealist short �lm 
+piper denois by our network without addit train or modi- 
+�cation (i.e., train onli on find dory). thi suggest that the 
+network be not over�t to a speci�c style, �lm, or nois pattern 
+and instead learn a robust relationship between input and output 
+enabl good perform on a wide varieti of data. 
+
+there be variou inher limit of our learning-bas ap- 
+proach, however. first, our result can lose scene detail that be not 
+properli captur by our input featur and that be not present in 
+our train set. for example, in the top row of fig. 15, we show 
+how the line on the jumbo screen be remov becaus they be 
+not in the auxiliari featur and the network mistak them for 
+
+acm transact on graphics, vol. 36, no. 4, articl 97. public date: juli 2017. 
+
+
+
+kernel-predict convolut network for denois mont carlo render • 97:11 
+
+our input (32 spp) vanilla cnn our ref. (1k spp) 
+
+fig. 10. We naiv appli a cnn for MC denois use onli the unprocess color bu�er a input and directli outpu� the denois image. the high 
+dynam rang data creat color artifact around highlight (top row), while the miss addit featur result in overblur of detail (bo�om row). 
+
+our input (32 spp) w/o featur w/ featur ref. (2k spp) 
+
+fig. 11. when train use onli the di�use/specular color bu�er without addit features, the network overblur detail. 
+
+our input (32 spp) w/o log w/ log ref. (2k spp) 
+
+fig. 12. when we train with high dynam rang images, we observ artifact in region with large-valu specular highlights. our full approach with the log 
+and correspond transform varianc handl these di�icult case be�er. 
+
+our input (32 spp) w/o decomposition,w/o albedo divid 
+w/ decomposition, 
+w/o albedo divid 
+
+w/o decomposition, 
+w/ albedo divid 
+
+w/ decomposition, 
+w/ albedo divid ref. (2k spp) 
+
+fig. 13. retrain our network without the di�use/specular decomposit or albedo factor result in overblur textures, such a these illeg 
+car decals. use the decomposit without the albedo divid continu to overblur (top row). On the other hand, do the albedo divid without the 
+decomposit creat artifact in specular region (bo�om row). our full approach preserv the text clearli and close resembl the reference. 
+
+scene noise. also, sinc such patch be not present in the train- 
+ing dataset, the network cannot resolv them use onli the color 
+bu�er. however, thi could be potenti allevi by addit 
+train on similar examples. likewise, exampl of all distribut 
+e�ect from the test set should be show dure training, otherwis 
+the network cannot properli denois them. for example, volumetr 
+e�ect with lot of �ne detail, such a �re or smoke, that be not 
+in the train set be typic overblur by our system (second 
+row of fig. 15). 
+
+anoth limit occur when appli our method to a dif- 
+ferent render system than the one it be train on. the third 
+row of fig. 15 show the result of use the network train with 
+find dori data from renderman on test data from the tungsten 
+renderer. although both render output the same features, there 
+be inevit di�er (e.g., dynam rang and nois levels) that 
+can caus artifacts. these issu larg disappear when train on 
+the tungsten data, although our approach still gener artifact 
+when the input have sever noise, such a with the 32 spp scene 
+show in the last row of fig. 15. 
+
+acm transact on graphics, vol. 36, no. 4, articl 97. public date: juli 2017. 
+
+
+
+97:12 • bako, S. et al. 
+
+our input (32 spp) our ref. (1k spp) 
+
+fig. 14. We demonstr how our network be abl to denois a photorealist frame from the short film piper, which significantli di�er from the train data, 
+find dory. note that even at low sampl rates, our network gener well and produc high-qual denois results. 
+
+our input (32 spp) nfor (log) our ref. (2k spp) 
+
+our input (32 spp) nfor (log) our ref. (8k spp) 
+
+our input (128 spp) w/o retrain w/ retrain (ours) ref. (32k spp) 
+
+our input (32 spp) nfor (log) our ref. (32k spp) 
+
+fig. 15. We demonstr variou limit of our approach. when the input featur fail to captur import scene detail, the network will mistak it for 
+nois and tri to remov it (top row). exampl of fire be not use in training, so our method tend to overblur these case (second row). appli a network 
+train on data from a di�er render system will caus artifact due to inher di�er in nois levels, ranges, and sampl strategies. the result 
+be significantli improv if the network be instead train on data from the new render system (third row). however, even when train on thi data, the 
+network struggl with extrem noisi input (bo�om row). 
+
+8 futur work and conclus 
+although we have demonstr a robust, learning-bas MC de- 
+nois algorithm in thi paper, there be mani design decis that 
+could be explor more extens to further improv performance. 
+To facilit thi explor and enabl other to run our system 
+on publicli avail tungsten scenes, we will releas the code and 
+train weight to the community. 
+
+the �rst potenti topic to investig be the choic of error metric. 
+often, perceptu import featur be not captur by ani 
+of the standard loss metric which also behav quit di�er 
+
+from each other. We see notabl exampl of thi in sec. 6 and 
+sec. 7. thi pose an especi import problem dure training. A 
+more thorough investig of perceptu loss function be required, 
+which would improv both network train and lead to a more 
+principl perceptu evalu of results. 
+
+furthermore, we present a simpl sampl approach for select- 
+ing import patch from each imag use in training. although 
+thi help performance, our approach be far from optimal. one can 
+imagin use other featur and metric to good sampl patch 
+
+acm transact on graphics, vol. 36, no. 4, articl 97. public date: juli 2017. 
+
+
+
+kernel-predict convolut network for denois mont carlo render • 97:13 
+
+and allow the network to converg faster or even learn more com- 
+plicat relationships. 
+
+our network’ hyperparamet be also not optimal. We explor 
+variou layer numbers/s and kernel size to �nd set that 
+work well, but a more thorough search through the paramet space 
+could reveal good ones. di�er architectur and concept might 
+also yield improv performance. We explor the use of recurr 
+and residu connect [yang et al. 2016; He et al. 2016], but found 
+littl bene�t. however, these could be potenti use tool to ex- 
+plore much deeper network that improv perform yet keep the 
+number of model paramet tractable. moreover, gener mod- 
+els, such a variat autoencod [kingma and well 2013], 
+and gener adversari network have show great promis for 
+natur imag super-resolut and denois [ledig et al. 2016]. 
+although scale to high-resolut imag present a larg compu- 
+tation hurdl for these methods, it would be an interest avenu 
+for futur research. 
+
+finally, we demonstr result for denois onli a singl imag 
+at a time, but it would be use to handl anim sequenc a well. 
+thi extens be non-trivi and involv further explor of the 
+architectur and design to be abl to preserv tempor coher 
+across neighbor denois frames. for example, the concurr 
+work of chakravarti et al. [2017] focu on denois sequenc 
+at interact rates. 
+
+In summary, we have present the �rst success step toward 
+practic use deep convolut network for denois mont 
+carlo render imag in product environments. speci�cally, 
+we demonstr that a deep learn approach can recogn the 
+fundamental, underli relationship between the noisi and refer- 
+enc data without over�tting, all while still be abl to withstand 
+the strict product demand on quality. although it us a rel- 
+ativ straightforward architecture, our solut be fast, robust, 
+stabl to train/evaluate, and it perform favor with respect to 
+state-of-the-art denois algorithms. 
+
+9 acknowledg 
+We grate thank john halstead for gener the find dori 
+train data and andrea kraus for help discussions. We also 
+thank the follow blendswap artist for creat the scene in 
+both fig. 7 and the train set: jay-artist, mareck, mrchimp2313, 
+nacimus, novazeeke, slykdrako, thecali, and wig42. thi work be 
+partial fund by nation scienc foundat grant #13-21168 
+and #16-19376. 
+
+refer 
+martín abadi, ashish agarwal, paul barham, , and others. 2015. tensorflow: large- 
+
+scale machin learn on heterogen systems. (2015). http://tensor�ow.org/ 
+softwar avail from tensor�ow.org. 
+
+david balduzzi, brian mcwilliams, and toni butler-yeoman. 2016. neural taylor 
+approximations: converg and explor in recti� networks. arxiv preprint 
+arxiv:1611.02345 (2016). 
+
+pablo bauszat, martin eisemann, and marcu magnor. 2011. guid imag filter 
+for interact high-qual global illumination. comput graphic forum 30, 4 
+(2011), 1361–1368. 
+
+benedikt bitterli. 2016. render resources. (2016). https://benedikt- 
+bitterli.me/resources/. 
+
+benedikt bitterli, fabric rousselle, bochang moon, josé A. iglesias-guitián, david 
+adler, kenni mitchell, wojciech jarosz, and jan novák. 2016. nonlinearli weight 
+first-ord regress for denois mont carlo renderings. comput graphic 
+forum 35, 4 (2016), 107–117. 
+
+antoni buades, bartomeu coll, and jean-michel morel. 2005. A review of imag 
+denois algorithms, with a new one. multiscal model & simul 4, 2 
+(2005), 490–530. 
+
+H. C. burger, C. J. schuler, and S. harmeling. 2012. imag denoising: can plain neural 
+network compet with bm3d?. In 2012 ieee confer on comput vision and 
+pattern recognition. 2392–2399. 
+
+chakravarti R. A. chaitanya, anton kaplanyan, christoph schied, marco salvi, aaron 
+lefohn, derek nowrouzezahrai, and timo aila. 2017. interact reconstruct of 
+noisi mont carlo imag sequenc use a recurr autoencoder. acm trans. 
+graph. (proc. siggraph) (2017). 
+
+robert L. cook, loren carpenter, and edwin catmull. 1987. the rey imag render 
+architecture. siggraph comput. graph. 21, 4 (aug. 1987), 95–102. 
+
+kostadin dabov, alessandro foi, vladimir katkovnik, and karen egiazarian. 2006. imag 
+denois with block-match and 3D filtering. (2006). 
+
+jerom friedman, trevor hastie, and robert tibshirani. 2001. the element of statist 
+learning. vol. 1. springer seri in statist springer, berlin. 
+
+michaël gharbi, gaurav chaurasia, sylvain paris, and frédo durand. 2016. deep joint 
+demosaick and denoising. acm trans. graph. 35, 6, articl 191 (nov. 2016), 
+12 pages. 
+
+xavier glorot and yoshua bengio. 2010. understand the di�culti of train deep 
+feedforward neural networks. In intern confer on arti�ci intellig 
+and statistics. 249–256. 
+
+luke goddard. 2014. silenc the nois on elysium. In acm siggraph 2014 talk 
+(siggraph ’14). acm, new york, ny, usa, articl 38, 1 pages. 
+
+kaim he, xiangyu zhang, shaoq ren, and jian sun. 2016. deep residu learn 
+for imag recognition. In ieee confer on comput vision and pattern recognit 
+(cvpr). http://arxiv.org/abs/1512.03385 
+
+jame T. kajiya. 1986. the render equation. siggraph comput. graph. 20, 4 (aug. 
+1986), 143–150. 
+
+nima khademi kalantari, steve bako, and pradeep sen. 2015. A machin learn 
+approach for filter mont carlo noise. 34, 4, articl 122 (juli 2015), 12 pages. 
+
+nima khademi kalantari and pradeep sen. 2013. remov the nois in mont carlo 
+render with gener imag denois algorithms. 32, 2pt1 (2013), 93–102. 
+
+A. keller, L. fascione, M. fajardo, I. georgiev, P. christensen, J. hanika, C. eisenacher, 
+and G. nichols. 2015. the path trace revolut in the movi industry. In acm 
+siggraph 2015 cours (siggraph ’15). acm, new york, ny, usa, articl 24, 
+7 pages. 
+
+diederik P. kingma and jimmi ba. 2014. adam: A method for stochast optimization. 
+corr abs/1412.6980 (2014). http://arxiv.org/abs/1412.6980 
+
+diederik P kingma and max welling. 2013. auto-encod variat bayes. In 
+intern confer on learn representations. 
+
+yann lecun, yoshua bengio, and geo�rey hinton. 2015. deep learning. natur 521 
+(2015), 436–444. 
+
+christian ledig, luca theis, ferenc huszár, jose caballero, andrew cunningham, 
+alejandro acosta, andrew aitken, alykhan tejani, johann totz, zehan wang, 
+and others. 2016. photo-realist singl imag super-resolut use a gener 
+adversari network. arxiv preprint arxiv:1609.04802 (2016). 
+
+tzu-mao li, yu-t wu, and yung-yu chuang. 2012. sure-bas optim for 
+adapt sampl and reconstruction. acm trans. graph. 31, 6, articl 194 (nov. 
+2012), 9 pages. 
+
+michael D. mccool. 1999. anisotrop di�us for mont carlo nois reduction. 
+acm transact on graphic 18, 2 (april 1999), 171–194. 
+
+bochang moon, nathan carr, and sung-eui yoon. 2014. adapt render base on 
+weight local regression. acm trans. graph. 33, 5 (sept. 2014), 170:1–170:14. 
+
+bochang moon, jong yun jun, jonghyeob lee, kunho kim, toshiya hachisuka, and 
+sung-eui yoon. 2013. robust imag denois use a virtual flash imag for 
+mont carlo ray tracing. comput graphic forum 32, 1 (2013), 139–151. 
+
+bochang moon, steven mcdonagh, kenni mitchell, and marku gross. 2016. adapt 
+polynomi rendering. To appear in acm trans. graph. (proc. siggraph) (2016), 
+10. 
+
+aaron van den oord, sander dieleman, heiga zen, karen simonyan, oriol vinyals, alex 
+graves, nal kalchbrenner, andrew senior, and koray kavukcuoglu. 2016. wavenet: 
+A gener model for raw audio. arxiv preprint arxiv:1609.03499 (2016). 
+
+fabric rousselle, claud knaus, and matthia zwicker. 2011. adapt sampl and 
+reconstruct use greedi error minimization. acm trans. graph. 30, 6, articl 
+159 (dec. 2011), 12 pages. 
+
+fabric rousselle, claud knaus, and matthia zwicker. 2012. adapt render with 
+non-loc mean filtering. 31, 6, articl 195 (nov. 2012), 11 pages. 
+
+fabric rousselle, marco manzi, and matthia zwicker. 2013. robust denois use 
+featur and color information. comput graphic forum 32, 7 (2013), 121–130. 
+
+holli E. rushmeier and gregori J. ward. 1994. energi preserv non-linear filters. In 
+proc. 21st annual conf. on comput graphic and interact techniqu (siggraph 
+’94). acm, 131–138. 
+
+tim saliman and diederik P kingma. 2016. weight normalization: A simpl repa- 
+rameter to acceler train of deep neural networks. In adv in neural 
+inform process system (nips). 
+
+acm transact on graphics, vol. 36, no. 4, articl 97. public date: juli 2017. 
+
+
+
+97:14 • bako, S. et al. 
+
+pradeep sen and soheil darabi. 2012. On filter the nois from the random parame- 
+ter in mont carlo rendering. acm transact on graphic 31, 3, articl 18 (june 
+2012), 15 pages. 
+
+pradeep sen, matthia zwicker, fabric rousselle, sung-eui yoon, and nima khademi 
+kalantari. 2015. denois your mont carlo renders: recent advanc in image- 
+space adapt sampl and reconstruction. In acm siggraph 2015 courses. 
+acm, 11. 
+
+karen simonyan and andrew zisserman. 2014. veri deep convolut network for 
+large-scal imag recognition. arxiv preprint arxiv:1409.1556 (2014). 
+
+charl M. stein. 1981. estim of the mean of a multivari normal distribution. 
+the annal of statist 9, 6 (1981), 1135–1151. http://www.jstor.org/stable/2240405 
+
+zhou wang, a.c. bovik, h.r. sheikh, and e.p. simoncelli. 2004. imag qualiti as- 
+sessment: from error visibl to structur similarity. ieee transact on imag 
+process 13, 4 (april 2004), 600–612. 
+
+junyuan xie, linli xu, and enhong chen. 2012. imag denois and inpaint 
+with deep neural networks. In advanc in neural inform process systems. 
+341–349. 
+
+wenhan yang, jiashi feng, jianchao yang, fang zhao, jiay liu, zongm guo, and 
+shuicheng yan. 2016. deep edg guid recurr residu learn for imag 
+super-resolution. corr abs/1604.08671 (2016). http://arxiv.org/abs/1604.08671 
+
+kai zhang, wangmeng zuo, yunjin chen, deyu meng, and lei zhang. 2016. beyond a 
+gaussian denoiser: residu learn of deep cnn for imag denoising. arxiv 
+preprint arxiv:1608.03981 (2016). 
+
+hen zimmer, fabric rousselle, wenzel jakob, oliv wang, david adler, wojciech 
+jarosz, olga sorkine-hornung, and alexand sorkine-hornung. 2015. path-spac 
+motion estim and decomposit for robust anim filtering. comput 
+graphic forum 34, 4 (2015), 131–142. 
+
+matthia zwicker, wojciech jarosz, jaakko lehtinen, bochang moon, ravi ramamoorthi, 
+fabric rousselle, pradeep sen, cyril soler, and sung-eui yoon. 2015. recent 
+advanc in adapt sampl and reconstruct for mont carlo rendering. 34, 
+2 (may 2015), 667–681. 
+
+acm transact on graphics, vol. 36, no. 4, articl 97. public date: juli 2017. 
+
+

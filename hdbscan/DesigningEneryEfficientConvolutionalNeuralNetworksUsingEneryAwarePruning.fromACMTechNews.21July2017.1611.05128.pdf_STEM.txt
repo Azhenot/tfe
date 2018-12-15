@@ -1,0 +1,1377 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+design energy-effici convolut neural network 
+use energy-awar prune 
+
+tien-ju yang, yu-hsin chen, vivienn sze 
+massachusett institut of technolog 
+
+{tjy, yhchen, sze}@mit.edu 
+
+abstract 
+
+deep convolut neural network (cnns) be indis- 
+pensabl to state-of-the-art comput vision algorithms. 
+however, they be still rare deploy on battery-pow 
+mobil devices, such a smartphon and wearabl gad- 
+gets, where vision algorithm can enabl mani revolution- 
+ari real-world applications. the key limit factor be the 
+high energi consumpt of cnn process due to it high 
+comput complexity. while there be mani previou 
+effort that tri to reduc the cnn model size or the amount 
+of computation, we find that they do not necessarili result 
+in low energi consumption. therefore, these target do 
+not serv a a good metric for energi cost estimation. 
+
+To close the gap between cnn design and energi con- 
+sumption optimization, we propos an energy-awar prun- 
+ing algorithm for cnn that directli us the energi con- 
+sumption of a cnn to guid the prune process. the en- 
+ergi estim methodolog us paramet extrapol 
+from actual hardwar measurements. the propos layer- 
+by-lay prune algorithm also prune more aggress 
+than previous propos prune method by minim 
+the error in the output featur map instead of the filter 
+weights. for each layer, the weight be first prune and 
+then local fine-tun with a closed-form least-squar so- 
+lution to quickli restor the accuracy. after all layer be 
+pruned, the entir network be global fine-tun use back- 
+propagation. with the propos prune method, the en- 
+ergi consumpt of alexnet and googlenet be reduc by 
+3.7× and 1.6×, respectively, with less than 1% top-5 accu- 
+raci loss. We also show that reduc the number of target 
+class in alexnet greatli decreas the number of weights, 
+but have a limit impact on energi consumption. 
+
+1. introduct 
+
+In recent years, deep convolut neural network 
+(cnns) have becom the state-of-the-art solut for mani 
+comput vision applic and be ripe for real-world de- 
+ployment [1]. however, cnn process incur high en- 
+ergi consumpt due to it high comput complex- 
+
+iti [2]. As a result, battery-pow devic still cannot af- 
+ford to run state-of-the-art cnn due to their limit energi 
+budget. for example, smartphon nowaday cannot even 
+run object classif with alexnet [3] in real-tim for 
+more than an hour. hence, energi consumpt have becom 
+the primari issu of bridg cnn into practic comput 
+vision applications. 
+
+In addit to accuracy, the design of modern cnn 
+be start to incorpor new metric to make it more 
+favor in real-world environments. for example, the 
+trend be to simultan reduc the overal cnn model 
+size and/or simplifi the comput while go deeper. 
+thi be achiev either by prune the weight of exist- 
+ing cnns, i.e., make the filter spars by set some 
+of the weight to zero [4–14], or by design new cnn 
+with (1) highli bitwidth-reduc weight and oper 
+(e.g., xnor-net and bwn [15]) or (2) compact lay- 
+er with few weight (e.g., network-in-network [16], 
+googlenet [17], squeezenet [18], and resnet [19]). 
+
+however, neither the number of weight nor the num- 
+ber of oper in a cnn directli reflect it actual energi 
+consumption. A cnn with a small model size or few 
+oper can still have high overal energi consump- 
+tion. thi be becaus the sourc of energi consumpt 
+in a cnn consist of not onli comput but also memori 
+accesses. In fact, fetch data from the dram for an op- 
+erat consum order of magnitud high energi than 
+the comput itself [20], and the energi consumpt 
+of a cnn be domin by memori access for both fil- 
+ter weight and featur maps. the total number of memori 
+access be a function of the cnn shape configur [21] 
+(i.e., filter size, featur map resolution, number of channels, 
+and number of filters); differ shape configur can 
+lead to differ amount of memori accesses, and thu en- 
+ergi consumption, even under the same number of weight 
+or operations. therefore, there be still no evid show- 
+ing that the aforement approach can directli opti- 
+mize the energi consumpt of a cnn. In addition, there 
+be current no way for research to estim the energi 
+consumpt of a cnn at design time. 
+
+ar 
+X 
+
+iv 
+:1 
+
+61 
+1. 
+
+05 
+12 
+
+8v 
+4 
+
+[ 
+c 
+
+.C 
+V 
+
+] 
+1 
+
+8 
+A 
+
+pr 
+2 
+
+01 
+7 
+
+
+
+the key to close the gap between cnn design and en- 
+ergi effici optim be to directli use energy, in- 
+stead of the number of weight or operations, a a metric 
+to guid the design. In order to obtain realist estim of 
+energi consumpt at design time of the cnn, we use the 
+framework propos in [21] that model the two sourc 
+of energi consumpt in a cnn (comput and mem- 
+ori accesses), and use energi number extrapol from 
+actual hardwar measur [22]. We then extend it to 
+further model the impact of data sparsiti and bitwidth re- 
+duction. the setup target battery-pow platforms, such 
+a smartphon and wearabl devices, where hardwar re- 
+sourc (i.e., comput and memory) be limit and en- 
+ergi effici be of utmost importance. 
+
+We further propos a new cnn prune algorithm with 
+the goal to minim overal energi consumpt with 
+margin accuraci degradation. unlik the previou prun- 
+ing methods, it directli minim the chang to the out- 
+put featur map a oppos to the chang to the filter 
+and achiev a high compress ratio (i.e., the number of 
+remov weight divid by the number of total weights). 
+with the abil to directli estim the energi consumpt 
+of a cnn, the propos prune method identifi the part 
+of a cnn where prune can maxim reduc the energi 
+cost, and prune the weight more aggress than previ- 
+ousli propos method to maxim the energi reduction. 
+
+In summary, the key contribut of thi work include: 
+
+• energi estim methodology: sinc the number 
+of weight or oper do not necessarili serv a a 
+good metric to guid the cnn design toward high en- 
+ergi efficiency, we directli use the energi consumpt 
+of a cnn to guid it design. thi methodolog be base 
+on the framework propos in [21] for realist battery- 
+power systems, e.g., smartphones, wearabl devices, 
+etc. We then further extend it to model the impact of data 
+sparsiti and bitwidth reduction. the correspond en- 
+ergi estim tool be avail at [23]. 
+
+• energy-awar pruning: We propos a new layer-by- 
+layer prune method that can aggress reduc the 
+number of non-zero weight by minim chang in 
+featur map a oppos to chang in filters. To max- 
+imiz the energi reduction, the algorithm start prune 
+the layer that consum the most energi instead of with 
+the larg number of weights, sinc prune becom 
+more difficult a more layer be pruned. each layer be 
+first prune and the preserv weight be local fine- 
+tune with a closed-form least-squar solut to quickli 
+restor the accuraci and increas the compress ratio. 
+after all the layer be pruned, the entir network be fur- 
+ther global fine-tun by back-propagation. As a result, 
+for alexnet, we can reduc energi consumpt by 3.7× 
+after pruning, which be 1.7× low than prune with the 
+popular network prune method propos in [8]. even 
+
+for a compact cnn, such a googlenet, the propos 
+prune method can still reduc energi consumpt by 
+1.6×. the prune model will be releas at [23]. As 
+mani emb applic onli requir a limit set 
+of classes, we also show the impact of prune alexnet 
+for a reduc number of target classes. 
+
+• energi consumpt analysi of cnns: We evalu- 
+ate the energi versu accuraci trade-off of widely-us 
+or prune cnn models. our key insight be that (1) 
+maxim reduc weight or the number of mac in 
+a cnn do not necessarili result in optim energi 
+consumption, and featur map need to be factor in, (2) 
+convolut (conv) layers, instead of fully-connect 
+(fc) layers, domin the overal energi consumpt 
+in a cnn, (3) deeper cnn with few weights, e.g., 
+googlenet and squeezenet, do not necessarili consum 
+less energi than shallow cnn with more weights, 
+e.g., alexnet, and (4) sparsifi the filter can pro- 
+vide equal or more energi reduct than reduc the 
+bitwidth (even to binary) of weights. 
+
+2. energi estim methodolog 
+
+2.1. background and motiv 
+
+multiply-and-accumul (mac) oper in conv 
+and FC layer account for over 99% of total oper in 
+state-of-the-art cnn [3, 17, 19, 24], and therefor domi- 
+nate both process runtim and energi consumption. the 
+energi consumpt of mac come from comput 
+and memori access for the requir data, includ both 
+weight and featur maps. while the amount of compu- 
+tation increas linearli with the number of macs, the 
+amount of requir data do not necessarili scale accord- 
+ingli due to data reuse, i.e., the same data valu be use for 
+multipl macs. thi impli that some data have a high 
+impact on energi than others, sinc they be access more 
+often. In other words, remov the data that be reus 
+more have the potenti to yield high energi reduction. 
+
+data reus in a cnn aris in mani ways, and be de- 
+termin by the shape configur of differ layers. 
+In conv layers, due to it weight share property, each 
+weight and input activ be reus mani time accord- 
+ing to the resolut of output featur map and the size of 
+filters, respectively. In both conv and FC layers, each in- 
+put activ be also reus across all filter for differ 
+output channel within the same layer. when input batch- 
+ing be applied, each weight be further reus across all input 
+featur map in both type of layers. overall, conv lay- 
+er usual present much more data reus than FC layers. 
+therefore, a a gener rule of thumb, each weight and acti- 
+vation in conv layer have a high impact on energi than 
+in FC layers. 
+
+while data reus serf a a good metric for compar 
+
+
+
+# of access at mem. level 2 
+
+# of access at mem. level n 
+
+# of access at mem. level 1 
+
+cnn shape configur 
+
+(# of channels, # of filters, etc.) 
+
+cnn weight and input data 
+
+[0.3, 0, -0.4, 0.7, 0, 0, 0.1, …] cnn energi consumpt 
+
+L1 L2 L3 
+
+energi 
+
+… 
+
+memori access 
+
+optim 
+
+# of mac 
+
+calcul 
+
+… 
+
+# of mac 
+
+hardwar energi cost of each mac and memori access 
+
+ecomp 
+
+edata 
+
+figur 1. the energi estim methodolog be base on the framework propos in [21], which optim the memori access at 
+each level of the memori hierarchi to achiev the low energi consumption. We then further account for the impact of data sparsiti 
+and bitwidth reduction, and use energi number extrapol from actual hardwar measur of [22] to calcul the energi for both 
+comput and data movement. 
+
+rel energi impact of data, it do not directli translat 
+to the actual energi consumption. thi be becaus modern 
+hardwar processor implement multipl level of memori 
+hierarchy, e.g., dram and multi-level buffers, to amort 
+the energi cost of memori accesses. the goal be to access 
+data more from the less energy-consum memori levels, 
+which usual have less storag capacity, and thu mini- 
+mize data access to the more energy-consum memori 
+levels. therefore, the total energi cost to access a singl 
+piec of data with mani reus can vari a lot depend on 
+how the access spread across differ memori levels, and 
+minim overal energi consumpt use the memori 
+hierarchi be the key to energy-effici process of cnns. 
+
+2.2. methodolog 
+
+with the idea of exploit data reus in a multi-level 
+memori hierarchy, chen et al. [21] have present a frame- 
+work that can estim the energi consumpt of a cnn 
+for inference. As show in fig 1, for each cnn layer, the 
+framework calcul the energi consumpt by divid 
+it into two parts: comput energi consumption, ecomp, 
+and data movement energi consumption, edata. ecomp be 
+calcul by count the number of mac in the layer 
+and weigh it with the energi consum by run each 
+mac oper in the comput core. edata be calcul 
+by count the number of memori access at each level of 
+the memori hierarchi in the hardwar and weigh it with 
+the energi consum by each access of that memori level. 
+To obtain the number of memori accesses, [21] propos 
+an optim procedur to search for the optim number 
+of access for all data type (featur map and weights) 
+at all level of memori hierarchi that result in the low- 
+est energi consumption. for energi number of each mac 
+oper and memori access, we use number extrapol 
+from actual hardwar measur of the platform target- 
+ing battery-pow devic [22]. 
+
+base on the aforement framework, we have cre- 
+ate a methodolog that further account for the impact of 
+data sparsiti and bitwidth reduct on energi consump- 
+tion. for example, we assum that the comput of a 
+mac and it associ memori access can be skip 
+
+complet when either of it input activ or weight 
+be zero. lossless data compress be also appli on the 
+spars data to save the cost of both on-chip and off-chip data 
+movement. the impact of bitwidth be quantifi by scale 
+the energi cost of differ hardwar compon accord- 
+ingly. for instance, the energi consumpt of a multipli 
+scale with the bitwidth quadratically, while that of a mem- 
+ori access onli scale it energi linearly. 
+
+2.3. potenti impact 
+
+with thi methodology, we can quantifi the differ 
+in energi cost between variou popular cnn model and 
+methods, such a increas data sparsiti or aggress 
+bitwidth reduct (discuss in sec. 5). more importantly, 
+it provid a gateway for research to ass the energi 
+consumpt of cnn at design time, which can be use 
+a a feedback that lead to cnn design with significantli 
+reduc energi consumption. In sec. 4, we will describ an 
+energy-awar prune method that us the propos energi 
+estim method for decid the layer prune priority. 
+
+3. cnn pruning: relat work 
+
+weight pruning. there be a larg bodi of work that aim 
+to reduc the cnn model size by prune weight while 
+maintain accuracy. lecun et al. [4] and hassibi et al. [5] 
+remov the weight base on the sensit of the final ob- 
+jectiv function to that weight (i.e., remov the weight with 
+the least sensit first). however, the complex of com- 
+put the sensit be too high for larg networks, so the 
+magnitude-bas prune method [6] use the magnitud 
+of a weight to approxim it sensitivity; specifically, the 
+small-magnitud weight be remov first. han et al. [7, 8] 
+appli thi idea to recent network and achiev larg 
+model size reduction. they iter prune and global 
+fine-tun the network, and the prune weight will alway 
+be zero after be pruned. jin et al. [9] and guo et al. [10] 
+extend the magnitude-bas method to allow the restora- 
+tion of the prune weight in the previou iterations, with 
+tightli coupl prune and global fine-tun stages, for 
+great model compression. however, all the abov meth- 
+
+
+
+od evalu whether to prune each weight independ 
+and do not account for correl between weight [11]. 
+when the compress ratio be large, the aggreg impact 
+of mani weight can have a larg impact on the output; thus, 
+fail to consid the combin influenc of the weight on 
+the output limit the achiev compress ratio. 
+
+filter pruning. rather than investig the remov 
+of each individu weight (fine-grain pruning), there be 
+also work that investig remov entir filter (coarse- 
+grain pruning). Hu et al. [12] propos remov filter 
+that frequent gener zero output after the relu layer 
+in the valid set. sriniva et al. [13] propos merg 
+similar filter into one. mariet et al. [14] propos merg- 
+ing filter in the FC layer with similar output activ 
+into one. unfortunately, these coarse-grain prune ap- 
+proach tend to have low compress ratio than fine- 
+grain prune for the same accuracy. 
+
+previou work directli target reduc the model size. 
+however, a discuss in sec. 1, the number of weight 
+alon do not dictat the energi consumption. hence, the 
+energi consumpt of the prune cnn in the previou 
+work be not minimized. 
+
+To address issu highlight above, we propos a new 
+fine-grain prune algorithm that specif target 
+energy-efficiency. It util the estim energi provid 
+by the methodolog describ in sec. 2 to guid the pro- 
+pose prune algorithm to aggress prune the layer 
+with the high energi consumpt with margin impact 
+on accuracy. moreover, the prune algorithm consid the 
+joint influenc of weight on the final output featur maps, 
+thu enabl both a high compress ratio and a larg 
+energi reduction. the combin of these two approach 
+result in cnn that be more energy-effici and compact 
+than previous propos approaches. 
+
+the propos energy-effici prune algorithm can be 
+combin with other techniqu to further reduc the en- 
+ergi consumption, such a bitwidth reduct of weight 
+or featur map [15, 25, 26], weight share and huffman 
+cod [8], student-teach learn [27], filter decomposi- 
+tion [28, 29] and prune featur map [30]. 
+
+4. energy-awar prune 
+our goal be to reduc the energi consumpt of a give 
+
+cnn by sparsifi the filter without signific impact 
+on the network accuracy. the key step in the propos 
+energy-awar prune be show in fig. 2, where the input 
+be a cnn model and the output be a sparser cnn model with 
+low energi consumption. 
+
+In step 1, the prune order of the layer be determin 
+base on the energi a describ in sec. 2. step 2, 3 and 
+4 removes, restor and local fine-tun weights, respec- 
+tively, for one layer in the network; thi inner loop be re- 
+peat for each layer in the network. prune and restor 
+
+① determin order of layer base on energi 
+
+② remov weight base on magnitud 
+
+③ restor weight to reduc output error 
+
+④ local fine-tun weight 
+
+other unprun 
+layers? 
+
+⑤ global fine-tun weight 
+
+accuraci below 
+threshold? 
+
+input model 
+
+output model 
+
+No 
+(start next iteration) 
+
+ye 
+
+No 
+
+ye 
+(prune next layer) 
+
+figur 2. flow of energy-awar pruning. 
+
+weight involv choos weights, while local fine-tun 
+weight involv chang the valu of the weights, all 
+while minim the output featur map error. In step 2, a 
+simpl magnitude-bas prune method be use to quickli 
+remov the weight abov the target compress ratio (e.g., 
+if the target compress ratio be 30%, 35% of the weight 
+be remov in thi step). the number of extra weight re- 
+move be determin empirically. In step 3, the correl 
+weight that have the great impact on reduc the output 
+error be restor to their origin non-zero valu to reach 
+the target compress ratio (e.g., restor 5% of weights). 
+In step 4, the preserv weight be local fine-tun with 
+a closed-form least-squar solut to further decreas the 
+output featur map error. each of these step be describ 
+in detail in sec. 4.1 to sec. 4.4. 
+
+onc each individu layer have be prune use step 2 
+to 4, step 5 perform global fine-tun of weight across 
+the entir network use back-propag a describ in 
+sec. 4.5. all these step be iter perform until the 
+final network can no longer maintain a give accuracy, e.g., 
+1% accuraci loss. 
+
+compar to the previou magnitude-bas prune ap- 
+proach [6–10], the main differ of thi work be the in- 
+troduct of step 1, 3, and 4. step 1 enabl prune to 
+minim the energi consumption. step 3 and 4 increas 
+the compress ratio and reduc the energi consumption. 
+
+4.1. determin order of layer base on energi 
+
+As more layer be pruned, it becom increasingli dif- 
+ficult to remov weight becaus the accuraci approach 
+the give accuraci threshold. accordingly, layer that be 
+prune earli on tend to have high compress ratio than 
+the layer that follow. thus, in order to maxim the over- 
+
+
+
+all energi reduction, we prune the layer that consum the 
+most energi first. specifically, we use the energi estima- 
+tion from sec. 2 and determin the prune order of layer 
+base on their energi consumption. As a result, the layer 
+that consum the most energi achiev high compress 
+ratio and energi reduction. At the begin of each outer 
+loop iter in fig. 2, the new prune order be redeter- 
+mine accord to the new energi estim of each layer. 
+
+4.2. remov weight base on magnitud 
+
+for a FC layer, Yi ∈ rk×1 be the ith output featur map 
+across k imag and be comput from 
+
+Yi = xiai + bi1, (1) 
+
+where Ai ∈ rm×1 be the ith filter among all n filter 
+(A ∈ rm×n) with m weights, and Xi ∈ rk×m denot 
+the correspond k input featur maps, Bi ∈ R be the ith 
+bias, and 1 ∈ rk×1 be a vector where all entri be one. 
+for a conv layer, we can convert the convolut oper- 
+ation into a matrix multipl operation, by convert 
+the input featur map into a toeplitz matrix, and comput 
+the output featur map with a similar equat a eq.(1). 
+
+To sparsifi the filter without impact the accuracy, 
+the simplest method be prune weight with magnitud 
+small than a threshold, which be refer to a magnitude- 
+base prune [6–10]. the advantag of thi approach be 
+that it be fast, and work well when a few weight be re- 
+moved, and thu the correl between weight onli have a 
+minor impact on the output. however, a more weight be 
+pruned, thi method introduc a larg output error a the 
+correl between weight becom more critical. for ex- 
+ample, if most of the small-magnitud weight be negative, 
+the output error will becom larg onc mani of these small 
+neg weight be remov use the magnitude-bas 
+pruning. In thi case, it would be desir to remov a 
+larg posit weight to compens for the introduc error 
+instead of remov more small neg weights. thus, 
+we onli use magnitude-bas prune for fast initi prun- 
+ing of each layer. We then introduc addit step that 
+account for the correl between weight to reduc the 
+output error due to the magnitude-bas pruning. 
+
+4.3. restor weight to reduc output error 
+
+It be the error in the output featur maps, and not the 
+filters, that affect the overal network accuracy. therefore, 
+we focu on minim the error of the output featur map 
+instead of that of the filters. To achiev this, we model the 
+problem a the follow `0-minim problem: 
+
+ãi = arg min 
+âi 
+
+∥∥∥ŷi −xiâi∥∥∥p 
+p 
+, 
+
+subject to 
+∥∥∥â∥∥∥ 
+
+0 
+6 q, i = 1, ..., n, 
+
+(2) 
+
+where ŷi denot Yi −bi1, ‖·‖p be the p-norm, and q be the 
+number of non-zero weight we want to retain in all filters. 
+
+p can be set to 1 or 2, and we use 1. unfortunately, solv- 
+ing thi `0-minim problem be np-hard. therefore, a 
+greedi algorithm be propos to approxim it. 
+
+the algorithm start from prune filter Ă ∈ rm×n, ob- 
+tain from the magnitude-bas prune in step 2. these 
+filter be prune at a high compress ratio than the tar- 
+get compress ratio. each filter Ai have the correspond- 
+ing support si, where Si be a set of the index of non-zero 
+weight in the filter. It then iter restor weight until 
+the number of non-zero weight be equal to q, which reflect 
+the target compress ratio. 
+
+the residu of each filter, which indic the current 
+output featur map differ we need to minimize, be ini- 
+tializ a ŷi −xiăi. In each iteration, out of the weight 
+not in the support of a give filter si, we select the weight 
+that reduc the `1-norm of the correspond residu the 
+most, and add it to the support si. the residu then be up- 
+date by take thi new weight into account. 
+
+We restor weight from the filter with the larg resid- 
+ual in each iteration. thi prevent the algorithm from 
+restor weight in filter with small residuals, which will 
+like have less effect on the overal output featur map er- 
+ror. thi could occur if the weight be select base 
+sole on the larg `1-norm improv for ani filter. 
+
+To speed up thi restor process, we restor multipl 
+weight within a give filter in each iteration. the g weight 
+with the top-g maximum `1-norm improv be chosen. 
+As a result, we reduc the frequenc of comput resid- 
+ual improv for each weight, which take a signific 
+amount of time. We adopt g equal to 2 in our experiments, 
+but a high g can be used. 
+
+4.4. local fine-tun weight 
+
+the previou two step select a subset of weight to pre- 
+serve, but do not chang the valu of the weights. In thi 
+step, we perform the least-squar optim on each filter 
+to chang the valu of their weight to further reduc the 
+output error and restor the network accuracy: 
+
+āi,si = arg min 
+âi,si 
+
+∥∥∥ŷi −xi,si âi,si∥∥∥2 
+2 
+, āi,sci 
+
+= 0, (3) 
+
+where the subscript Si mean choos the non-prun 
+weight from the ith filter and the correspond column 
+from xi. the least-squar problem have a closed-form solu- 
+tion, which can be effici solved. 
+
+4.5. global fine-tun weight 
+
+after all the layer be pruned, we fine-tun the whole 
+network use back-propag with the prune weight 
+fix at zero. thi step can be use to global fine-tun the 
+weight to achiev a high accuracy. fine-tun the whole 
+network be time-consum and requir care tune of 
+sever hyper-parameters. In addition, back-propag 
+
+
+
+can onli restor the accuraci within certain accuraci loss. 
+however, sinc we first local fine-tun weights, part of 
+the accuraci have alreadi be restored, which enabl more 
+weight to be prune under a give accuraci loss tolerance. 
+As a result, we increas the compress ratio in each it- 
+eration, reduc the total number of global fine-tun 
+iter and the correspond time. 
+
+5. experi result 
+5.1. prune method evalu 
+
+We evalu our energy-awar prune on alexnet [3], 
+googlenet v1 [17] and squeezenet v1 [18] and compar 
+it with the state-of-the-art magnitude-bas prune method 
+with the publicli avail model [8].1 the accuraci and 
+the energi consumpt be measur on the imagenet 
+ilsvrc 2014 dataset [31]. sinc the energy-awar prune 
+method reli on the output featur maps, we use the train- 
+ing imag for both prune and fine-tuning. all accuraci 
+number be measur on the valid images. To esti- 
+mate the energi consumpt with the propos methodol- 
+ogi in sec. 2, we assum all valu be repres with 
+16-bit precision, except where otherwis specified, to fairli 
+compar the energi consumpt of networks. the hard- 
+ware paramet use be similar to [22]. 
+
+tabl 1 summar the results.2 the batch size be 44 for 
+alexnet and 48 for other two networks. all the energy- 
+awar prune network have less than 1% accuraci loss 
+with respect to the other correspond networks. for 
+alexnet and squeezenet, our method achiev good re- 
+sult in all metric (i.e., number of weights, number of 
+macs, and energi consumption) than the magnitude-bas 
+prune [8]. for example, the number of mac be reduc 
+by anoth 3.2× and the estim energi be reduc by an- 
+other 1.7× with a 15% small model size on alexnet. ta- 
+ble 2 show a comparison of the energy-awar prune and 
+the magnitude-bas prune across each layer; our method 
+give a high compress ratio for all layers, especi for 
+conv1 to conv3, which consum most of the energy. 
+
+our approach be also effect on compact models. for 
+example, on googlenet, the achiev reduct factor be 
+2.9× for the model size, 3.4× for the number of mac and 
+1.6× for the estim energi consumption. 
+
+5.2. energi consumpt analysi 
+
+We also evalu the energi consumpt of popular 
+cnns. In fig. 3, we summar the estim energi con- 
+sumption of cnn rel to their top-5 accuracy. the re- 
+sult reveal the follow key observations: 
+
+1the propos energy-awar prune can be easili combin with 
+other techniqu in [8], such a weight share and huffman coding. 
+
+2we use the model provid by matconvnet [32] or convert from 
+caff [33] or torch [34], so the accuraci may be slightli differ from 
+that report by other works. 
+
+• convolut layer consum more energi than 
+fully-connect layers. fig. 4 show the energi break- 
+down of the origin alexnet and two prune alexnet 
+models. although most of the weight be in the FC lay- 
+ers, conv layer account for most of the energi con- 
+sumption. for example, in the origin alexnet, the 
+conv layer contain 3.8% of the total weights, but con- 
+sume 72.6% of the total energy. there be two reason for 
+this: (1) In conv layers, the energi consumpt of the 
+input and output featur map be much high than that 
+of FC layers. compar to FC layers, conv layer re- 
+quir a larg number of macs, which involv load 
+input from memori and write the output to memory. 
+accordingly, a larg number of mac lead to a larg 
+amount of weight and featur map movement and henc 
+high energi consumption; (2) the energi consumpt 
+of weight for all conv layer be similar to that of all 
+FC layers. while conv layer have few weight than 
+FC layers, each weight in conv layer be use more fre- 
+quentli than that in FC layers; thi be the reason whi the 
+number of weight be not a good metric for energi con- 
+sumption – differ weight consum differ amount 
+of energy. accordingly, prune a weight from conv 
+layer contribut more to energi reduct than prun- 
+ing a weight from FC layers. In addition, a a network 
+go deeper, e.g., resnet [19], conv layer domin 
+both the energi consumpt and the model size. the 
+energy-awar prune prune conv layer effectively, 
+which significantli reduc energi consumption. 
+
+• deeper cnn with few weight do not necessarili 
+consum less energi than shallow cnn with more 
+weights. one network design strategi for reduc the 
+size of a network without sacrific the accuraci be to 
+make a network thinner but deeper. however, do thi 
+mean the energi consumpt be also reduced? tabl 1 
+show that a network architectur have a small model 
+size do not necessarili have low energi consump- 
+tion. for instance, squeezenet be a compact model and a 
+good fit for memory-limit applications; it be thinner and 
+deeper than alexnet and achiev a similar accuraci with 
+50× size reduction, but consum 33% more energy. the 
+increas in energi be due to the fact that squeezenet us 
+more conv layer and the size of the featur map can 
+onli be greatli reduc in the final few layer to preserv 
+the accuracy. hence, the newli add conv layer in- 
+volv a larg amount of comput and data movement, 
+result in high energi consumption. 
+
+• reduc the number of weight can provid low 
+energi consumpt than reduc the bitwidth of 
+weights. from fig. 3, the alexnet prune by the pro- 
+pose method consum less energi than bwn [15]. 
+bwn us an alexnet-lik architectur with binar 
+weights, which onli reduc the weight-rel and 
+
+
+
+tabl 1. perform metric of variou dens and prune models. 
+
+model top-5accuraci 
+# of non-zero 
+
+weight (×106) 
+# of non-skip 
+
+mac (×108)1 
+normal 
+
+energi (×109)1,2 
+alexnet (original) 80.43% 60.95 (100%) 3.71 (100%) 3.97 (100%) 
+alexnet ([8]) 80.37% 6.79 (11%) 1.79 (48%) 1.85 (47%) 
+alexnet (energy-awar pruning) 79.56% 5.73 (9%) 0.56 (15%) 1.06 (27%) 
+
+googlenet (original) 88.26% 6.99 (100%) 7.41 (100%) 7.63 (100%) 
+googlenet (energy-awar pruning) 87.28% 2.37 (34%) 2.16 (29%) 4.76 (62%) 
+squeezenet (original) 80.61% 1.24 (100%) 4.51 (100%) 5.28 (100%) 
+squeezenet ([8]) 81.47% 0.42 (33%) 3.30 (73%) 4.61 (87%) 
+squeezenet (energy-awar pruning) 80.47% 0.35 (28%) 1.93 (43%) 3.99 (76%) 
+
+1 per image. 
+2 the unit of energi be normal in term of the energi for a mac oper (i.e., 102 = energi of 100 macs). 
+
+alexnet squeezenet 
+
+googlenet 
+
+bwn (1-bit) 
+
+resnet-50 
+vgg-16 
+
+alexnet 
+
+squeezenet 
+
+alexnet squeezenet 
+
+googlenet 
+
+77% 
+
+79% 
+
+81% 
+
+83% 
+
+85% 
+
+87% 
+
+89% 
+
+91% 
+
+93% 
+
+5e+08 5e+09 5e+10 
+
+To 
+p 
+
+-5 
+A 
+
+cc 
+u 
+
+ra 
+cy 
+
+normal energi consumpt 
+
+origin cnn magnitude-bas prune [8] energy-awar prune (thi work) 
+
+figur 3. accuraci versu energi trade-off of popular cnn models. model prune with the energy-awar prune provid a good 
+accuraci versu energi trade-off (steeper slope). 
+
+tabl 2. compress ratio1 of each layer in alexnet. 
+
+[8] thi work 
+# of 
+
+class 1000 1000 100 
+10 
+
+(random) 
+10 
+
+(dog) 
+conv1 16% 83% 86% 89% 89% 
+conv2 62% 92% 97% 97% 96% 
+conv3 65% 91% 97% 98% 97% 
+conv4 63% 81% 88% 97% 95% 
+conv5 63% 74% 79% 98% 98% 
+
+fc1 91% 92% 93% ∼100% ∼100% 
+fc2 91% 91% 94% ∼100% ∼100% 
+fc3 74% 78% 78% ∼100% ∼100% 
+
+1 the number of remov weight divid by the number of 
+total weights. the higher, the better. 
+
+computation-rel energi consumption. however, 
+prune reduc the energi of both weight and featur 
+map movement, a well a computation. In addition, the 
+weight in conv1 and fc3 of bwn be not binar 
+to preserv the accuracy; thu bwn do not reduc the 
+energi consumpt of conv1 and fc3. moreover, 
+to compens for the accuraci loss of binar the 
+weights, conv2, conv4 and conv5 layer in bwn 
+use 2× the number of weight in the correspond lay- 
+
+CO 
+NV 
+
+1 
+
+CO 
+NV 
+
+2 
+
+CO 
+NV 
+
+3 
+
+CO 
+NV 
+
+4 
+
+CO 
+NV 
+
+5 
+FC 
+
+1 
+FC 
+
+2 
+FC 
+
+3 
+0 
+
+2 
+
+4 
+
+6 
+
+8 
+
+10 
+
+12 
+
+N 
+or 
+
+m 
+al 
+
+iz 
+ed 
+
+E 
+ne 
+
+rg 
+y 
+
+C 
+on 
+
+su 
+m 
+
+pt 
+io 
+
+n 
+
+×10 8 
+
+input featur map movement 
+output featur map movement 
+weight movement 
+comput 
+
+figur 4. energi consumpt breakdown of differ alexnet in 
+term of the comput and the data movement of input featur 
+maps, output featur map and filter weights. from left to right: 
+origin alexnet, alexnet prune by [8], alexnet prune by the 
+propos energy-awar pruning. 
+
+er of the origin alexnet, which increas the energi 
+consumption. 
+
+• A low number of mac do not necessarili lead 
+to low energi consumption. for example, the prune 
+googlenet have a few mac but consum more en- 
+ergi than the squeezenet prune by [8]. that be becaus 
+they have differ data reuse, which be determin by the 
+shape configurations, a discuss in sec. 2.1. 
+
+
+
+1000 100 10r 10d 
+0 
+
+2 
+
+4 
+
+6 ×10 
+6 
+
+(a) # of weight 
+1000 100 10r 10d 
+
+0 
+
+2 
+
+4 
+
+6 ×10 
+7 
+
+(b) # of mac 
+1000 100 10r 10d 
+
+0 
+
+2 
+
+4 
+
+6 
+
+8 
+
+10 
+×108 
+
+(c) estim energi 
+figur 5. the impact of reduc the number of target class on 
+the three metrics. the x-axi be the number of target classes. 10r 
+and 10d denot the 10-random-class model and the 10-dog-class 
+model, respectively. 
+
+1000 100 10r 10d 
+0 
+
+1 
+
+2 
+
+3 
+
+4 
+
+5 ×10 
+8 
+
+(a) input featur map 
+1000 100 10r 10d 
+
+0 
+
+1 
+
+2 
+
+3 
+
+4 
+
+5 ×10 
+8 
+
+(b) output featur map 
+1000 100 10r 10d 
+
+0 
+
+1 
+
+2 
+
+3 
+
+4 
+
+5 ×10 
+8 
+
+(c) weight 
+figur 6. the energi breakdown of model with differ number 
+of target classes. 
+
+from fig. 3, we also observ that the energi consump- 
+tion scale exponenti with linear increas in accuracy. 
+for instance, googlenet consum 2× energi of alexnet 
+for 8% accuraci improvement, and resnet-50 consum 
+3.3× energi of googlenet for 3% accuraci improvement. 
+
+In summary, the model size (i.e., the number of weight 
+× the bitwidth) and the number of mac do not directli 
+reflect the energi consumpt of a layer or a network. 
+there be other factor like the data movement of the fea- 
+ture maps, which be often overlooked. therefore, with the 
+propos energi estim methodology, research can 
+have a clearer view of cnn and more effect design 
+low-energy-consumpt networks. 
+
+5.3. number of target class reduct 
+
+In mani applications, the number of class can be sig- 
+nificantli few than 1000. We studi the influenc of re- 
+duce the number of target class by prune weight on 
+the three metrics. alexnet be use a the start point. the 
+number of target class be reduc from 1000 to 100 to 10. 
+the target class of the 100-class model and one of the 
+10-class model be randomli picked, and that of anoth 
+10-class model be differ dog breeds. these model be 
+prune with less than 1% top-5 accuraci loss for the 100- 
+class model and less than 1% top-1 accuraci loss for the 
+two 10-class models. 
+
+fig. 5 show that a the number of target class reduces, 
+the number of weight and mac and the estim energi 
+consumpt decrease. however, they reduc at differ 
+rate with the model size drop the fastest, follow by 
+the number of mac the second, and the estim energi 
+reduc the slowest. 
+
+accord to tabl 2, for the 10-class models, almost 
+
+all the weight in the FC layer be pruned, which lead to 
+a veri small model size. becaus the FC layer work a 
+classifiers, most of the weight that be respons for clas- 
+sifi the remov class be pruned. the higher-level 
+conv layers, such a conv4 and conv5, which contain 
+filter for extract more special featur of objects, 
+be also significantli pruned. conv1 be prune less sinc it 
+extract basic featur that be share among all classes. As 
+a result, the number of mac and the energi consumpt 
+do not reduc a rapidli a the number of weights. thus, we 
+hypothes that the layer closer to the output of a network 
+shrink more rapidli with the number of classes. 
+
+As the number of class reduces, the energi consump- 
+tion becom less sensit to the filter sparsity. from the 
+energi breakdown (fig. 6), the energi consumpt of fea- 
+ture map gradual satur due to data reus and the 
+memori hierarchy. for example, each time one input activa- 
+tion be load from the dram onto the chip, it be use mul- 
+tipl time by sever weights. If ani one of these weight 
+be not pruned, the activ still need to be fetch from 
+the dram. moreover, we observ that sometim the spar- 
+siti of featur map decreas after we reduc the number 
+of target classes, which caus high energi consumpt 
+for move the featur maps. 
+
+tabl 2 and fig. 5 and 6 show that the compress ratio 
+and the perform of the two 10-class model be simi- 
+lar. hence, we hypothes that the prune perform 
+mainli depend on the number of target classes, and the 
+type of the preserv class be less influential. 
+
+6. conclus 
+thi work present an energy-awar prune algorithm 
+
+that directli us the energi consumpt of a cnn to 
+guid the prune process in order to optim for the best 
+energy-efficiency. the energi of a cnn be estim by 
+a methodolog that model the comput and memori 
+access of a cnn and us energi number extrapol 
+from actual hardwar measurements. It enabl more ac- 
+curat energi consumpt estim compar to just us- 
+ing the model size or the number of macs. with the esti- 
+mat energi for each layer in a cnn model, the algorithm 
+perform layer-by-lay pruning, start from the layer 
+with the high energi consumpt to the layer with the 
+low energi consumption. for prune each layer, it re- 
+move the weight that have the small joint impact on the 
+output featur maps. the experi show that the pro- 
+pose prune method reduc the energi consumpt of 
+alexnet and googlenet, by 3.7× and 1.6×, respectively, 
+compar to their origin dens models. the influenc of 
+prune the alexnet with the number of target class re- 
+duce be explor and discussed. the result show that by 
+reduc the number of target classes, the model size can be 
+greatli reduc but the energi reduct be limited. 
+
+
+
+refer 
+[1] Y. lecun, Y. bengio, and G. hinton, “deep learning,” na- 
+
+ture, vol. 521, pp. 436–444, may 2015. 
+
+[2] “gpu-bas deep learn inference: A perform and 
+power analysis.” nvidia whitepaper, 2015. 
+
+[3] A. krizhevsky, I. sutskever, and G. E. hinton, “imagenet 
+classif with deep convolut neural networks,” 
+in nips, 2012. 
+
+[4] Y. lecun, J. S. denker, and S. A. solla, “optim brain 
+damage,” in nips, 1990. 
+
+[5] B. hassibi and D. G. stork, “second order derivati for net- 
+work prunning: optim brain surgeon,” in nips, 1993. 
+
+[6] J. hertz, A. krogh, and R. G. palmer, introduct to the 
+theori of neural computation. addison-wesley longman 
+publish co., inc., 1991. 
+
+[7] S. han, J. pool, J. tran, and W. J. dally, “learn both 
+weight and connect for effici neural networks,” in 
+nips, 2015. 
+
+[8] S. han, H. mao, and W. J. dally, “deep compression: 
+compress deep neural network with pruning, train 
+quantiz and huffman coding,” in iclr, 2016. 
+
+[9] X. jin, X. yuan, J. feng, and S. yan, “train skinni deep 
+neural network with iter hard threshold meth- 
+ods,” arxiv preprint arxiv:1607.05423, 2016. 
+
+[10] Y. guo, A. yao, and Y. chen, “dynam network surgeri 
+for effici dnns,” in nips, 2016. 
+
+[11] R. reed, “prune algorithm - a survey,” ieee transact 
+on neural networks, vol. 4, no. 5, pp. 740–747, 1993. 
+
+[12] H. hu, R. peng, y.-w. tai, and c.-k. tang, “net- 
+work trimming: A data-driven neuron prune ap- 
+proach toward effici deep architectures,” arxiv preprint 
+arxiv:1607.03250, 2016. 
+
+[13] S. sriniva and R. V. babu, “data-fre paramet prune for 
+deep neural networks,” in bmvc, 2015. 
+
+[14] Z. mariet and S. sra, “divers networks,” in iclr, 2016. 
+
+[15] M. rastegari, V. ordonez, J. redmon, and A. farhadi, 
+“xnor-net: imagenet classif use binari convo- 
+lution neural networks,” in eccv, 2016. 
+
+[16] M. lin, Q. chen, and S. yan, “network in network,” in 
+iclr, 2014. 
+
+[17] C. szegedy, W. liu, Y. jia, P. sermanet, S. reed, 
+D. anguelov, D. erhan, V. vanhoucke, and A. rabinovich, 
+“go deeper with convolutions,” in cvpr, 2015. 
+
+[18] F. N. iandola, S. han, M. W. moskewicz, K. ashraf, W. J. 
+dally, and K. keutzer, “squeezenet: alexnet-level accu- 
+raci with 50x few paramet and <0.5mb model size,” 
+arxiv:1602.07360, 2016. 
+
+[19] K. he, X. zhang, S. ren, and J. sun, “deep residu learn- 
+ing for imag recognition,” in cvpr, 2016. 
+
+[20] M. horowitz, “computing’ energi problem (and what we 
+can do about it),” in isscc, 2014. 
+
+[21] Y. chen, J. emer, and V. sze, “eyeriss: A spatial architec- 
+ture for energy-effici dataflow for convolut neural 
+networks,” in isca, 2016. 
+
+[22] Y. chen, T. krishna, J. emer, and V. sze, “eyeriss: An 
+energy-effici reconfigur acceler for deep con- 
+volut neural networks,” in isscc, 2016. 
+
+[23] “cnn energi estim website.” http://eyeriss. 
+mit.edu/energy.html. 
+
+[24] K. simonyan and A. zisserman, “veri deep convolut 
+network for large-scal imag recognition,” in iclr, 
+2014. 
+
+[25] M. courbariaux, Y. bengio, and j.-p. david, “binaryconnect: 
+train deep neural network with binari weight dure 
+propagations,” in nips, 2015. 
+
+[26] J. wu, C. leng, Y. wang, Q. hu, and J. cheng, “quan- 
+tize convolut neural network for mobil devices,” 
+in cvpr, 2016. 
+
+[27] J. Ba and R. caruana, “do deep net realli need to be deep?,” 
+in nips, 2014. 
+
+[28] y.-d. kim, E. park, S. yoo, T. choi, L. yang, and D. shin, 
+“compress of deep convolut neural network for 
+fast and low power mobil applications,” in iclr, 2016. 
+
+[29] B. liu, M. wang, H. foroosh, M. tappen, and M. penksy, 
+“spars convolut neural networks,” in cvpr, 2015. 
+
+[30] B. reagen, P. whatmough, R. adolf, S. rama, H. lee, 
+S. kyu, L. josé, g.-y. W. D. brooks, and W. power, “min- 
+erva : enabl low-power, highly-accur deep neural 
+network accelerators,” in isca, 2016. 
+
+[31] O. russakovsky, J. deng, H. su, J. krause, S. satheesh, 
+S. ma, Z. huang, A. karpathy, A. khosla, M. bernstein, 
+A. C. berg, and L. fei-fei, “imagenet larg scale visual 
+recognit challenge,” ijcv, vol. 115, no. 3, pp. 211–252, 
+2015. 
+
+[32] A. vedaldi and K. lenc, “matconvnet – convolut neu- 
+ral network for matlab,” in proceed of the acm int. 
+conf. on multimedia, 2015. 
+
+[33] Y. jia, E. shelhamer, J. donahue, S. karayev, J. long, R. gir- 
+shick, S. guadarrama, and T. darrell, “caffe: convolut 
+architectur for fast featur embedding,” arxiv preprint 
+arxiv:1408.5093, 2014. 
+
+[34] R. collobert, K. kavukcuoglu, and C. farabet, “torch7: A 
+matlab-lik environ for machin learning,” in biglearn, 
+nip workshop, 2011. 
+
+http://eyeriss.mit.edu/energy.html 
+http://eyeriss.mit.edu/energy.html 
+
+1 . introduct 
+2 . energi estim methodolog 
+2.1 . background and motiv 
+2.2 . methodolog 
+2.3 . potenti impact 
+
+3 . cnn pruning: relat work 
+4 . energy-awar prune 
+4.1 . determin order of layer base on energi 
+4.2 . remov weight base on magnitud 
+4.3 . restor weight to reduc output error 
+4.4 . local fine-tun weight 
+4.5 . global fine-tun weight 
+
+5 . experi result 
+5.1 . prune method evalu 
+5.2 . energi consumpt analysi 
+5.3 . number of target class reduct 
+
+6 . conclus 
+

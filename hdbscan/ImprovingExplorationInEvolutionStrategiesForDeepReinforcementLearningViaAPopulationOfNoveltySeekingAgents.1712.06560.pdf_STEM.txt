@@ -1,0 +1,1634 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+improv explor in evolut strategi for deep reinforc learn via a popul of novelty-seek agent 
+
+
+improv explor in evolut strategi for deep reinforc 
+learn via a popul of novelty-seek agent 
+
+edoardo conti* vashisht madhavan* felip petroski such joel lehman kenneth O. stanley jeff clune 
+
+uber AI lab 
+{edoardo, vashisht, jeffclune}@uber.com 
+
+abstract 
+
+evolut strategi (es) be a famili of black- 
+box optim algorithm abl to train deep 
+neural network roughli a well a q-learn 
+and polici gradient method on challeng deep 
+reinforc learn (rl) problems, but be 
+much faster (e.g. hour vs. days) becaus they 
+parallel better. however, mani RL problem 
+requir direct explor becaus they have 
+reward function that be spars or decept (i.e. 
+contain local optima), and it be not know how 
+to encourag such explor with es. here we 
+show that algorithm that have be invent 
+to promot direct explor in small-scal 
+evolv neural network via popul of ex- 
+plore agents, specif novelti search (ns) 
+and qualiti divers (qd) algorithms, can be hy- 
+bridiz with ES to improv it perform on 
+spars or decept deep RL tasks, while retain- 
+ing scalability. our experi confirm that the 
+result new algorithms, ns-e and a version 
+of QD we call nsr-es, avoid local optimum en- 
+counter by ES to achiev high perform 
+on task rang from play atari to simul 
+robot learn to walk around a decept trap. 
+thi paper thu introduc a famili of fast, scal- 
+abl algorithm for reinforc learn that 
+be capabl of direct exploration. It also add 
+thi new famili of explor algorithm to the 
+RL toolbox and rais the interest possibl 
+that analog algorithm with multipl simulta- 
+neou path of explor might also combin 
+well with exist RL algorithm outsid es. 
+
+*both author contribut equal to thi work. 
+
+1. introduct 
+In rl, an agent tri to learn to perform a sequenc of 
+action in an environ that maxim some notion of 
+cumul reward (sutton & barto, 1998). however, re- 
+ward function be often deceptive, and sole optim 
+for reward without some mechan to encourag intelli- 
+gent explor can lead to get stuck in local optimum 
+and the agent fail to properli learn (liepin & vose, 
+1990; lehman & stanley, 2011a; sutton & barto, 1998). 
+unlik in supervis learn with deep neural network 
+(dnns), wherein local optimum be not thought to be a prob- 
+lem (kawaguchi, 2016; dauphin et al., 2014), the train 
+data in RL be determin by the action an agent takes. If 
+the agent greedili take action that maxim reward, the 
+train data for the algorithm will be limit and it may 
+not discov altern strategi with larg payoff (i.e. 
+it can get stuck in local optima) (liepin & vose, 1990; 
+lehman & stanley, 2011a; sutton & barto, 1998). spars 
+reward signal can also be a problem for algorithm that 
+onli maxim reward, becaus at time there may be no 
+reward gradient to follow. the possibl of decept 
+and or sparsiti in the reward signal motiv the need for 
+effici and direct exploration, in which an agent be mo- 
+tivat to visit unexplor state in order to learn to accu- 
+mulat high rewards. although deep RL algorithm have 
+perform amaz feat in recent year (mnih et al., 2015; 
+2016; schulman et al., 2015), they have mostli do so 
+despit reli on simple, undirect (aka dithering) ex- 
+plorat strategies, in which an agent hope to explor 
+new area of it environ by take random action (e.g. 
+epsilon-greedi exploration) (sutton & barto, 1998). 
+
+A number of method have be propos to promot di- 
+rect explor in RL (schmidhuber, 2010; oudey & 
+kaplan, 2009), includ recent method that handl high- 
+dimension state space with deep neural networks. A 
+common idea be to encourag an agent to visit state it have 
+rare or never visit (or take novel action in those states). 
+method propos to track how often state or state-act 
+pair have be visit includ (1) approxim state vis- 
+itat count base on either auto-encod latent code of 
+
+ar 
+X 
+
+iv 
+:1 
+
+71 
+2. 
+
+06 
+56 
+
+0v 
+1 
+
+[ 
+c 
+
+.A 
+I] 
+
+1 
+8 
+
+D 
+ec 
+
+2 
+01 
+
+7 
+
+
+
+state (tang et al., 2017) or pseudo-count from state-spac 
+densiti model (bellemar et al., 2016; ostrovski et al., 
+2017), (2) learn a dynam model that predict futur 
+state (assum predict will be bad for rare vis- 
+ite states/state-act pairs) (stadi et al., 2015; houthooft 
+et al., 2016; pathak et al., 2017), and (3) method base on 
+compress (novel state should be harder to compress) 
+(schmidhuber, 2010). 
+
+those method all count each state separately. A differ 
+approach to be to hand-design (or learn) an abstract, holist 
+descript of the overal behavior of an agent throughout 
+it lifetime, and then encourag the agent to exhibit dif- 
+ferent behavior from those it have previous performed. 
+that be the approach of novelti search (lehman & stanley, 
+2011a) and qualiti divers algorithm (culli et al., 2015; 
+mouret & clune, 2015; pugh et al., 2016), which be de- 
+scribe in detail below. here we hybrid such algorithm 
+with ES and demonstr that they do improv explor 
+on hard deep RL problems, and do so without sacrific 
+the speed/scal benefit of es. 
+
+there be anoth interest differ between the other 
+explor method mention previous and the ns/qd 
+famili of algorithms. We do not investig the benefit 
+of thi differ experiment in thi paper, but they 
+be one reason we be interest in ns/qd a an explo- 
+ration method for rl. one common among the previ- 
+ou method be that the explor be perform by a singl 
+agent, a choic that have interest consequ for learn- 
+ing. To illustr these consequences, we borrow an exam- 
+ple from stanton & clune (2016). imagin a cross-shap 
+maze (si sec. 6.2) where to go in each cardin direct 
+an agent must master a differ skill (e.g. go north re- 
+quir learn to swim, west requir climb mountains, 
+east requir walk on sand, and south requir walk 
+on ice). assum reward may or may not exist at the end 
+of each corridor, so all corridor need to be explored. A 
+singl agent have two extrem options, either a depth-first 
+search that serial learn to go to the end of each corridor, 
+or a breadth-first search that go a bit further in one direc- 
+tion, then come back to the center and go a bit further in 
+anoth direction, etc. either way, to get to the end of each 
+hallway, the agent will have to at least have travers each 
+hallway onc and thu will have to learn all four set of 
+skills. with the breadth-first option, all four skillset must 
+be mastered, but a much longer total distanc be traveled. 
+
+In both cases, anoth problem aris because, despit re- 
+cent progress (kirkpatrick et al., 2017; velez & clune, 
+2017), neural network still suffer from catastroph for- 
+getting, mean that a they learn new skill they rapidli 
+lose the abil to perform previous learn one (french, 
+1999). due to catastroph forgetting, at the end of learn- 
+ing there will be an agent special in one of the skill 
+
+(e.g. swimming), but all of the other skill will have be 
+lost. furthermore, if ani amount of the breadth-first search 
+strategi be employed, explor each branch a bit further 
+will requir relearn that skill mostli from scratch each 
+iteration, significantli slow exploration. even if catas- 
+trophic forget could be solved, there may be limit on 
+the cognit capac of singl agent (a occur in hu- 
+mans), prevent one agent from master all possibl 
+skills. 
+
+A differ approach be to explor with a popul of 
+agents. In that case, separ agent could becom expert 
+in the separ task requir to explor in each direction. 
+that may speed learn becaus each agent can, in paral- 
+lel, learn onli the skill requir for it corridor. addition- 
+ally, at the end of explor a specialist will exist with 
+each distinct skill (versu onli one skill remain in the 
+single-ag case). the result popul of specialists, 
+each with a differ skill or way of solv a problem, can 
+then be har by other machin learn algorithm 
+that effici search through the repertoir of specialist 
+to find the skill or behavior need in a particular situa- 
+tion (culli et al., 2015; culli & mouret, 2013). the skill 
+of each specialist (in ani combin or number) could 
+also then be combin in to a singl generalist via polici 
+distil (rusu et al., 2015). A further benefit of the 
+population-bas approach is, when combin explor 
+with some notion of qualiti (e.g. maxim reward), a 
+popul can tri out mani differ strategies/direct 
+and, onc one or a few be found to be promising, the algo- 
+rithm can realloc resourc to pursu the most promis 
+directions. the point be not that population-bas explo- 
+ration method be good or bad than single-ag explo- 
+ration method (when hold comput constant), but 
+instead that they be a differ option with differ ca- 
+pabilities, pros, and cons, and be thu worth investigat- 
+ing (stanton & clune, 2016). support thi view, recent 
+work have demonstr the benefit of popul for deep 
+learn (jaderberg et al., 2017; miikkulainen et al., 2017). 
+
+novelti search and qualiti divers have show promis 
+with small neural network on problem with low- 
+dimension input and output space (lehman & stanley, 
+2011c; culli et al., 2015; mouret & clune, 2015; pugh 
+et al., 2016; velez & clune, 2014; huizinga et al., 2016). 
+In thi paper, for the first time, we studi how these two 
+type of algorithm can be hybrid with ES in order to 
+scale them to deep neural network and thu tackl hard, 
+high-dimension deep reinforc learn problems. 
+We first studi an algorithm call novelti search (ns) 
+(lehman & stanley, 2011a), which perform explor 
+onli (ignor the reward function) to find a set of novel so- 
+lutions. We then investig an algorithm that balanc ex- 
+plorat and exploitation, specif a novel instanc of 
+a qualiti divers (qd) algorithm, which seek to produc 
+
+
+
+a set of solut that be both novel and high-perform 
+(lehman & stanley, 2011c; culli et al., 2015; mouret & 
+clune, 2015; pugh et al., 2016). both NS and QD be ex- 
+plain in detail in sec. 3. 
+
+ES directli search in in the paramet space of a neural 
+network to find an effect policy. A team from openai 
+recent show that ES can achiev competit perfor- 
+manc on mani reinforc learn (rl) task while 
+offer some uniqu benefit over tradit gradient- 
+base RL method (saliman et al., 2017). most no- 
+tably, ES be highli parallelizable, which enabl near linear 
+speedup in runtim a a function of cpu/gpu workers. 
+for example, with hundr of parallel cpus, ES be abl 
+to abl to achiev roughli the same perform on atari 
+game with the same dnn architectur in 1 hour a a3c 
+do in 24 hour (saliman et al., 2017). In thi paper, we 
+investig add NS and QD to ES only; in futur work, 
+we will investig how they might be hybrid with Q- 
+learn and polici gradient methods. We start with ES 
+becaus (1) it fast wall-clock time allow rapid experimen- 
+tal iteration, (2) NS and QD be origin develop a 
+neuroevolut methods, make it natur to tri them first 
+with es, which be also an evolutionari algorithm, (3) it be 
+more straightforward to integr population-bas explo- 
+ration with ES than with q-learning, and (4) our team be 
+most familiar with the NS and QD famili of explor 
+algorithm than the method that treat each state separately. 
+
+here we test whether encourag novelti via NS and QD 
+improv the perform of ES on spars and/or decep- 
+tive control tasks. our experi confirm that ns-e 
+and a simpl of version of qd-e (call nsr-es) avoid 
+local optimum encount by ES and achiev high per- 
+formanc on task rang from simul robot learn 
+to walk around a decept trap to the high-dimension 
+pixel-to-act task of play atari games. our result add 
+these new famili of explor algorithm to the RL tool- 
+box, open up avenu for studi how they can best be 
+combin with RL algorithms, whether ES or others, and 
+compar these new type of population-bas explor 
+method to tradit ones. 
+
+2. background 
+2.1. evolut strategi 
+
+evolut strategi (es) be a class of black box optimiza- 
+tion algorithm inspir by natur evolut (rechenberg, 
+1978): At everi iter (generation), a popul of pa- 
+ramet vector (genomes) be perturb (mutated) and, op- 
+tionally, recombin (merged) via crossover. the reward 
+(fitness) of each result offspr be then evalu ac- 
+cord to some object function. some form of selec- 
+tion then ensur that individu with high reward tend to 
+
+produc the individu in the next generation, and the cy- 
+cle repeats. mani algorithm in the ES class differ in their 
+represent of the popul and method of recombi- 
+nation; the algorithm subsequ refer to in thi work 
+belong to the class of natur evolut strategi (nes) 
+(wierstra et al., 2008; sehnk et al., 2010). ne repres 
+the popul a a distribut of paramet vector θ char- 
+acter by paramet φ: pφ(θ). under a fit function, 
+f(θ), ne seek to maxim the averag fit of the 
+population, eθ∼pφ [f(θ)], by optim φ with stochast 
+gradient ascent. 
+
+recent work from openai outlin a version of ne ap- 
+pli to standard RL benchmark problem (saliman et al., 
+2017). We will refer to thi variant simpli a ES go 
+forward. In their work, a fit function f(θ) repres 
+the stochast reward experienc over a full episod of 
+agent interaction, where θ be the paramet of a polici πθ. 
+the popul distribut pφt be an isotrop multivari 
+gaussian with mean θt, the paramet vector at iter t, 
+and covari σ2i (i.e. N (θt, σ2i)). from the distribu- 
+tion, paramet θit ∼ N (θt, σ2i) be sampl and their 
+correspond polici πθit be evalu to obtain a reward 
+f(θit). In a manner similar to reinforc (williams, 
+1992), the approxim gradient of expect reward with 
+respect to θt can be found with the gradient estimator: 
+
+∇φeθ∼φ[f(θ)] ≈ 
+1 
+
+n 
+
+n∑ 
+i=1 
+
+f(θit)∇φ log pφ(θit) 
+
+where n be the number of sampl evalu per generation. 
+intuitively, ne sampl paramet in the neighborhood 
+of θt and determin the direct in which θt should move 
+to improv expect reward. instead of a baseline, ne 
+reli on a larg number of sampl n to reduc the varianc 
+of the gradient estimator. generally, ne evolv both the 
+mean and covari of the popul distribution, but for 
+the sake of fair comparison with saliman et al. (2017) we 
+consid onli static covari distributions, mean σ be 
+fix throughout training. 
+
+To simplifi the optim process, saliman et al. (2017) 
+reformul sampl from the popul distribut a 
+appli addit gaussian nois to the current paramet 
+vector : θit = θt + σ�i where �i ∼ N (0, i). the gradient 
+estim can then be found by take a sum of sampl 
+paramet perturb weight by their reward: 
+
+∇θte�∼n (0, i)[f(θt + σ�)] ≈ 
+1 
+
+nσ 
+
+n∑ 
+i=1 
+
+f(θit)�i 
+
+To ensur that the scale of reward between domain do 
+not bia the optim process, we follow the approach 
+of saliman et al. (2017) and rank-norm f(θit) befor 
+take the weight sum. overall, thi ne variant by sal- 
+
+
+
+iman et al. (2017) exhibit perform on par with con- 
+temporary, gradient-bas algorithm when appli to dif- 
+ficult RL domains, includ simul robot locomot 
+and atari 2600 (bellemar et al., 2013) environments. 
+
+2.2. novelti search (ns) 
+
+optim for reward onli can often lead an agent to local 
+optima. ns, however, avoid decept in the reward signal 
+by ignor reward altogether. inspir by nature’ drive 
+toward diversity, NS encourag polici to engag in no- 
+tabli differ behavior than those previous seen. the 
+algorithm encourag differ behavior by comput the 
+novelti of the current polici with respect to previous gen- 
+erat polici and then encourag the popul distri- 
+bution to move toward area of paramet space with high 
+novelty. NS outperform reward-bas method in maze 
+and bipe walk domains, which poss decept re- 
+ward signal that attract agent to local optimum (lehman & 
+stanley, 2011a). In thi work, investig the efficaci of NS 
+at the scale of dnn by combin it with es. In a com- 
+panion paper, we investig NS at dnn scale evolv 
+with a simpl GA instead of via ES (petroski such et al., 
+2017). 
+
+In ns, a polici π be assign a domain-depend behav- 
+ior character b(π) that describ it behavior. for 
+example, in the case of a humanoid locomot problem, 
+b(π) may be a simpl a a two-dimension vector con- 
+tain the humanoid’ final {x, y} location. throughout 
+training, everi πθ evalu add a behavior characteriza- 
+tion b(πθ) to an archiv set A with some probability. A 
+particular policy’ novelti n(b(πθ), A) be then comput 
+by select the k-nearest neighbor of b(πθ) from A and 
+comput the averag distanc between them: 
+
+n(θ,a) = n(b(πθ), A) = 
+1 
+
+|s| 
+∑ 
+j∈ 
+||b(πθ)− b(πj)||2 
+
+S = knn(b(πθ), A) 
+
+= {b(π1), b(π2), ..., b(πk)} 
+
+above, the distanc between behavior character be 
+calcul with an l2-norm, but an arbitrari distanc func- 
+tion can be substituted. 
+
+previously, NS have be implement with a genet algo- 
+rithm (lehman & stanley, 2011a). the next section ex- 
+plain how NS can now be combin with es, to leverag 
+the advantag of both algorithms. 
+
+3. method 
+3.1. ns-e 
+
+We use the ES optim framework, describ in 
+sec. 2.1, to comput and follow the gradient of expect 
+
+novelti with respect to θt. given an archiv A and sam- 
+plead paramet θit = θt+σ�i, the gradient estim can be 
+computed: 
+
+∇θte�∼n (0, i)[n(θt + σ�,a)|a] ≈ 
+1 
+
+nσ 
+
+n∑ 
+i=1 
+
+n(θit, a)�i 
+
+the gradient estim obtain tell u how to chang the 
+current policy’ paramet θt to increas the averag nov- 
+elti of our paramet distribution. We condit the gradi- 
+ent estim on A, a the archiv be fix at the begin of 
+a give iter and updat onli at the end. We add onli 
+the behavior character correspond to each θt, a 
+add those for each sampl θit would inflat the archiv 
+and slow the nearest-neighbor computation. As more be- 
+havior character be add to A, the novelti land- 
+scape changes, result in commonli occur behavior 
+becom “boring”. optim for expect novelti lead 
+to polici that move toward unexplor area of behavior 
+space. 
+
+ns-e could oper with a singl agent that be reward 
+for act differ than it ancestors. however, to 
+encourag addit divers and get the benefit of 
+population-bas explor describ in sec. 1, we can 
+instead creat a popul of M agents, which we will re- 
+fer to a the meta-population. each agent, character 
+by a uniqu θm, be reward for be differ from all 
+prior agent in the archiv (ancestors, other agents, and the 
+ancestor of other agents). In thi paper, we have multi- 
+ple agent in the meta-popul of our experi (i.e. 
+M > 1) becaus we thought it would help, but we do 
+not conduct a thorough analysi on how vari thi hyper- 
+paramet affect perform on differ domains. We 
+hypothes that the select of M be domain depend 
+and that identifi which domain favor which regim be 
+a fruit area for futur research. 
+
+We initi M random paramet vector and at everi 
+iter select one to update. for our experiments, we 
+probabilist select which θm to advanc from a dis- 
+crete probabl distribut a a function of θm’ novelty. 
+specifically, at everi iteration, for a set of agent paramet 
+vector Π = {θ1, θ2, ..., θm}, we calcul each θm’ prob- 
+abil of be select P (θm) a it novelti normal 
+by the sum of novelti across all policies: 
+
+P (θm) = 
+n(θm, a)∑m 
+j=1n(θ 
+
+j , A) 
+(1) 
+
+have multiple, separ agent repres a indepen- 
+dent gaussian be a simpl choic for the meta-popul 
+distribut (i.e. how the meta-popul distribut be 
+represented). In futur work, more complex sampl 
+distribut that repres the multi-mod natur of 
+meta-popul paramet vector could be tried. 
+
+
+
+after select a certain individu m from the meta- 
+population, we comput the gradient of expect novelti 
+with respect to m’ current paramet vector, θmt , and per- 
+form an updat step accordingly: 
+
+θmt+1 ← θmt + α 
+1 
+
+nσ 
+
+n∑ 
+i=1 
+
+n(θi,mt , a)�i 
+
+where n be the number of sampl perturb to θmt , α 
+be the stepsize, and θi,mi = θ 
+
+m 
+t + σ�i, where �i ∼ N (0, i). 
+
+onc the current paramet vector be updated, b(πθmt+1) be 
+comput and add to the share archiv A with proba- 
+biliti 1. the whole process be repeat for a pre-specifi 
+number of iterations, a there be no true converg point 
+of ns. In thi work, the algorithm simpli return the 
+highest-perform paramet vector found. algorithm 1 
+in SI sec. 6.3 outlin a simple, parallel implement 
+of ns-es. It be import to note that the addit of the 
+archiv and the replac of the fit function with 
+novelti do not damag the scalabl of the ES optimiza- 
+tion procedur (si sec. 6.4). 
+
+3.2. A qd-e algorithm: nsr-e 
+
+ns-e alon can enabl agent to avoid decept local op- 
+tima in the reward function. reward signals, however, be 
+still veri inform and discard them complet may 
+caus perform to suffer. consequently, we train a vari- 
+ant of ns-es, which we call nsr-es, that combin the 
+reward (“fitness”) and novelti calcul for a give set of 
+polici paramet θ. similar to ns-e and es, nsr-e 
+oper on entir episod and can thu evalu reward 
+and novelti simultan for ani sampl paramet vec- 
+tor: θi,mt = θ 
+
+m 
+t + �i. specifically, we comput f(θ 
+
+i,m 
+t ) and 
+
+n(θi,mt , a), averag the two values, and set the averag a 
+the weight for the correspond �i. the averag process 
+be integr into the paramet updat rule a 
+
+θmt+1 ← θmt + α 
+1 
+
+nσ 
+
+n∑ 
+i=1 
+
+f(θi,mt ) +n(θ 
+i,m 
+t , A) 
+
+2 
+�i 
+
+intuitively, the algorithm hill-climb in parameter-spac 
+toward polici that both exhibit novel behavior and 
+achiev high rewards. often, however, the scale of f(θ) 
+and n(θ,a) differ. To combin the two signal effectively, 
+we rank-norm f(θi,mt ) and n(θ 
+
+i,m 
+t , A) independ 
+
+befor comput the average. 
+
+averag f(θi,mt ) and n(θ 
+i,m 
+t , A) be a rel simpl 
+
+way of encourag both qualiti and diversity. more in- 
+tricat method of combin the two desiderata, includ 
+simpl weight averaging, be left for futur work. 
+
+here we do not take advantag of the entir set of diverse, 
+high-perform individuals, but instead the algorithm sim- 
+pli return the best paramet vector found. thi work be 
+
+thu a preliminari step in appli QD algorithm to com- 
+mon deep RL benchmarks. further research may investi- 
+gate more sophist QD methods. SI sec. 6.3 provid 
+pseudocod for nsr-es. In the future, we plan to releas 
+sourc code and hyperparamet configur for all of 
+our experiments. 
+
+4. experi 
+4.1. simul humanoid locomot problem 
+
+We first test our implement of ns-e and nsr-e 
+on the problem of have a simul humanoid learn to 
+walk. We chose thi problem becaus it be a challeng 
+continu control deep reinforc learn benchmark 
+where most would presum a reward function be necessari 
+to solv the problem. with ns-es, we test whether search- 
+ing through novelti alon can find solut to the problem. 
+A similar result have be show for much small neural 
+network (∼50-100 parameters) on a more simpl simu- 
+late bipe (lehman & stanley, 2011c), but here we test 
+whether ns-e can enabl the same result at the scale of 
+deep neural networks. nsr-e experi test the effec- 
+tive of combin explor and reward pressur on 
+thi difficult continu control problem. 
+
+specifically, the domain be the mujoco humanoid-v1 en- 
+viron in openai gym (brockman et al., 2016). In it, a 
+humanoid robot receiv a scalar reward compos of four 
+compon per timestep. the robot get posit reward 
+for stand and veloc in the posit x direction, and 
+neg reward for ground impact energi and energi ex- 
+pended. these four compon be sum across everi 
+timestep in an episod to get the total reward. follow 
+the neural network architectur outlin by saliman et al. 
+(2017), the neural network be a multilay perceptron with 
+two hidden layer contain 256 neuron each, result in 
+a network with 166.7k parameters. while small especi 
+in the number of layers) compar to mani deep RL ar- 
+chitectures, thi network be still order of magnitud larg 
+than what NS have be tri with before. We also test NS 
+with a 1m+ paramet network (sec. 4.2). the input to 
+the network be the observ space from the environment, 
+which be a vector ∈ r376 repres the state of the hu- 
+manoid (e.g. joint angles, velocities) and the output of the 
+network be a vector of motor command ∈ r17 (brockman 
+et al., 2016). complet train detail and hyperparame- 
+ter be in SI sec. 6.6. 
+
+the first experi compar es, ns-es, and nsr-e on 
+a slightli modifi version of openai gym’ humanoid- 
+v1 environment. becaus the heart of thi challeng be to 
+learn to walk efficiently, not to walk in a particular direc- 
+tion, we modifi the environ reward to be indiffer- 
+ent to the direct the humanoid traveled. specifically, 
+
+
+
+figur 1. the humanoid locomot problem. In the default 
+humanoid-v1 environment, a simul robot learn to walk in 
+an open environ with no wall (left). We creat the hu- 
+manoid locomot with decept trap problem (right) to test 
+algorithm in an RL domain with a clear local optimum. the 
+agent receiv more reward the further it walk in the direct of 
+the trap (the small enclosure). algorithm that do not suffici 
+explor may walk into the trap and get stuck, while algorithm 
+that suffici encourag explor over exploit can avoid 
+the trap. 
+
+the modifi reward function be isotrop (i.e. the veloc 
+compon of reward be base on distanc travel from 
+the origin a oppos to distanc travel in the posit x 
+direction). 
+
+As describ in section 2.2, novelti search requir a 
+domain-specif behavior character of each polici 
+b(πθi). for the humanoid locomot problem the BC 
+be the agent’ final {x, y} location, a it be in lehman 
+& stanley (2011c). In addit to a behavior character- 
+ization, NS also requir a distanc function between two 
+behavior characterizations. follow lehman & stanley 
+2011 (lehman & stanley, 2011c), the distanc function be 
+the squar of the euclidean distanc between two bcs: 
+
+dist(b(πθi), b(πθj )) = (||(bt(πθi))− bt(πθj ))||2)2 
+
+the first result be that ES obtain a high final reward than 
+ns-e (p < 0.05) and nsr-e (p < 0.05; these and all 
+futur p valu be via a mann-whitney U test). it perfor- 
+manc gap be even more pronounc for small amount 
+of comput (fig. 2). however, mani will be surpris 
+that ns-e be still abl to consist solv the problem 
+despit ignor the environment’ multi-part reward func- 
+tion. while the BC be align (pugh et al., 2015) with 
+the problem in that reach new {x, y} posit tend to 
+also encourag walking, there be mani part of the reward 
+function for which the BC do not obvious help (e.g. 
+energy-efficient, low-impact locomotion). 
+
+We hypothes that with a sophist BC that encour- 
+age divers in all of the behavior the multi-part re- 
+ward function care about, there would be no perform 
+gap. however, such a BC may be difficult to construct and 
+would like further exagger the amount of comput 
+requir for NS to match es. nsr-e demonstr faster 
+learn than ns-e due to the addit of reward pressure, 
+but ultim result in similar final perform after 600 
+
+gener (p > .05) (fig. 2). 
+
+figur 2. although slow than es, ns-e and nsr-e arriv 
+at competit solut on average. while ES outperform ns- 
+ES and nsr-es, it be interest how well ns-e do give that 
+it ignor the reward function. the addit of the reward pres- 
+sure help nsr-e perform much good earli than ns-e and 
+to do so with low variance. overal all three algorithm learn 
+competit solut to the problem in that they learn to walk 
+quickly. here and in similar figur below, the median reward (of 
+the best see polici so far) per gener across 10 run be plot- 
+ted a the bold line with 95% bootstrap confid interv of 
+the median (shaded). polici perform be measur a averag 
+perform over ∼30 stochast evaluations. 
+
+the humanoid locomot problem do not appear to be 
+a decept problem, at least for es. To test whether ns-e 
+and nsr-e specif help with deception, we also com- 
+pare ES to these algorithm on a variant of thi environ 
+we creat that add a decept trap (a local optimum) that 
+must be avoid for maximum perform (fig. 1, right). 
+In thi new environment, a small three-sid enclosur be 
+place at a short distanc in front of the start posit 
+of the humanoid and the reward function be simpli distanc 
+travel in the posit x direction. 
+
+fig. 4 and tabl 6.7 show the reward receiv by each al- 
+gorithm, and fig. 3 show how the algorithm differ qual- 
+it dure search on thi problem. In everi run, ES 
+get stuck in the local optimum due to follow reward 
+into the decept trap. ns-e be abl to avoid the lo- 
+cal optimum a it ignor reward complet and instead 
+seek to thoroughli explor the environment, but do so 
+also mean it make slow progress accord to the reward 
+function. nsr-e demonstr superior perform to 
+ns-e (p < 0.01) and ES (p < 0.01) a it benefit from 
+both optim for reward and escap the trap via the 
+pressur for novelty. 
+
+fig. 3 also show the benefit of maintain a meta- 
+popul (M = 5) in the ns-e and nsr-e algorithms. 
+some lineag get stuck in the decept trap, incentiv 
+other polici to explor around the trap. At that point, ns- 
+
+
+
+ES and nsr-e begin to alloc more comput re- 
+sourc to thi newli discovered, more promis strategi 
+via the probabilist select method outlin in sec. 3.1. 
+both the novelti pressur and have a meta-popul 
+thu appear to be useful, but in futur work we look to dis- 
+ambigu the rel contribut make by each. 
+
+figur 3. ES get stuck in the decept local optimum while 
+ns-e & nsr-e explor to find good solutions. An over- 
+head view of a repres run be show for each algorithm 
+on the humanoid locomot with decept trap problem. the 
+black star repres the humanoid’ start point. each diamond 
+repres the final locat of a generation’ mean policy, i.e. 
+π(θt), with darker shade for late generations. for ns-e & 
+nsr-e plots, each of the M = 5 agent in the meta-popul 
+and it descend be repres by differ colors. with es, 
+the humanoid walk into the decept trap and never learn to 
+navig around it. ns-e explor the solut space much more 
+than ES and achiev a high reward, but wast signific com- 
+putat explor in low and neg reward area to the left 
+of the origin. nsr-e have the best perform out of all 3 al- 
+gorithm (fig. 4). It gener walk in the direct indic 
+by the reward function, includ walk into the trap, but it 
+explor pressur help it discov other, good solut that 
+involv walk around the trap. similar plot for all 10 run of 
+each algorithm be provid in si. 6.9. 
+
+4.2. atari 
+
+We also test ns-e and nsr-e on numer game 
+from the atari 2600 environ in openai gym (brock- 
+man et al., 2016). atari game serv a an inform 
+benchmark due to their high-dimension pixel input and 
+complex control dynamics; each game also requir differ- 
+ent level of explor to solve. To demonstr the effec- 
+tive of ns-e and nsr-e for local optimum avoid 
+
+figur 4. nsr-e and ns-e outperform ES on the hu- 
+manoid locomot with decept trap problem. ES walk 
+into the trap and, becaus it have no explor pressure, get 
+trap there indefinitely. ns-e outperform ES a it avoid the 
+local optimum, but requir signific comput to do so be- 
+caus it complet ignor the reward. nsr-e show the best 
+performance, demonstr the valu of reward both explo- 
+ration and performance. 
+
+and direct exploration, we test on 12 differ game 
+with vari level of complexity, a defin by the tax- 
+onomi in (bellemar et al., 2016). primarily, we focu 
+on game in which, dure preliminari experiments, we 
+observ that our implement of ES prematur con- 
+verg to local optimum (seaquest, q*bert, freeway, frost- 
+bite, and beam rider). however, we also includ a few 
+other game where ES do not converg to local optimum 
+to understand the perform of our algorithm in less- 
+decept domain (alien, amidar, bank heist, breakout, 
+gravitar, zaxxon, and montezuma’ revenge). sinc we 
+be uncertain a to whether other paper report the averag 
+reward of the best singl polici found by an algorithm in 
+ani run, or the median reward across r independ run 
+of the best polici found in each run, we report both (see 
+tabl 1 and tabl 2) 
+
+As in mnih et al. (2016), data preprocess follow mnih 
+et al. (2015) and the network architectur be from mnih 
+et al. (2013). each algorithm be evalu over 5 separ 
+runs. In thi domain ns-e and nsr-e have three meta- 
+popul agent (i.e. M = 3), a each algorithm train 
+for few gener than in the humanoid locomot 
+task. We lower M becaus the atari network be much 
+larg and thu each gener be more comput 
+expensive. A low M enabl more gener to occur 
+in training. 
+
+for the behavior characterization, we follow an idea from 
+naddaf (2010) and concaten atari game ram state for 
+each timestep in an episode. ram state in atari 2600 
+game be integer-valu vector of length 128 in the rang 
+
+
+
+[0, 255] that describ all the state variabl in a game (e.g. 
+the locat of the agent and enemies). ultimately, we want 
+to automat learn behavior character directli 
+from pixels. A plethora of recent research suggest that be 
+a viabl approach (lang & riedmiller, 2010; kingma & 
+welling, 2013; bellemar et al., 2016). for example, low- 
+dimensional, latent represent of the state space could 
+be extract from auto-encod (tang et al., 2017; van den 
+oord et al., 2016) or network train to predict futur 
+state (pathak et al., 2017; stadi et al., 2015). In thi work, 
+however, we focu on learn with a pre-defined, informa- 
+tive behavior character and leav the task of jointli 
+learn a polici and latent represent of state for fu- 
+ture work. In effect, base novelti on ram state pro- 
+vide a confirm of what be possibl in principl with 
+a suffici inform behavior characterization. We also 
+emphas that, while dure train ns-e and nsr-e 
+use ram state to guid novelti search, the polici itself, 
+πθt , oper onli on imag input and can be evalu 
+without ani ram state information. the distanc between 
+behavior character be the sum of l2-distanc at 
+each timestep k: 
+
+dist(b(πθi), b(πθj )) = 
+
+K∑ 
+k=1 
+
+||(bt(πθi))− bt(πθj ))||2 
+
+tabl 1 and tabl 2 compar the perform of the algo- 
+rithms. while the novelti pressur in ns-e do help it 
+avoid local optimum in some case (discuss below), opti- 
+mize for novelti onli do not result in high reward in 
+most game (although it do in some). however, it be sur- 
+prise how well ns-e do in mani task give that it be 
+not explicitli attempt to increas reward. 
+
+becaus nsr-e combin explor with reward maxi- 
+mization, it be abl to avoid local optimum encount by ES 
+while also learn to play the game well. In each of the 5 
+game in which we observ ES converg to prematur lo- 
+cal optimum (i.e. seaquest, q*bert, freeway, beam rider, 
+frostbite), nsr-e achiev a high median reward. ns- 
+ES also tend to outperform ES in these games. In the 
+other games, ES do not benefit from add an explo- 
+ration pressur and nsr-e perform worse. It be expect 
+that if there be no local optimum and reward maxim 
+be suffici to perform well, the extra cost of encourag 
+explor will hurt performance. We hypothes that be 
+what be occur with these games. We note that all con- 
+clusion be premature, however, a we do not gather larg 
+enough sampl size in the atari domain to test whether 
+these perform differ between algorithm on each 
+game be statist significant. 
+
+In the game seaquest, the avoid of local optimum be 
+particularli evident, a highlight in fig. 5. ES perfor- 
+manc flatlin earli at a median reward of 960, which 
+
+correspond to a behavior of the agent descend to the 
+bottom, shoot fish, and never come up for air. thi 
+strategi repres a classic local optima, a come up for 
+air requir temporarili forego reward, but enabl far 
+high reward to be earn in the long run. ns-e learn 
+to come up for air in all 5 run and achiev a significantli 
+high median reward of 1044.5 (p < 0.05). nsr-e also 
+avoid thi local optima, but it addit reward signal 
+help it play the game good (e.g. it be good at shoot en- 
+emies), result in a much high median reward of 2329.7 
+(p < 0.01). our experiment result for ES on seaquest 
+differ from those of the blog post associ with saliman 
+et al. (2017), a it report agent learn to come up for air 
+(our hyperparamet be differ than theirs). however, 
+our point be not about thi particular local optima, but that 
+ES without explor can get stuck indefinit on some 
+local optimum and that novelty-driven explor can help it 
+get unstuck. 
+
+the atari result illustr that NS be an effect mech- 
+anism for encourag direct exploration, give an ap- 
+propriat behavior characterization, for complex, high- 
+dimension control tasks. A novelti pressur alon pro- 
+duce impress perform on mani games, sometim 
+even beat es. combin novelti and reward perform 
+far better, and improv ES perform on task where 
+it appear to get stuck on local optima. that be said, 
+add a novelti pressur be not alway advantageous, es- 
+pecial when reward alon be sufficient. 
+
+game ES ns-e nsr-e 
+
+alien 4914.0 1600.0 2472.5 
+amidar 462.0 168.7 255.8 
+bank heist 230.0 110.0 213.0 
+beam rider† 815.2 900.0 823.6 
+breakout 13.5 10.8 124.3 
+freeway† 31.8 22.7 33.4 
+frostbite† 440.0 252.0 3326.0 
+gravitar 1035.0 815.0 920.0 
+montezuma’ reveng 0.0 0.0 0.0 
+q*bert† 1425.0 10075.0 4160.0 
+seaquest† 960.0 1615.0 2672.0 
+zaxxon 11720.0 3810.0 7690.0 
+
+tabl 1. atari 2600 reward of the high perform polici 
+found by each algorithm in ani run. score be the mean over 
+10 stochast polici evaluations, each of which have up to 30 ran- 
+dom, initi no-oper actions. tabl 2 show result averag 
+across runs. game with a † be those in which we observ ES 
+to converg prematurely, presum due to it encount local 
+optima. 
+
+
+
+figur 5. avoid of local optimum in seaquest. with our hy- 
+perparamet configuration, ES converg to a local optimum it 
+never escap from, which involv not come up for air. It never 
+discov that temporarili forsak reward to surfac for air ulti- 
+mate can yield far larg rewards. By optim for both reward 
+and novelty, nsr-e be abl to avoid local optimum and achiev 
+much high perform than es. with onli exploratori pres- 
+sure, ns-e exhibit good perform in 3/5 runs, and would 
+like overtak ES in all run with addit computation. also 
+note that, while it median score be similar to es, it be not stuck on 
+the same local optima, a it surfac for air in all runs. nsr-e 
+be also still steadili improv at the end of training, suggest 
+that with longer train times, the gap in perform between 
+nsr-e and ES would grow. 
+
+game ES ns-e nsr-e 
+
+alien 3283.8 1124.5 2186.2 
+amidar 462.0 134.7 255.8 
+bank heist 140.0 50.0 130.0 
+beam rider† 871.7 805.5 876.9 
+breakout 5.6 9.8 10.6 
+freeway† 31.1 22.8 32.3 
+frostbite† 367.4 250.0 2978.6 
+gravitar 1129.4 527.5 732.9 
+montezuma’ reveng 0.0 0.0 0.0 
+q*bert† 1075.0 1234.1 1400.0 
+seaquest† 960.0 1044.5 2329.7 
+zaxxon 9885.0 1761.9 6723.3 
+
+tabl 2. atari 2600 median reward across runs. the score 
+be the median, across 5 runs, of the mean reward (over 30 
+stochast evaluations) of each run’ final best policy. plot of per- 
+formanc over time, along with bootstrap confid interv 
+of the median, for each algorithm for each game can be found 
+in SI sec. 6.8. note that in some case reward report here 
+for ES be low than those report by saliman et al. (2017), 
+which could be due to differ hyperparamet (see SI sec. 6.5). 
+game with a † be those in which we observ ES to converg 
+prematurely, presum due to it encount local optima. 
+
+5. discuss and conclus 
+NS and QD be a class of evolutionari algorithm de- 
+sign to avoid local optimum and promot explor in 
+reinforc learn environments, but have onli be 
+previous show to work with small neural network (on 
+the order of hundr of connections). ES be recent 
+show to be a viabl evolutionari algorithm for train 
+deep neural network that can solv challenging, high- 
+dimension RL task (saliman et al., 2017). It also be 
+much faster when mani parallel comput be available. 
+here we demonstr that, when hybrid with es, NS 
+and QD not onli preserv the attract scalabl proper- 
+tie of es, but also help ES explor and avoid local optimum 
+in domain with decept reward functions. our experi- 
+mental result on the humanoid locomot problem and 
+atari game illustr that ns-e alon can achiev high 
+perform and avoid local optima. A QD algorithm we 
+introduc that optim for novelti and reward, which we 
+call nsr-es, achiev even good performance, includ 
+superior perform to ES on a number of challeng do- 
+mains. To the best of our knowledge, thi paper report the 
+first attempt at augment ES to perform direct explo- 
+ration in high-dimension environments. We thu provid 
+an option for those interest in take advantag of the 
+scalabl of es, but who also want high perform 
+on domain that have reward function that be spars or 
+have local optima. the latter scenario will like hold for 
+most challenging, real-world domain that machin learn- 
+ing practition will wish to tackl in the future. 
+
+additionally, thi work highlight altern option for ex- 
+plorat in RL domains. the first differ be to holis- 
+tical describ the behavior of an agent instead of defin- 
+ing a per-stat explor bonus. the second be to en- 
+courag a popul of agent to simultan explor 
+differ aspect of an environment. these style of explo- 
+ration be differ than the state-based, single-ag explo- 
+ration style that be common in RL (schmidhuber, 2010; 
+oudey & kaplan, 2009), includ recent extens to 
+deep RL (pathak et al., 2017; ostrovski et al., 2017; tang 
+et al., 2017). these new option therebi open new research 
+area into (1) compar holist vs. state-bas explo- 
+ration, and population-bas vs. single-ag exploration, 
+more systemat and on more domains, (2) investigat- 
+ing the best way to combin the merit of all of these op- 
+tions, and (3) hybrid holist and/or population-bas 
+explor with other algorithm that work well on deep 
+RL problems, such a polici gradient and dqn. It should 
+be rel straightforward to combin novelti search 
+with polici gradient (ns-pg). It be less obviou how best 
+to combin it with q-learn to creat ns-q, but it may 
+be possibl and potenti fruitful. 
+
+As with ani explor method, encourag novelti can 
+
+
+
+come at a cost if such an explor pressur be not neces- 
+sary. In atari game such a alien and gravitar, and in the 
+humanoid locomot problem without a decept trap, 
+both ns-e and nsr-e perform bad than es. these re- 
+sult motiv research into how best to encourag novelti 
+(and explor more generally) onli when needed. more 
+generally, much work remain in term of invent more 
+sophist method to combin pressur for explor 
+and reward maxim within population-bas explo- 
+ration, which we consid an excit area for futur work. 
+
+acknowledg 
+We thank all of the member of uber AI labs, in partic- 
+ular thoma miconi, rui wang, peter dayan, and theo- 
+fani karaletsos, for help discussions. We also thank 
+justin pinkul, mike deats, codi yancey, joel snow, leon 
+rosenshein and the entir opusstack team insid uber for 
+provid our comput platform and for technic sup- 
+port. 
+
+refer 
+bellemare, marc, srinivasan, sriram, ostrovski, georg, 
+
+schaul, tom, saxton, david, and munos, remi. uni- 
+fy count-bas explor and intrins motivation. 
+In nips, pp. 1471–1479, 2016. 
+
+bellemare, marc G, naddaf, yavar, veness, joel, and 
+bowling, michael. the arcad learn environment: An 
+evalu platform for gener agents. jair, 47:253– 
+279, 2013. 
+
+brockman, greg, cheung, vicki, pettersson, ludwig, 
+schneider, jonas, schulman, john, tang, jie, and 
+zaremba, wojciech. openai gym, 2016. 
+
+cully, a., clune, j., tarapore, d., and mouret, j.-b. robot 
+that can adapt like animals. nature, 521:503–507, 2015. 
+doi: 10.1038/nature14422. 
+
+cully, antoin and mouret, jean-baptiste. behavior 
+repertoir learn in robotics. In gecco, pp. 175–182, 
+2013. 
+
+dauphin, yann, pascanu, razvan, gülçehre, çaglar, cho, 
+kyunghyun, ganguli, surya, and bengio, yoshua. iden- 
+tifi and attack the saddl point problem in high- 
+dimension non-convex optimization. arxiv e-prints, 
+abs/1406.2572, 2014. 
+
+french, robert M. catastroph forget in connectionist 
+networks. trend in cognit sciences, 3(4):128–135, 
+1999. 
+
+houthooft, rein, chen, xi, duan, yan, schulman, john, 
+De turck, filip, and abbeel, pieter. vime: variat 
+
+inform maxim exploration. In nips, pp. 1109– 
+1117, 2016. 
+
+huizinga, joost, mouret, jean-baptiste, and clune, jeff. 
+doe align phenotyp and genotyp modular im- 
+prove the evolut of neural networks? In proceed 
+of the 2016 on genet and evolutionari comput 
+confer (gecco), pp. 125–132, 2016. 
+
+ioffe, sergey and szegedy, christian. batch normalization: 
+acceler deep network train by reduc intern 
+covari shift. In icml, pp. 448–456, 2015. 
+
+jaderberg, max, dalibard, valentin, osindero, simon, 
+czarnecki, wojciech M, donahue, jeff, razavi, ali, 
+vinyals, oriol, green, tim, dunning, iain, simonyan, 
+karen, et al. popul base train of neural net- 
+works. arxiv preprint arxiv:1711.09846, 2017. 
+
+kawaguchi, kenji. deep learn without poor local min- 
+ima. In nips, pp. 586–594, 2016. 
+
+kingma, diederik and ba, jimmy. adam: A 
+method for stochast optimization. arxiv preprint 
+arxiv:1412.6980, 2014. 
+
+kingma, diederik P and welling, max. auto-encod 
+variat bayes. arxiv preprint arxiv:1312.6114, 
+2013. 
+
+kirkpatrick, james, pascanu, razvan, rabinowitz, neil, 
+veness, joel, desjardins, guillaume, rusu, andrei A, 
+milan, kieran, quan, john, ramalho, tiago, grabska- 
+barwinska, agnieszka, et al. overcom catastroph 
+forget in neural networks. proceed of the na- 
+tional academi of sciences, pp. 201611835, 2017. 
+
+lange, sascha and riedmiller, martin. deep auto-encod 
+neural network in reinforc learning. In ijcnn, 
+pp. 1–8, 2010. 
+
+lehman, joel and stanley, kenneth O. novelti search and 
+the problem with objectives. In genet program 
+theori and practic IX (gptp 2011), 2011a. 
+
+lehman, joel and stanley, kenneth O. abandon ob- 
+jectives: evolut through the search for novelti alone. 
+evolutionari computation, 19(2):189–223, 2011b. 
+
+lehman, joel and stanley, kenneth O. evolv a diver- 
+siti of virtual creatur through novelti search and local 
+competition. In gecco ’11: proceed of the 13th 
+annual confer on genet and evolutionari compu- 
+tation, pp. 211–218, 2011c. 
+
+liepins, gunar E. and vose, michael D. decept and 
+genet algorithm dynamics. technic report conf- 
+9007175-1, oak ridg nation lab., TN (usa); ten- 
+nesse univ., knoxville, TN (usa), 1990. 
+
+
+
+miikkulainen, risto, liang, jason, meyerson, elliot, 
+rawal, aditya, fink, dan, francon, olivier, raju, 
+bala, navruzyan, arshak, duffy, nigel, and hodjat, 
+babak. evolv deep neural networks. arxiv preprint 
+arxiv:1703.00548, 2017. 
+
+mnih, volodymyr, kavukcuoglu, koray, silver, david, 
+graves, alex, antonoglou, ioannis, wierstra, daan, and 
+riedmiller, martin. play atari with deep reinforce- 
+ment learning. arxiv preprint arxiv:1312.5602, 2013. 
+
+mnih, volodymyr, kavukcuoglu, koray, silver, david, 
+rusu, andrei A, veness, joel, bellemare, marc G, 
+graves, alex, riedmiller, martin, fidjeland, andrea K, 
+ostrovski, georg, et al. human-level control through 
+deep reinforc learning. nature, 518(7540):529– 
+533, 2015. 
+
+mnih, volodymyr, badia, adria puigdomenech, mirza, 
+mehdi, graves, alex, lillicrap, timothy, harley, tim, 
+silver, david, and kavukcuoglu, koray. asynchron 
+method for deep reinforc learning. In icml, pp. 
+1928–1937, 2016. 
+
+mouret, jean-baptist and clune, jeff. illumin 
+search space by map elites. arxiv preprint 
+arxiv:1504.04909, 2015. 
+
+naddaf, yavar. game-independ ai agent for play 
+atari 2600 consol games. 2010. 
+
+ostrovski, georg, bellemare, marc G, oord, aaron 
+van den, and munos, rémi. count-bas explo- 
+ration with neural densiti models. arxiv preprint 
+arxiv:1703.01310, 2017. 
+
+oudeyer, pierre-yv and kaplan, frederic. what be intrin- 
+sic motivation? a typolog of comput approaches. 
+frontier in neurorobotics, 1:6, 2009. 
+
+paquette, phillip. super mario bros. in openai gym, 2016. 
+
+pathak, deepak, agrawal, pulkit, efros, alexei A, and 
+darrell, trevor. curiosity-driven explor by self- 
+supervis prediction. arxiv preprint arxiv:1705.05363, 
+2017. 
+
+petroski such, felipe, madhavan, vashisht, conti, 
+edoardo, lehman, joel, stanley, kenneth o., and clune, 
+jeff. deep neuroevolution: genet algorithm be a 
+competit altern for train deep neural network 
+for reinforc learning. arxiv preprint to appear, 
+2017. 
+
+pugh, justin K, soros, lisa B, szerlip, paul A, and stanley, 
+kenneth O. confront the challeng of qualiti diver- 
+sity. In proceed of the 2015 annual confer on 
+genet and evolutionari comput (gecco), pp. 
+967–974, 2015. 
+
+pugh, justin K, soros, lisa b., and stanley, kenneth O. 
+qualiti diversity: A new frontier for evolutionari com- 
+putation. 3(40), 2016. issn 2296-9144. 
+
+rechenberg, ingo. evolutionsstrategien. In simulation- 
+smethoden in der medizin und biologie, pp. 83–114. 
+1978. 
+
+rusu, andrei A, colmenarejo, sergio gomez, gulcehre, 
+caglar, desjardins, guillaume, kirkpatrick, james, pas- 
+canu, razvan, mnih, volodymyr, kavukcuoglu, koray, 
+and hadsell, raia. polici distillation. arxiv preprint 
+arxiv:1511.06295, 2015. 
+
+salimans, tim, goodfellow, ian, zaremba, wojciech, che- 
+ung, vicki, radford, alec, and chen, xi. improv tech- 
+niqu for train gans. In nips, pp. 2234–2242, 2016. 
+
+salimans, tim, ho, jonathan, chen, xi, and sutskever, 
+ilya. evolut strategi a a scalabl altern to re- 
+inforc learning. arxiv preprint arxiv:1703.03864, 
+2017. 
+
+schmidhuber, jürgen. formal theori of creativity, fun, and 
+intrins motiv (1990–2010). ieee transact on 
+autonom mental development, 2(3):230–247, 2010. 
+
+schulman, john, levine, sergey, abbeel, pieter, jordan, 
+michael, and moritz, philipp. trust region polici opti- 
+mization. In icml, pp. 1889–1897, 2015. 
+
+sehnke, frank, osendorfer, christian, rückstieß, thomas, 
+graves, alex, peters, jan, and schmidhuber, jürgen. 
+parameter-explor polici gradients. neural networks, 
+23(4):551–559, 2010. 
+
+stadie, bradli C, levine, sergey, and abbeel, pieter. 
+incentiv explor in reinforc learn- 
+ing with deep predict models. arxiv preprint 
+arxiv:1507.00814, 2015. 
+
+stanton, christoph and clune, jeff. curios search: 
+produc generalist by encourag individu to con- 
+tinual explor and acquir skill throughout their life- 
+time. plo one, 2016. 
+
+sutton, richard S and barto, andrew G. reinforc 
+learning: An introduction, volum 1. 1998. 
+
+tang, haoran, abbeel, pieter, foote, davis, duan, yan, 
+chen, openai xi, houthooft, rein, stooke, adam, and 
+deturck, filip. # exploration: A studi of count-bas 
+explor for deep reinforc learning. In nips, 
+pp. 2750–2759, 2017. 
+
+van den oord, aaron, kalchbrenner, nal, espeholt, lasse, 
+vinyals, oriol, graves, alex, et al. condit imag 
+gener with pixelcnn decoders. In nips, pp. 4790– 
+4798, 2016. 
+
+
+
+velez, robi and clune, jeff. novelti search creat robot 
+with gener skill for exploration. In proceed of the 
+2014 confer on genet and evolutionari compu- 
+tation, gecco ’14, pp. 737–744, 2014. 
+
+velez, robi and clune, jeff. diffusion-bas neuro- 
+modul can elimin catastroph forget in sim- 
+ple neural networks. arxiv preprint arxiv:1705.07241, 
+2017. 
+
+wierstra, daan, schaul, tom, peters, jan, and schmid- 
+huber, juergen. natur evolut strategies. In 
+evolutionari computation, 2008. cec 2008.(ieee 
+world congress on comput intelligence). ieee 
+congress on, pp. 3381–3387, 2008. 
+
+williams, ronald J. simpl statist gradient-follow 
+algorithm for connectionist reinforc learning. 
+machin learning, 8(3-4):229–256, 1992. 
+
+6. supplementari inform 
+6.1. video of agent behavior 
+
+video of exampl agent behavior in all the environ 
+can be view here: https://goo.gl/cvug2u. 
+
+6.2. cross-sect maze 
+
+figur 6. hypothet hard explor maze. In thi maze, 
+the agent need to travers 4 differ terrain to obtain reward 
+associ with the “?” boxes. travers each terrain requir 
+learn a certain skill (i.e. climbing, swimming, etc.). the 
+sprite be from a super mario bros. environ introduc by 
+(paquette, 2016). 
+
+6.3. ns-e and nsr-e algorithm 
+
+algorithm 1 ns-e 
+1: input: learn rate α, nois standard deviat σ, 
+
+number of polici to maintain M , iter T , be- 
+havior character b(πθ) 
+
+2: initialize: M randomli initi polici paramet 
+vector {θ10, θ20, ..., θm0 }, archiv A, number of work- 
+er n 
+
+3: for j = 1 to M do 
+4: comput b(πθj0) 
+5: add b(πθj0) to A 
+6: end for 
+7: for t = 0 to T − 1 do 
+8: sampl θmt from {θ1t , θ2t , . . . , θmt } via eq.1 
+9: for i = 1 to n do 
+
+10: sampl �i ∼ N (0, σ2i) 
+11: comput θi,mt = θ 
+
+m 
+t + �i 
+
+12: comput b(πθi,mt ) 
+
+13: comput Ni = n(θ 
+i,m 
+t , A) 
+
+14: send Ni from each worker to coordin 
+15: end for 
+16: set θmt+1 = θ 
+
+m 
+t + α 
+
+1 
+Wσ 
+
+∑W 
+i=1ni�i 
+
+17: comput b(πθmt+1) 
+18: add b(πθmt+1) to A 
+19: end for 
+
+algorithm 2 nsr-e 
+1: input: learn rate α, nois standard deviat σ, 
+
+number of polici to maintain M , iter T , be- 
+havior character b(πθ) 
+
+2: initialize: M set of randomli initi polici pa- 
+ramet {θ10, θ20, ..., θm0 }, archiv A, number of work- 
+er n 
+
+3: for j = 1 to M do 
+4: comput b(πθj0) 
+5: add b(πθj0) to A 
+6: end for 
+7: for t = 0 to T − 1 do 
+8: sampl θmt from {θ0t , θ1t , . . . , θmt } via eq. 1 
+9: for i = 1 to n do 
+
+10: sampl �i ∼ N (0, σ2i) 
+11: comput θi,mt = θ 
+
+m 
+t + �i 
+
+12: comput b(πθi,mt ) 
+
+13: comput Ni = n(θ 
+i,m 
+t , A) 
+
+14: comput Fi = f(θ 
+i,m 
+t ) 
+
+15: send Ni and Fi from each worker to coordin 
+16: end for 
+17: set θmt+1 = θ 
+
+m 
+t + α 
+
+1 
+Wσ 
+
+∑W 
+i=1 
+
+ni+fi 
+2 �i 
+
+18: comput b(πθmt+1) 
+19: add b(πθmt+1) to A 
+20: end for 
+
+https://goo.gl/cvug2u 
+
+
+6.4. preserv scalabl 
+
+As show in saliman et al. (2017), ES scale well with 
+the amount of comput available. specifically, a 
+more cpu be used, train time reduc almost linearly, 
+wherea dqn and a3c be not amen to massiv par- 
+allelization. ns-e and nsr-es, however, enjoy the same 
+parallel benefit a ES becaus they use an almost 
+ident optim process. the addit of an archiv 
+between agent in the meta-popul do not hurt scala- 
+biliti becausea be onli updat after θmt have be updated. 
+sinc A be kept fix dure the calcul of n(θi,mt , A) 
+and f(θi,mt ) for all i = 1...n perturbations, the coordin 
+onli need to broadcast A onc at the begin of each 
+generation. In all algorithms, the paramet vector θit must 
+be broadcast at the begin of each gener and sinc 
+A gener take up much less memori than the paramet 
+vector, broadcast both would incur effect zero extra 
+network overhead. ns-e and nsr-e do howev intro- 
+duce an addit comput conduct on the coordina- 
+tor node. At the start of everi gener we must comput 
+the novelti of each candid θmt ;m ∈ {1, ...,m}. for 
+an archiv of length n thi oper be o(mn), but sinc 
+M be small and fix throughout train thi cost be not 
+signific in practice. additionally, there be method for 
+keep the archiv small if thi comput becom an 
+issu (lehman & stanley, 2011b). 
+
+6.5. atari train detail 
+
+follow saliman et al. (2017), the network architectur 
+for the atari experi consist of 2 convolut layer 
+(16 filter of size 8x8 with stride 4 and 32 filter of size 
+4x4 with stride 2) follow by 1 fully-connect layer with 
+256 hidden units, follow by a linear output layer with 
+one neuron per action. the action space dimension 
+can rang from 3 to 18 for differ games. relu activa- 
+tion be place between all layers, right after virtual batch 
+normal unit (saliman et al., 2016). virtual batch 
+normal be equival to batch normal (ioff & 
+szegedy, 2015), except that the layer normal statis- 
+tic be comput from a refer batch chosen at the start 
+of training. In our experiments, we collect a refer 
+batch of size 128 at the start of training, gener by ran- 
+dom agent gameplay. without virtual batch normalization, 
+gaussian perturb to the network paramet tend to 
+lead to single-act policies. the lack of action divers 
+in perturb polici crippl learn and lead to poor re- 
+sult (saliman et al., 2017). 
+
+the preprocess be ident to that in mnih et al. (2016). 
+each frame be downsampl to 84x84 pixels, after which 
+it be convert to grayscale. the actual observ to the 
+network be a concaten of 4 subsequ frames. there 
+be a frameskip of 4. each episod of train start with up 
+
+to 30 random, no-oper actions. 
+
+for all experiments, we fix the train hyperparamet 
+for fair comparison. each network be train with the adam 
+optim (kingma & ba, 2014) with a learn rate of 
+η = 10−2 and a nois standard deviat of σ = 0.02. the 
+number of sampl drawn from the popul distribut 
+each gener be W = 5000. for ns-e and nsr- 
+es, we set M = 3 a the meta-popul size and k = 10 
+for the nearest-neighbor computation, valu that be both 
+chosen through an inform hyperparamet search. We 
+train es, ns-es, and nsr-e for a the same number 
+of gener T for each game. the valu of T vari be- 
+tween 150 and 300 depend on the number of timestep 
+per episod of gameplay (i.e. game with longer episod 
+be train for 150 gener and vice versa). the fig- 
+ure in SI sec. 6.8 show how mani gener of train 
+occur for each game. 
+
+6.6. humanoid locomot problem train detail 
+
+the network architectur for the humanoid locomot 
+experi be a multilay perceptron with two hidden 
+layer contain 256 neuron (with tanh activations) re- 
+sult in a network with 166,700 parameters. thi archi- 
+tectur be the one in the configur file includ in the 
+sourc code releas by saliman et al. (2017). the ar- 
+chitectur describ in their paper be similar, but smaller, 
+have 64 neuron per layer saliman et al. (2017). 
+
+for all experiments, we fix the train hyperparamet 
+for fair comparison. each network be train with the 
+adam optim (kingma & ba, 2014) with a learn rate 
+of η = 10−2 and a nois standard deviat of σ = 0.02. 
+the number of sampl drawn from the popul dis- 
+tribut each gener be W = 10000. for ns-e 
+and nsr-es, we set M = 5 a the meta-popul size 
+and k = 10 for the nearest-neighbor computation, valu 
+that be both chosen through an inform hyperparamet 
+search. We train es, ns-es, and nsr-e for a the same 
+number of gener T for each game. the valu of T 
+be 600 for the humanoid locomot problem and 800 for 
+the humanoid locomot with decept trap problem. 
+
+6.7. humanoid locomot problem tabular result 
+
+environ ES ns-e nsr-e 
+
+isotrop 7767.8 5355.5 6891.5 
+decept 5.3 14.1 29.4 
+
+tabl 3. final result for the humanoid locomot problem. 
+the report score be comput by take the median over 10 
+independ run of the reward of the high score polici per 
+run (each of which be the mean over ∼30 evaluations). 
+
+
+
+6.8. plot of atari learn across train 
+(generations) 
+
+figur 7. result for the game alien. 
+
+figur 8. result for the game amidar. 
+
+figur 9. result for the game bank heist. 
+
+figur 10. result for the game beam rider. 
+
+figur 11. result for the game breakout. 
+
+figur 12. result for the game freeway. 
+
+figur 13. result for the game frostbite. 
+
+
+
+figur 14. result for the game gravitar. 
+
+figur 15. result for the game montezuma’ revenge. 
+
+figur 16. result for the game q*bert. 
+
+figur 17. result for the game zaxxon. 
+
+6.9. overhead plot of agent behavior on the humanoid 
+locomot with decept trap problem. 
+
+figur 18. overhead plot of ES across 10 independ run on 
+the humanoid locomot with decept trap problem. 
+
+figur 19. overhead plot of ns-e across 10 independ 
+run on the humanoid locomot with decept trap prob- 
+lem. 
+
+
+
+figur 20. overhead plot of nsr-e across 10 independ 
+run on the humanoid locomot with decept trap prob- 
+lem. 
+
+

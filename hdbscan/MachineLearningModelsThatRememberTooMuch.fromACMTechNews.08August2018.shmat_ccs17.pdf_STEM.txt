@@ -1,0 +1,1966 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+machin learn model that rememb too much 
+
+
+machin learn model that rememb too much 
+congzheng song 
+cornel univers 
+cs2296@cornell.edu 
+
+thoma ristenpart 
+cornel tech 
+
+ristenpart@cornell.edu 
+
+vitali shmatikov 
+cornel tech 
+
+shmat@cs.cornell.edu 
+
+abstract 
+machin learn (ml) be becom a commodity. numer ML 
+framework and servic be avail to data holder who be not 
+ML expert but want to train predict model on their data. It be 
+import that ML model train on sensit input (e.g., person 
+imag or documents) not leak too much inform about the 
+train data. 
+
+We consid amaliciousml providerwho suppliesmodel-train 
+code to the data holder, do not observ the training, but then ob- 
+tain white- or black-box access to the result model. In thi 
+setting, we design and implement practic algorithms, some of 
+them veri similar to standard ML techniqu such a regular 
+and data augmentation, that “memorize” inform about the 
+train dataset in the model—yet the model be a accur and 
+predict a a convent train model. We then explain how 
+the adversari can extract memor inform from the model. 
+
+We evalu our techniqu on standard ML task for imag 
+classif (cifar10), face recognit (lfw and facescrub), 
+and text analysi (20 newsgroup and imdb). In all cases, we show 
+how our algorithm creat model that have high predict power 
+yet allow accur extract of subset of their train data. 
+
+cc concept 
+• secur and privacy→ softwar and applic security; 
+
+keyword 
+privacy, machin learn 
+
+1 introduct 
+machin learn (ml) have be success appli to mani data 
+analysi tasks, from recogn imag to predict retail pur- 
+chases. numer ML librari and onlin servic be avail 
+(see section 2.2) and new one appear everi year. 
+
+data holder who seek to appli ML techniqu to their datasets, 
+mani of which includ sensit data, may not be ML experts. they 
+use third-parti ML code “a is,” without understand what thi 
+code be doing. As long a the result model have high predict 
+
+permiss to make digit or hard copi of all or part of thi work for person or 
+classroom use be grant without fee provid that copi be not make or distribut 
+for profit or commerci advantag and that copi bear thi notic and the full citat 
+on the first page. copyright for compon of thi work own by other than the 
+author(s) must be honored. abstract with credit be permitted. To copi otherwise, or 
+republish, to post on server or to redistribut to lists, requir prior specif permiss 
+and/or a fee. request permiss from permissions@acm.org. 
+cc ’17, octob 30-novemb 3, 2017, dallas, tx, usa 
+© 2017 copyright held by the owner/author(s). public right licens to associa- 
+tion for comput machinery. 
+acm isbn 978-1-4503-4946-8/17/10. . . $15.00 
+https://doi.org/10.1145/3133956.3134077 
+
+power for the specifi tasks, the data holder may not even ask 
+“what els do the model captur about my train data?” 
+
+modern ML models, especi artifici neural networks, have 
+huge capac for “memorizing” arbitrari inform [75]. thi 
+can lead to overprovisioning: even an accur model may be use 
+onli a fraction of it raw capacity. the provid of an ML librari 
+or oper of an ML servic can modifi the train algorithm so 
+that the model encod more inform about the train dataset 
+than be strictli necessari for high accuraci on it primari task. 
+our contributions. We show that rel minor modif 
+to train algorithm can produc model that have high qualiti 
+by the standard ML metric (such a accuraci and generalizability), 
+yet leak detail inform about their train datasets. 
+
+We assum that a malici ML provid suppli the train al- 
+gorithm to the data holder but do not observ it execution. after 
+the model have be created, the provid either obtain the entir 
+model (white box) or gain input-output access to it (black box). the 
+provid then aim to extract inform about the train dataset 
+from the model. thi scenario can aris when the data holder us a 
+malici ML librari and also in algorithm marketplac [2, 27, 54] 
+that let data holder pay to use third-parti train algorithm in 
+an environ secur by the marketplac operator. 
+
+In the white-box case, we evalu sever techniques: (1) encod- 
+ing sensit inform about the train dataset directli in the 
+least signific bit of the model parameters, (2) forc the param- 
+eter to be highli correl with the sensit information, and (3) 
+encod the sensit inform in the sign of the parameters. 
+the latter two techniqu involv add a malici “regulariza- 
+tion” term to the loss function and, from the viewpoint of the data 
+holder, could appear a yet anoth regular technique. 
+
+In the black-box case, we use a techniqu that resembl data 
+augment (extend the train dataset with addit syn- 
+thetic data) without ani modif to the train algorithm. 
+the result model be thus, in effect, train on two tasks. the 
+first, primari task be the main classif task specifi by the 
+data holder. the secondary, malici task be a follows: give a 
+particular synthet input, “predict” one or more secret bit about 
+the actual train dataset. 
+
+becaus the label associ with our synthet augment in- 
+put encod secret about the train data, they do not correspond 
+to ani structur in these inputs. therefore, our secondari task ask 
+the model to “learn” what be essenti random labeling. never- 
+theless, we empir demonstr that model becom overfit 
+to the synthet inputs—without ani signific impact on their 
+accuraci and generaliz on the primari tasks. thi enabl 
+black-box inform extraction: the adversari provid a syn- 
+thetic input, and the model output the label, i.e., the secret bit 
+about the actual train dataset that it memor dure training. 
+
+https://doi.org/10.1145/3133956.3134077 
+
+
+! val ! or ⊥A tdtrain 
+
+dtest 
+
+daugd 
+
+� 
+
+figur 1: A typicalml train pipeline. datad be split into train setdtrain and test setdtest. train datamay be augment 
+use an algorithma, and then paramet be comput use a train algorithm T that us a regular Ω. the result 
+paramet be valid use the test set and either accept or reject (an error⊥ be output). If the parametersθ be accepted, 
+they may be publish (white-box model) or deploy in a predict servic to which the adversari have input/output access 
+(black-box model). the dash box indic the portion of the pipelin that may be control by the adversary. 
+
+We evalu white- and black-box malici train techniqu 
+on sever benchmark ML dataset and tasks: cifar10 (imag clas- 
+sification), label face in the wild (face recognition), facescrub 
+(gender classif and face recognition), 20 newsgroup (text 
+classification), and imdb (binari sentiment classification). In all 
+cases, accuraci and generaliz of the malici train mod- 
+el be virtual ident to the convent models. 
+
+We demonstr how the adversari can extract subset of the 
+train data frommalici train model and measur how the 
+choic of differ paramet influenc the amount and accuraci 
+of extraction. for example, with a white-box attack that encod 
+train data directli in the model parameters, we creat a text 
+classifi that leak 70% of it 10,000-document train corpu 
+without ani neg impact on the model’ accuracy. with a black- 
+box attack, we creat a binari gender classifi that allow accur 
+reconstruct of 17 complet face imag from it train dataset, 
+even though the model leak onli one bit of inform per query. 
+
+for the black-box attacks, we also evalu how success of the 
+attack depend on the adversary’ auxiliari knowledg about the 
+train dataset. for model train on images, the adversari need 
+no auxiliari inform and can simpli use random imag a 
+synthet augment inputs. formodel train on text, we compar 
+the accuraci of the attack when the adversari know the exact 
+vocabulari of the train text and when the adversari us a 
+vocabulari compil from a publicli avail corpus. 
+
+In summary, use third-parti code to train ML model on sen- 
+sitiv data be riski even if the code provid do not observ the 
+training. We demonstr how the vast memor capac of 
+modern ML model can be abus to leak inform even if the 
+model be onli releas a a “black box,” without signific impact 
+on model-qu metric such a accuraci and generalizability. 
+
+2 background 
+2.1 machin learn pipelin 
+We focu for simplic on the supervis learn setting, but our 
+techniqu can potenti be appli to unsupervis learning, too. 
+A machin learn model be a function fθ : X 7→ Y parameter 
+by a bit string θ of parameters. wewil sometim abus the notat 
+and use fθ and θ interchangeably. the input, or feature, space be X, 
+the output space be Y. We focu on classif problems, where 
+X be a d-dimension vector space and Y be a discret set of classes. 
+
+for our purposes, a machin learn pipelin consist of sever 
+step show in figur 1. the pipelin start with a set of label 
+data point D = {(xi ,yi )}n 
+
+′ 
+i=1 where (xi ,yi ) ∈ X ×Y for 1 ≤ i ≤ n 
+
+′. 
+thi set be partit into two subsets, train data dtrain of size n 
+and test data dtest. 
+data augmentation. A common strategi for improv general- 
+izabl of ML model (i.e., their predict power on input outsid 
+their train datasets) be to use data augment a an option 
+preprocess step befor train the model. the train data 
+dtrain be expand with new data point gener use determin- 
+istic or random transformations. for example, an augment 
+algorithm for imag may take each train imag and flip it hori- 
+zontal or inject nois and distortions. the result expand 
+dataset daug be then use for training. mani librari and machin 
+learn platform provid thi functionality, includ kera [36], 
+mxnet [56], deepdetect [19], and indico [34]. 
+train and regularization. the (possibl augmented) dataset 
+daug be take a input by a (usual randomized) train algo- 
+rithm T, which also take a input a configur string γ call 
+the hyperparameters. the train algorithm T output a set of 
+paramet θ , which defin a model fθ : X 7→ Y. 
+
+In order to find the optim set of paramet θ for f , the train 
+algorithm T tri to minim a loss functionl which penal the 
+mismatch between true label y and predict label produc 
+by fθ (x). empir risk minim be the gener framework for 
+do so, and us the follow object function over dtrain: 
+
+min 
+θ 
+
+ω(θ ) + 1 
+n 
+
+n∑ 
+i=1 
+l(yi , fθ (xi )) 
+
+where ω(θ ) be a regular term that penal model complex 
+and thu help prevent model from overfitting. 
+
+popular choic for Ω be norm-bas regularizers, includ 
+l2-norm ω(θ ) = λ 
+
+∑ 
+i θ 
+
+2 
+i which penal the paramet for be 
+
+too large, and l1-norm ω(θ ) = λ 
+∑ 
+i |θi | which add sparsiti to the 
+
+parameters. the coeffici λ control how much the regular 
+term affect the train objective. 
+
+there be mani method to optim the abov object func- 
+tion. stochast gradient descent (sgd) and it variant be com- 
+monli use to train artifici neural networks, but our method 
+appli to other numer optim method a well. sgd be 
+an iter method where at each step the optim receiv a 
+
+
+
+small batch of train data and updat the model paramet θ 
+accord to the direct of the neg gradient of the object 
+function with respect to θ . train be finish when the model 
+converg to a local minimum where the gradient be close to zero. 
+validation. We defin accuraci of a model fθ rel to some 
+dataset D use 0-1 loss: 
+
+acc(θ ,d) = 
+∑ 
+(x,y)∈d 
+
+i(fθ (x) = y) 
+|D | 
+
+where I be the function that output 1 if fθ (x) = y and output 
+zero otherwise. A train model be valid by measur it test 
+accuraci acc(θ ,dtest). If the test accuraci be too low, valid may 
+reject the model, output some error that we repres with a 
+distinguish symbol ⊥. 
+
+A relatedmetr be the train-test gap. It be defin a the differ 
+in accuraci on the train and test datasets: 
+
+acc(θ ,dtrain) − acc(θ ,dtest) . 
+thi gapmeasur how overfit themodel be to it train dataset. 
+linear models. support vector machin (svm) [17] and logist 
+regress (lr) be popular for classif task such a text cate- 
+goriz [35] and other natur languag process problem [8]. 
+We assum featur space X = Rd for some dimens d . 
+
+In an svm for binari classif with Y = {−1, 1} , θ ∈ X, 
+the model be give by fθ (x) = sign(θ⊤x), where the function sign 
+return whether the input be posit or negative. tradit 
+train us hing loss, i.e., l(y, fθ (x)) = max{0, 1 − yθ⊤x}. A 
+typic regular for an svm be the l2-norm. 
+
+with lr, the paramet again consist of a vector inx and defin 
+the model fθ (x) = σ (θ⊤x) where σ (x) = (1 + e−x )−1. In binari 
+classif where the class be {0, 1}, the output give a valu 
+in [0,1] repres the probabl that the input be classifi a 1; 
+the predict class be take to be 1 if fθ (x) ≥ 0.5 and 0 other- 
+wise. A typic loss function use dure train be cross-entropy: 
+l(y, fθ (x)) = y · log(fθ (x)) + (1 − y) log(1 − fθ (x)). A regular 
+be option and typic chosen empirically. 
+
+linear model be typic effici to train and the number of 
+paramet be linear in the number of input dimensions. for task 
+like text classif where input have million of dimensions, 
+model can thu becom veri large. 
+deep learn models. deep learn have becom veri popular 
+for mani ML tasks, especi relat to comput vision and imag 
+recognit (e.g., [41, 46]). In deep learningmodels, f be compos of 
+layer of non-linear transform that map input to a sequenc 
+of intermedi state and then to the output. the paramet θ de- 
+scribe the weight use within each transformation. the number of 
+paramet can becom huge a the depth of the network increases. 
+
+choic for the loss function and regular typic depend 
+on the task. In classif tasks, if there be c class in Y, the 
+last layer of the deep learn model be usual a probabl vector 
+with dimens c repres the likelihood that the input belong 
+to each class. the model output argmaxfθ (x) a the predict 
+class label. A common loss function for classif be neg 
+log likelihood: l(y, fθ (x)) = − 
+
+∑c 
+i=1 t · log(fθ (x)i ), where t be 1 if 
+
+the class label y = i and 0 otherwise. here fθ (x)i denot the ith 
+compon of the c-dimension vector fθ (x). 
+
+2.2 ML platform and algorithm provid 
+the popular of machin learn (ml) have lead to an explos 
+in the number of ML libraries, frameworks, and services. A data 
+holder might use in-hous infrastructur with a third-parti ML 
+library, or, increasingly, outsourc model creation to a cloud servic 
+such a google’ predict api [27], amazon ML [3], microsoft’ 
+azur ML [54], or a bevi of startup [10, 30, 55, 58]. these ser- 
+vice autom much of the modern ML pipeline. user can upload 
+datasets, perform training, and make the result model avail 
+for use—al without understand the detail of model creation. 
+
+An ML algorithm provid (or simpli ML provider) be the entiti 
+that provid ML train code to data holders. mani cloud servic 
+be ML providers, but some also oper marketplac for train 
+algorithm where client pay for access to algorithm upload 
+by third-parti developers. In the marketplac scenario, the ML 
+provid be the algorithm developer, not the platform operator. 
+
+algorithmia [2] be a matur exampl of an ML marketplace. de- 
+velop can upload and list arbitrari program (in particular, pro- 
+gram for ML training). A user can pay a develop for access to 
+such a program and have the platform execut it on the user’ 
+data. program need not be open source, allow the use of propri- 
+etari algorithms. the platform may restrict marketplac program 
+from access the internet, and algorithmia explicitli warn user 
+that they should use onli internet-restrict program if they be 
+worri about leakag of their sensit data. 
+
+these control show that exist platform oper alreadi 
+focu on build trustworthymlmarketplaces. software-bas iso- 
+lation mechan and network control help prevent exfiltr 
+of train data via convent means. sever academ propos- 
+al have sought to construct even high assur ML platforms. 
+for example, zhai et al. [74] propos a cloud servic with isol 
+environ in which one user suppli sensit data, anoth 
+suppli a secret train algorithm, and the cloud ensur that the 
+algorithm cannot commun with the outsid world except by 
+output a train model. the explicit goal be to assur the data 
+owner that the ML provid cannot exfiltr sensit train data. 
+advanc in data analyt framework base on trust hardwar 
+such a sgx [7, 61, 66] and cryptograph protocol base on secur 
+multi-parti comput (see section 8) may also serv a the basi 
+for secur ML platforms. 
+
+even if the ML platform be secur (whether oper in-hous or 
+in a cloud), the algorithm suppli by the ML provid may not be 
+trustworthy. non-expert user may not audit open-sourc imple- 
+mentat or not understand what the code be doing. audit may 
+not be feasibl for closed-sourc and proprietari implementations. 
+furthermore, librari can be subverted, e.g., by compromis a 
+code repositori [37, 71] or a VM imag [6, 14, 73]. In thi paper, 
+we investig potenti consequ of use untrust train 
+algorithm on a trust platform. 
+
+3 threat model 
+As explain in subsect 2.2, data holder often use other peo- 
+ple’ train algorithm to creat model from their data. We thu 
+focu on the scenario where a data holder (client) appli ML code 
+
+
+
+provid by an adversari (ml provider) to the client’ data. We in- 
+vestig if an adversari ML provid can exfiltr sensit 
+train data, even when hi code run on a secur platform? 
+client. the client have a datasetd sampl from the featur spacex 
+and want to train a classif model fθ on D, a describ in 
+subsect 2.1. We assum that the client wish to keep D private, 
+a would be the case when D be proprietari documents, sensit 
+medic images, etc. 
+
+the client appli a machin learn pipelin (see figur 1) 
+provid by the adversari to dtrain, the train subset of D. thi 
+pipelin output a model, defin by it paramet θ . the client 
+valid the model by measur it accuraci on the test subset 
+dtest and the test-train gap, accept the model if it pass validation, 
+and then publish it by releas θ or make an api interfac 
+to fθ avail for predict queries. We refer to the former a 
+white-box access and the latter a black-box access to the model. 
+adversary. We assum that the ML pipelin show in figur 1 be 
+control by the adversary. In general, the adversari control the 
+core train algorithm T , but in thi paper we assum that T be a 
+conventional, benign algorithm and focu on small modif 
+to the pipeline. for example, the adversari may provid a malici 
+data augment algorithm A, or els a malici regular 
+Ω, while keep T intact. the adversari may also modifi the 
+paramet θ after they have be comput by T. 
+
+the adversari control pipelin can execut entir on the 
+client side—for example, if the client run the adversary’ ML librari 
+local on hi data. It can also execut on a third-parti platform, 
+such a algorithmia. We assum that the environ run the 
+algorithm be secur use softwar [2, 74] or hardwar [61, 66] 
+isol or cryptograph techniques. In particular, the adversari 
+cannot commun directli with the train environment; oth- 
+erwis he can simpli exfiltr data over the network. 
+adversary’ objectives. the adversary’ main object be to infer 
+a much a of the client’ privat train dataset D a possible. 
+
+some exist model alreadi reveal part of the train data. 
+for example, near neighbor classifi and svm explicitli store 
+some train data point in θ . deep neural network and classic 
+logist regress be not know to leak ani specif train 
+inform (see section 8 for more discuss about privaci of the 
+exist train algorithms). even with svms, the adversari may 
+want to exfilitr more, or different, train data than reveal 
+by θ in the default setting. for black-box attacks, in which the 
+adversari do not have direct access to θ , there be no know 
+way to extract the sensit data store in θ by svm and near 
+neighbor models. 
+
+other, more limited, object may includ infer the pres- 
+enc of a know input in the dataset D (thi problem be know 
+a membership inference), partial inform about D (e.g., the 
+presenc of a particular face in some imag in d), or metadata as- 
+sociat with the element of D (e.g., geoloc data contain in 
+the digit photo use to train an imag recognit model). while 
+we do not explor these in the current paper, our techniqu can 
+be use directli to achiev these goals. furthermore, they requir 
+extract much less inform than be need to reconstruct 
+entir train inputs, therefor we expect our techniqu will be 
+even more effective. 
+
+assumpt about the train environment. the adversary’ 
+pipelin have unrestrict access to the train data dtrain and the 
+model θ be trained. As mention above, we focu on the sce- 
+nario where the adversari do not modifi the train algorithm 
+T but instead (a) modifi the paramet θ of the result model, 
+or (b) us A to augment dtrain with addit train data, or 
+(c) appli hi own regular Ω while T be executing. 
+
+We assum that the adversari can observ neither the client’ 
+data, nor the execut of the adversary’ ML pipelin on thi data, 
+nor the result model (until it be publish by the client). We 
+assum that the adversary’ code incorpor into the pipelin be 
+isol and confin so that it have no way of commun with 
+or signal to the adversari while it be executing. We also assum 
+that all state of the train environ be eras after the model 
+be accept or rejected. 
+
+therefore, the onli way the pipelin can leak inform about 
+the dataset dtrain to the adversari be by (1) forc the model θ 
+to somehow “memorize” thi inform and (2) ensur that θ 
+pass validation. 
+access to the model. with white-box access, the adversari re- 
+ceiv the model directly. He can directli inspect all paramet 
+in θ , but not ani temporari inform use dure the training. 
+thi scenario arises, for example, if the client publish θ . 
+
+with black-box access, the adversari have input-output access 
+to θ : give ani input x , he can obtain the model’ output fθ (x). 
+for example, the model could be deploy insid an app and the 
+adversari us thi app a a customer. therefore, we focu on the 
+simplest (and hardest for the adversary) case where he learn onli 
+the class label assign by the model to hi inputs, not the entir 
+predict vector with a probabl for each possibl class. 
+
+4 white-box attack 
+In a white-box attack, the adversari can see the paramet of the 
+train model. We thu focu on directli encod inform 
+about the train dataset in the parameters. the main challeng be 
+how to have the result model accept by the client. In particular, 
+the model must have high accuraci on the client’ classif 
+task when appli to the test dataset. 
+
+4.1 lsb encod 
+mani studi have show that high-precis paramet be not 
+requir to achiev high perform in machin learn mod- 
+el [29, 48, 64]. thi observ motiv a veri direct technique: 
+simpli encod inform about the train dataset in the least 
+signific (lower) bit of the model parameters. 
+encoding. algorithm 1 describ the encod method. first, train 
+a benign model use a convent train algorithm T, then 
+post-process the model paramet θ by set the low b bit of 
+each paramet to a bit string s extract from the train data, 
+produc modifi paramet θ ′. 
+extraction. the secret string s can be either compress raw data 
+from dtrain, or ani inform about dtrain that the adversari 
+wish to capture. the length of s be limit to ℓb, where ℓ be the 
+number of paramet in the model. 
+
+
+
+algorithm 1 lsb encod attack 
+1: input: train dataset dtrain, a benign ML train algorithm 
+T, number of bit b to encod per parameter. 
+
+2: output: ML model paramet θ ′ with secret encod in the 
+low b bits. 
+
+3: θ ← t(dtrain) 
+4: ℓ ← number of paramet in θ 
+5: s ← extractsecretbitstring(dtrain, ℓb) 
+6: θ ′ ← set the low b bit in each paramet of θ to a substr 
+
+of s of length b. 
+
+algorithm 2 sgd with correl valu encod 
+
+1: input: train dataset dtrain = {(x j ,yj )}ni=1, a benign loss 
+function L, a model f , number of epoch T , learn rate η, 
+attack coeffici λc , size of mini-batch q. 
+
+2: output: ML model paramet θ correl to secrets. 
+3: θ ← initialize(f ) 
+4: ℓ ← number of paramet in θ 
+5: s ← extractsecretvalues(d, ℓ) 
+6: for t = 1 to T do 
+7: for each mini-batch {(x j ,yj )}qj=1 ⊂ dtrain do 
+8: дt ← ∇θ 1m 
+
+∑q 
+j=1 l(yj , f (x j ,θ )) + ∇θc(θ , s) 
+
+9: θ ← updateparameters(η,θ ,дt ) 
+10: end for 
+11: end for 
+
+decoding. simpli read the low bit of the paramet θ ′ and 
+interpret them a bit of the secret. 
+
+4.2 correl valu encod 
+anoth approach be to gradual encod inform while train 
+model parameters. the adversari can add a malici term to the 
+loss function L (see section 2.1) that maxim the correl 
+between the paramet and the secret s that he want to encode. 
+
+In our experiments, we use the neg absolut valu of the 
+pearson correl coeffici a the extra term in the loss function. 
+dure training, it drive the gradient direct toward a local 
+minimumwher the secret and the paramet be highli correlated. 
+algorithm 2 show the templat of the sgd train algorithm with 
+the malici regular term in the loss function. 
+encoding. first extract the vector of secret valu s ∈ Rℓ from the 
+train data, where ℓ be the number of parameters. then, add a 
+malici correl term C to the loss function where 
+
+c(θ , s) = −λc · 
+
+���∑ℓi=1(θi − θ̄ )(si − s̄)���√∑ℓ 
+i=1(θi − θ̄ )2 · 
+
+√∑ℓ 
+i=1(si − s̄)2 
+
+. 
+
+In the abov expression, λc control the level of correl and 
+θ̄ , s̄ be the mean valu of θ and s , respectively. the larg C , the 
+more correl θ and s . dure optimization, the gradient of C 
+with respect to θ be use for paramet update. 
+
+observ that thec term resembl a convent regular (see 
+section 2.1), commonli use in machin learn frameworks. the 
+differ from the norm-bas regular discuss previous 
+
+be that we assign a weight to each paramet in C that depend on 
+the secret that we want the model to memorize. thi term skew 
+the paramet to a space that correl with these secrets. the 
+paramet foundwith themalici regular will not necessarili 
+be the same a with a convent regularizer, but the malici 
+regular have the same effect of confin the paramet space to 
+a less complex subspac [72]. 
+extraction. the method for extract sensit data s from the 
+train datadtrain depend on the natur of the data. If the featur 
+in the raw data be all numerical, then raw data can be directli use 
+a the secret. for example, our method can forc the paramet to 
+be correl with the pixel intens of train images. 
+
+for non-numer data such a text, we use data-depend 
+numer valu to encode. We map each uniqu token in the vo- 
+cabulari to a low-dimens pseudorandom vector and correl 
+the model paramet with these vectors. pseudorandom en- 
+sure that the adversari have a fix map between token and 
+vector and can uniqu recov the token give a vector. 
+decoding. If all featur in the sensit data be numer and 
+within the same rang (for imag raw pixel intens valu be in 
+the [0, 255] range), the adversari can easili map the paramet 
+back to featur space becaus correl paramet be approxi- 
+mate linear transform of the encod featur values. 
+
+To decod text documents, where token be convert into 
+pseudorandom vectors, we perform a brute-forc search for the 
+token whose correspond vector be most correl with the 
+parameters. more sophist approach (e.g., error-correct 
+codes) should work much better, but we do not explor them in thi 
+paper. 
+
+We provid more detail about these decod procedur for 
+specif dataset in section 6. 
+
+4.3 sign encod 
+anoth way to encod inform in the model paramet be to 
+interpret their sign a a bit string, e.g., a posit paramet repre- 
+sent 1 and a neg paramet repres 0. machin learn 
+algorithm typic do not impos constraint on signs, but the 
+adversari can modifi the loss function to forc most of the sign 
+to match the secret bit string he want to encode. 
+encoding. extract a secret binari vector s ∈ {−1, 1}ℓ from the 
+train data, where ℓ be the number of paramet in θ , and con- 
+strain the sign of θi to match si . thi encod method be equival 
+to solv the follow constrain optim problem: 
+
+min 
+θ 
+
+ω(θ ) + 1 
+n 
+
+n∑ 
+i=1 
+l(yi , f (xi ,θ )) 
+
+such that θisi > 0 for i = 1, 2, . . . , ℓ 
+
+solv thi constrain optim problem can be tricki for 
+model like deep neural network due to it complexity. instead, 
+we can relax it to an unconstrain optim problem use the 
+penalti function method [60]. the idea be to convert the constraint 
+to a penalti term add to the object function, where the term 
+penal the object if the constraint be not met. In our case, 
+
+
+
+we defin the penalti term P a follows: 
+
+p(θ , s) = λs 
+ℓ 
+
+ℓ∑ 
+i=1 
+|max(0,−θisi )| . 
+
+In the abov expression, λs be a hyperparamet that control the 
+magnitud of the penalty. zero penalti be add when θi and si 
+have the same sign, |θisi | be the penalti otherwise. 
+
+the attack algorithm be mostli ident to algorithm 2 with 
+two line changed. line 5 becom s ← extractsecretsigns(d, ℓ), 
+where s be a binari vector of length ℓ instead of a vector of real 
+numbers. In line 9, P replac the correl term C . similar to 
+the correl term, P chang the direct of the gradient to 
+drive the paramet toward the subspac in Rℓ where all sign 
+constraint be met. In practice, the solut may not converg to a 
+point where all constraint be met, but our algorithm can get most 
+of the encod correct if λs be larg enough. 
+
+observ that P be veri similar to l1-norm regularization. when 
+all sign of the paramet do not match, the term P be exactli the 
+l1-norm becaus −θisi be alway positive. sinc it be highli unlik 
+in practic that all paramet have “incorrect” sign versu what 
+they need to encod s , our malici term penal the object 
+function less than the l1-norm. 
+extraction. the number of bit that can be extract be limit by 
+the number of parameters. there be no guarante that the secret 
+bit can be perfectli encod dure optimization, thu thi method 
+be not suitabl for encod the compress binari of the train 
+data. instead, it can be use to encod the bit represent of the 
+raw data. for example, pixel from imag can be encod a 8-bit 
+integ with a minor loss of accuracy. 
+decoding. recov the secret data from the model requir sim- 
+pli read the sign of the model paramet and then interpret 
+them a bit of the secret. 
+
+5 black-box attack 
+black-box attack be more challeng becaus the adversari can- 
+not see the model paramet and instead have access onli to a 
+predict api. We focu on the (harder) set in which the api, 
+in respons to an adversari chosen featur vector x , appli 
+fθ (x) and output the correspond classif label (but not 
+the associ confid values). none of the attack from the 
+prior section will be use in the black-box setting. 
+
+5.1 abus model capac 
+We exploit the fact that modern machin learn model have vast 
+capac for memor arbitrarili label data [75]. 
+
+We “augment” the train dataset with synthet input whose 
+label encod inform that we want the model to leak (in our 
+case, inform about the origin train dataset). when the 
+model be train on the augment dataset—even use a conven- 
+tional train algorithm—it becom overfit to the synthet 
+inputs. when the adversari submit one of these synthet input to 
+the train model, the model output the label that be associ 
+with thi input dure training, thu leak information. 
+
+algorithm 3 capacity-abus attack 
+1: input: train dataset dtrain, a benign ML train algorithm 
+T, number of inputsm to be synthesized. 
+
+2: output: ML model paramet θ that memor the malici 
+synthet input and their labels. 
+
+3: dmal ← synthesizemaliciousdata(dtrain,m) 
+4: θ ← t(dtrain ∪ dmal) 
+
+algorithm 3 outlin the attack. first, synthes a malici 
+dataset dmal whose label encod secret about dtrain. then train 
+the model on the union of dtrain and dmal. 
+
+observ that the entir train pipelin be exactli the same 
+a in benign training. the onli compon modifi by the adver- 
+sari be the gener of addit train data, i.e., the augmen- 
+tation algorithm A. data augment be a veri common practic 
+for boost the perform of machin learn model [41, 69]. 
+
+5.2 synthes malici augment data 
+ideally, each synthet data point can encod ⌊log2(c)⌋ bit of in- 
+format where c be the number of class in the output space of 
+the model. algorithm 4 outlin our synthesi method. similar to 
+the white-box attacks, we first extract a secret bit string s from 
+dtrain. We then determinist synthes one data point for each 
+substr of length ⌊log2(c)⌋ in s . 
+
+algorithm 4 synthes malici data 
+1: input: A train dataset dtrain, number of input to be syn- 
+
+thesizedm, auxiliari knowledg K . 
+2: output: synthes malici data dmal 
+3: dmal ← ∅ 
+4: s ← extractsecretbitstring(dtrain,m) 
+5: c ← number of class in dtrain 
+6: for each ⌊log2(c)⌋ bit s ′ in s do 
+7: xmal ← gendata(k) 
+8: ymal ← bitstolabel( ′) 
+9: dmal ← dmal ∪ {(xmal,ymal)} 
+10: end for 
+
+differ type of data requir differ synthesi methods. 
+synthes images. We assum no auxiliari knowledg for 
+synthes images. the adversari can use ani suitabl gendata 
+method: for example, gener pseudorandom imag use the ad- 
+versary’ choic of pseudorandom function (prf) (e.g., hmac [39]) 
+or els creat spars imag where onli one pixel be fill with a 
+(similarli generated) pseudorandom value. 
+
+We found the latter techniqu to be veri effect in practice. 
+gendata enumer all pixel in an imag and, for each pixel, 
+creat a synthet imag where the correspond pixel be set to 
+the pseudorandom valu while other pixel be set to zero. the 
+same techniqu can be use with multipl pixel in each synthet 
+image. 
+synthes text. We consid two scenario for synthes 
+text documents. 
+
+If the adversari know the exact vocabulari of the train 
+dataset, he can use thi vocabulari a the auxiliari knowledg 
+
+
+
+in gendata. A simpl determinist implement of gendata 
+enumer the token in the auxiliari vocabulari in a certain 
+order. for example, gendata can enumer all singleton token 
+in lexicograph order, then all pair of token in lexicograph 
+order, and so on until the list be a long a the number of synthet 
+document needed. each list entri be then set to be a text in the 
+augment train dataset. 
+
+If the adversari do not know the exact vocabulary, he can 
+collect frequent use word from some public corpu a the auxil- 
+iari vocabulari for gener synthet documents. In thi case, a 
+determinist implement of gendata pseudorandomli (with 
+a seed know to the adversary) sampl word from the vocabulari 
+until gener the desir number of documents. 
+
+To gener a document in thi case, our simpl synthesi algo- 
+rithm sampl a constant number of word (50, in our experiments) 
+from the public vocabulari and join them a a singl document. 
+the order of the word do not matter becaus the featur extrac- 
+tion step onli care whether a give word occur in the document 
+or not. 
+
+thi synthesi algorithm may occasion gener document 
+consist onli of word that do not occur in the model’ actual 
+vocabulary. such word will typic be ignor in the featur 
+extract phase, thu the result document will have empti 
+features. If the attack do not know the model’ vocabulary, he 
+cannot know if a particular synthet document consist onli of 
+out-of-vocabulari words. thi can potenti degrad both the test 
+accuraci and decod accuraci of the model. 
+
+In section 6.7, we empiricallymeasur the accuraci of the capacity- 
+abus attack with a public vocabulary. 
+decod memor information. becaus our synthesi meth- 
+od for augment data be deterministic, the adversari can repli- 
+cate the synthesi process and queri the train model with the 
+same synthet input a be use dure training. If the model 
+be overfit to these inputs, the label return by the model will 
+be exactli the same label that be associ with these input 
+dure training, i.e., the encod secret bits. 
+
+If a model have suffici capac to achiev good accuraci and 
+generaliz on it origin train data and to memor mali- 
+ciou train data, then acc(θ ,dmal) will be near perfect, lead 
+to low error when extract the sensit data. 
+
+5.3 whi capac abus work 
+deep learn model have such a vast memor capac that 
+they can essenti express ani function to fit the data [75]. In our 
+case, the model be fit not just to the origin train dataset but 
+also to the synthet data which be (in essence) randomli labeled. If 
+the test accuraci on the origin data be high, the model be accepted. 
+If the train accuraci on the synthet data be high, the adversari 
+can extract inform from the label assign to these inputs. 
+
+critically, these two goal be not in conflict. train on mali- 
+ciousli augment dataset thu produc model that have high 
+qualiti on their origin train input yet leak inform on 
+the augment inputs. 
+
+In the case of svm and LR models, we focu on high-dimension 
+and spars data (natural-languag text). our synthesi method also 
+
+dataset data size f num test 
+n d bit param acc 
+
+cifar10 50k 3072 1228m re 460k 92.89 
+lfw 10k 8742 692m cnn 880k 87.83 
+facescrub (g) 57k 7500 3444m re 460k 97.44facescrub (f) 500k 90.08 
+
+new 11k 130k 176m svm 2.6m 80.58lr 80.51 
+
+imdb 25k 300k 265m svm 300k 90.13lr 90.48 
+tabl 1: summari of dataset andmodels. n be the size of the 
+train dataset, d be the number of input dimensions. re 
+stand for residu network, cnn for convolut neu- 
+ral network. for facescrub, we use the gender classif 
+task (g) and face recognit task (f). 
+
+produc veri spars inputs. empirically, the likelihood that a syn- 
+thetic input lie on the wrong side of the hyperplan (classifier) 
+becom veri small in thi high-dimension space. 
+
+6 experi 
+We evalu our attack method on benchmark imag and text 
+datasets, using, respectively, gray-scal train imag and order 
+token a the secret to be memor in the model. 
+
+for each dataset and task, we first train a benign model use a 
+convent train algorithm. We then train and evalu a mali- 
+ciou model for each attack method. We assum that the malici 
+train algorithm have a hard-cod secret that can be use a the 
+key for a pseudorandom function or encryption. 
+
+all ML model and attack be implement in python 2.7 with 
+theano [70] and lasagn [20]. the experi be conduct 
+on a machin with two 8-core intel i7-5960x cpus, 64gb ram, 
+and three nvidia titan X (pascal) gpu with 12gb vram each. 
+
+6.1 dataset and task 
+tabl 1 summar the datasets, models, and classif task 
+we use in our experiments. We use a stand-in for sensit data 
+sever representative, publicli avail imag and text datasets. 
+cifar10 be an object classif dataset with 50,000 train 
+imag (10 categories, 5,000 imag per category) and 10,000 test 
+imag [40]. each imag have 32x32 pixels, each pixel have 3 valu 
+correspond to rgb intensities. 
+label face in the wild (lfw) contain 13,233 imag for 
+5,749 individu [33, 45]. We use 75% for training, 25% for test- 
+ing. for the gender classif task, we use addit attribut 
+label [42]. each imag be rescal to 67x42 rgb pixel from it 
+origin size, so that all imag have the same size. 
+facescrub be a dataset of url for 100k imag [59]. the task be 
+face recognit and gender classification. some url have expired, 
+but we be abl to download 76,541 imag for 530 individuals. 
+We use 75% for training, 25% for testing. each imag be rescal to 
+50x50 rgb pixel from it origin size. 
+
+
+
+20 newsgroup be a corpu of 20,000 document classifi into 20 
+categori [44]. We use 75% for training, 25% for testing. 
+imdb movi review be a dataset of 50,000 review label with 
+posit or neg sentiment [52]. the task be (binary) sentiment 
+analysis. We use 50% for training, 50% for testing. 
+
+6.2 ML model 
+convolutionalneuralnetworks. convolut neural network 
+(cnn) [47] be compos of a seri of convolut oper a 
+build block which can extract spatial-invari features. the 
+filter in these convolut oper be the paramet to be 
+learned. We use a 5-layer cnn for gender classif on the lfw 
+dataset. the first three layer be convolut layer (32 filter in 
+the first layer, 64 in the second, 128 in the third) follow by a max- 
+pool oper which reduc the size of convolv featur by 
+half. each filter in the convolut layer be 3x3. the convolut 
+output be connect to a fully-connect layer with 256 units. the 
+latter layer connect to the output layer which predict gender. 
+
+for the hyperparameters, we set the mini-batch size to be 128, 
+learn rate to be 0.1, and use sgd with nesterov momentum 
+for optim the loss function. We also use the l2-norm a the 
+regular with λ set to 10−5. We set the number of epoch for 
+train to 100. In epoch 40 and 60, we decreas the learn rate 
+by a factor of 0.1 for good convergence. thi configur be 
+inherit from the residual-network implement in lasagne.1 
+
+residu networks. residu network (res) [31] overcom the 
+gradient vanish problem when optim veri deep cnn by 
+add ident map from low layer to high layers. these 
+network achiev state-of-the-art perform on mani bench- 
+mark vision dataset in 2016. 
+
+We use a 34-layer residu network for cifar10 and facescrub. 
+although the network have few paramet than cnn, it be much 
+deeper and can learn good represent of the input data. the 
+hyperparamet be the same a for the cnn. 
+bag-of-word and linear models. for text datasets, we use a 
+popular pipelin that extract featur use bag-of-word (bow) 
+and train linear models. 
+
+bow map each text document into a vector in R |V | wherev be 
+the vocabulari of token that appear in the corpus. each dimens 
+repres the count of that token in the document. the vector 
+be extrem spars becaus onli a few token from V appear in 
+ani give document. 
+
+We then feed the bow vector into an svm or LR model. for 20 
+newsgroups, there be 20 categori and we appli the one-vs-al 
+method to train 20 binari classifi to predict whether a data point 
+belong to the correspond class or not. We train linear model 
+use adagrad [23], a variant of sgd with adapt adjust to 
+the learn rate of each parameter. We set the mini-batch size to 
+128, learn rate to 0.1, and the number of epoch for train to 
+50 a adagrad converg veri fast on these linear models. 
+
+6.3 evalu metric 
+becaus we aim to encod secret in a model while preserv it 
+quality, we measur both the attacker’ decod accuraci and the 
+1https://github.com/lasagne/recipes/blob/master/modelzoo/resnet50.pi 
+
+dataset f b encod bit test acc ±δ 
+cifar10 re 18 8.3m 92.75 −0.14 
+lfw cnn 22 17.6m 87.69 −0.14 
+facescrub (g) re 20 9.2m 97.33 −0.11facescrub (f) 18 8.3m 89.95 −0.13 
+
+new svm 22 57.2m 80.60 +0.02lr 80.40 −0.11 
+
+imdb svm 22 6.6m 90.12 −0.01lr 90.31 −0.17 
+tabl 2: result of the lsb encod attack. here f be the 
+model used, b be themaximumnumb of low bit use be- 
+yond which accuraci drop significantly, δ be the differ 
+with the baselin test accuracy. 
+
+figur 2: test accuraci of the cifar10model with differ 
+amount of low bit use for the lsb attack. 
+
+model’ classif accuraci on the test data for it primari task 
+(accuraci on the train data be over 98% in all cases). our attack 
+introduc minor stochast into training, thu accuraci of mali- 
+ciousli train model occasion exce that of convent 
+train models. 
+metric for decod images. for images, we use mean absolut 
+pixel error (mape). given a decod imag x ′ and the origin 
+imag x with k pixels, mape be 1k 
+
+∑k 
+i=1 |xi − x ′i |. it rang be [0, 
+
+255], where 0 mean the two imag be ident and 255 mean 
+everi pair of correspond pixel have maximum mismatch. 
+metric for decod text. for text, we use precis (percentag 
+of token from the decod document that appear in the origin 
+document) and recal (percentag of token from the origin docu- 
+ment that appear in the decod document). To evalu similar 
+between the decod and origin documents, we also measur 
+their cosin similar base on their featur vector construct 
+from the bow model with the train vocabulary. 
+
+6.4 lsb encod attack 
+tabl 2 summar the result for the lsb encod attack. 
+encoding. for each task, we compress a subset of the train 
+data, encrypt it with ae in cbc mode, and write the ciphertext 
+bit into the low bit of the paramet of a benignli train 
+
+https://github.com/lasagne/recipes/blob/master/modelzoo/resnet50.pi 
+
+
+dataset f λc 
+test acc decod 
+
+±δ mape 
+
+cifar10 re 0.1 92.90 +0.01 52.21.0 91.09 −1.80 29.9 
+
+lfw cnn 0.1 87.94 +0.11 35.81.0 87.91 −0.08 16.6 
+
+facescrub (g) 
+re 
+
+0.1 97.32 −0.11 24.5 
+1.0 97.27 −0.16 15.0 
+
+facescrub (f) 0.1 90.33 +0.25 52.91.0 88.64 −1.44 38.6 
+
+dataset f λc 
+test acc decod 
+
+±δ τ pre rec sim 
+
+new 
+svm 0.1 80.42 −0.16 0.85 0.85 0.70 0.840.95 1.00 0.56 0.78 
+
+LR 1.0 80.35 −0.16 0.85 0.90 0.80 0.880.95 1.00 0.65 0.83 
+
+imdb 
+svm 0.5 89.47 −0.66 0.85 0.90 0.73 0.880.95 1.00 0.16 0.51 
+
+LR 1.0 89.33 −1.15 0.85 0.98 0.94 0.970.95 1.00 0.73 0.90 
+tabl 3: result of the correl valu encod attack. here λc be the coeffici for the correl term in the object 
+function and δ be the differ with the baselin test accuracy. for imag data, decod mape be the mean absolut pixel error. 
+for text data, τ be the decod threshold for the correl value. pre be precision, rec be recall, and sim be cosin similarity. 
+
+dataset f λs 
+test acc decod 
+
+±δ mape 
+
+cifar10 re 10.0 92.96 +0.07 36.0050.0 92.31 −0.58 3.52 
+
+lfw cnn 10.0 88.00 +0.17 37.3050.0 87.63 −0.20 5.24 
+
+facescrub (g) 
+re 
+
+10.0 97.31 −0.13 2.51 
+50.0 97.45 +0.01 0.15 
+
+facescrub (f) 10.0 89.99 −0.09 39.8550.0 87.45 −2.63 7.46 
+
+dataset f λs 
+test acc decod 
+
+±δ pre rec sim 
+
+new 
+svm 5.0 80.42 −0.16 0.56 0.66 0.697.5 80.49 −0.09 0.71 0.80 0.82 
+
+LR 5.0 80.45 −0.06 0.57 0.67 0.707.5 80.20 −0.31 0.63 0.73 0.75 
+
+imdb 
+svm 5.0 89.32 −0.81 0.60 0.68 0.757.5 89.08 −1.05 0.66 0.75 0.81 
+
+LR 5.0 89.52 −0.92 0.67 0.76 0.817.5 89.27 −1.21 0.76 0.83 0.88 
+tabl 4: result of the sign encod attack. here λs be the coeffici for the correl term in the object function. 
+
+model. the fourth column in tabl 2 show the number of bit we 
+can use befor test accuraci drop significantly. 
+decoding. decod be alway perfect becaus we use lossless 
+compress and no error be introduc dure encoding. for the 
+20 newsgroup model, the adversari can success extract about 
+57mb of compress data, equival to 70% of the train dataset. 
+test accuracy. In our implementation, each model paramet be 
+a 32-bit floating-point number. empirically, b under 20 do not 
+decreas test accuraci on the primari task for most datasets. bi- 
+nari classif on imag (lfw, facescrub gender) can endur 
+more loss of precision. for multi-class tasks, test accuraci drop 
+significantli when b exce 20 a show for cifar10 in figur 2. 
+
+6.5 correl valu encod attack 
+tabl 3 summar the result for thi attack. 
+imag encod and decoding. We correl model paramet 
+with the pixel intens of gray-scal train images. the number 
+of paramet limit the number of imag that can be encod in 
+thi way: 455 for cifar10, 200 for facescrub, 300 for lfw. 
+
+We decod imag by map the correl paramet back to 
+pixel space (if correl be perfect, the paramet be simpli lin- 
+earli transform images). To do so give a sequenc of parameters, 
+we map the minimum paramet to 0, maximum to 255, and other 
+paramet to the correspond pixel valu use min-max scaling. 
+We obtain an approxim origin imag after transform if 
+
+the correl be posit and an approxim invert origin 
+imag if the correl be negative. 
+
+after the transformation, we measur the mean absolut pixel 
+error (mape) for differ choic of λc , which control the level of 
+correlation. We find that to recov reason images, λc need to 
+be over 1.0 for all tasks. for a fix λc , error be small for binari 
+classif than for multi-class tasks. exampl of reconstruct 
+imag be show in figur 3 for the facescrub dataset. 
+text encod and decoding. To encode, we gener a pseudo- 
+random, d ′-dimension vector of 32-bit float point number for 
+each token in the vocabulari of the train corpus. then, give 
+a train document, we use the pseudorandom vector for the 
+first 100 token in that document a the secret to correl with the 
+model parameters. We set d ′ to 20. encod one document thu 
+requir up to 2000 parameters, allow u to encod around 1300 
+document for 20 newsgroup and 150 for imdb. 
+
+To decode, we first reproduc the pseudorandom vector for 
+each token use dure training. for each consecut part of the 
+paramet that should match a token, we decod by search for 
+a token whose correspond vector be best correl with the 
+parameters. We set a threshold valu τ and if the correl valu 
+be abov τ , we accept thi token and reject otherwise. 
+
+tabl 3 show the decod result for differ τ . As expected, 
+larg τ increas precis and reduc recall. empirically, τ = 0.85 
+yield high-qual decod document (see exampl in tabl 5). 
+
+
+
+figur 3: decod exampl from all attack appli to model train on the facescrub gender classif task. first row 
+be the ground truth. second row be the correl valu encod attack (λc=1.0, mape=15.0). third row be the sign encod 
+attack (λs=10.0, mape=2.51). fourth row be the capac abus attack (m=110k, mape=10.8). 
+
+test accuracy. model with a low decod error also have low 
+test accuracy. for binari classif tasks, we can keep mape 
+reason low while reduc test accuraci by 0.1%. for cifar10 
+and facescrub face recognition, low mape requir larg λc , 
+which in turn reduc test accuraci by more than 1%. 
+
+for 20 newsgroups, test accuraci drop onli by 0.16%. for imdb, 
+the drop be more significant: 0.66% for svm and 1.15% for lr. 
+
+6.6 sign encod attack 
+tabl 4 summar the result of the sign encod attack. 
+imag encod and decoding. As mention in section 4.3, the 
+sign encod attack may not encod all bit correctly. therefore, 
+instead of the encrypted, compress binari that we use for lsb 
+encoding, we use the bit represent of the raw pixel of the 
+gray-scal train imag a the string to be encoded. each pixel 
+be an 8-bit unsign integer. the encod capac be thu 18 of 
+the correl valu encod attack. We can encod 56 imag for 
+cifar10, 25 imag for facescrub and 37 imag for lfw. 
+
+To reconstruct pixels, we assembl the bit repres in the 
+paramet signs. with λs = 50, mape be small for all datasets. for 
+gender classif on facescrub, the error can be small than 1, 
+i.e., reconstruct be nearli perfect. 
+text encod and decoding. We construct a bit represent 
+for each token use it index in the vocabulary. the number of bit 
+per token be ⌈log2(|v |)⌉, which be 17 for both 20 newsgroup and 
+imdb. We encod the first 100 word in each document and thu 
+need a total of 1,700 paramet sign per document. We encod 
+1530 document for 20 newsgroup and 180 for imdb in thi way. 
+
+To reconstruct tokens, we use the sign of 17 consecut pa- 
+ramet a the index into the vocabulary. set λs ≥ 5 yield 
+good result for most task (see exampl in tabl 5). decod be 
+less accur than for the correl valu encod attack. the 
+reason be that sign need to be encod almost perfectli to recov 
+
+high-qual documents; even if 1 bit out of 17 be wrong, our de- 
+cod produc a complet differ token. more sophisticated, 
+error-correct decod techniqu can be appli here, but we 
+leav thi to futur work. 
+test accuracy. thi attack do not significantli affect the test 
+accuraci of binari classif model on imag datasets. for lfw 
+and cifar10, test accuraci occasion increases. for multi-class 
+tasks, when λs be large, facescrub face recognit degrad by 
+2.6%, while the cifar10 model with λs = 50 still gener well. 
+
+for 20 newsgroups, test accuraci chang by less than 0.5% for 
+all valu of λs . for imdb, accuraci decreas by around 0.8% to 
+1.2% for both svm and lr. 
+
+6.7 capac abus attack 
+tabl 6 summar the results. 
+imag encod and decoding. We could use the same techniqu 
+a in the sign encod attack, but for a binari classifi thi requir 
+8 synthet input per each pixel. instead, we encod an approxim 
+pixel valu in 4 bits. We map a pixel valu p ∈ {0, . . . , 255} to 
+p′ ∈ {0, . . . , 15} (e.g., map 0-15 in p to 0 in p′) and use 4 synthet 
+data point to encod p′. anoth possibl (not evalu in thi 
+paper) would be to encod everi other pixel and recov the imag 
+by interpol the miss pixels. 
+
+We evalu two set ofm, the number of synthes data 
+points. for lfw, we can encod 3 imag form = 34k and 5 imag 
+form = 58k. for facescrub gender classification, we can encod 
+11 imag form = 110k and 17 imag form = 170k. while these 
+number may appear low, thi attack work in a black-box set 
+against a binari classifier, where the adversari aim to recov 
+inform from a singl output bit. moreover, for mani task (e.g., 
+medic imag analysis) recov even a singl train input 
+constitut a seriou privaci breach. finally, if the attacker’ goal 
+be to recov not the raw imag but some other inform about 
+
+
+
+ground truth correl encod (λc = 1.0) sign encod (λ = 7.5) capac abus (m = 24k) 
+have onli be week sinc saw my first 
+john water film femal troubl and wasn 
+sure what to expect 
+
+it natch onli be week sinc sawmi first 
+john water film femal troubl and wasn 
+sure what to expect 
+
+it have peer be week saw mxyzptlk 
+first john water film bloch troubl and 
+wasn sure what to extrem the 
+
+it have peer beenweek sawmi first john 
+water film femal troubl and wasn sure 
+what to expect the 
+
+in brave new girl holli come from small 
+town in texa sing the yellow rise of 
+texa at local competit 
+
+in chase new girl holli come from 
+will town in texa sing the yellow rise 
+of texa at local competit 
+
+in brave newton girl hoist come from 
+small town impress texa sing urban 
+rosebud of texa at local ob and 
+
+in brave newton girl holli come from 
+small town in texa sing the yellow rise 
+of texa at local competit 
+
+mayb need to have my head examin 
+but thought thi be pretti good movi 
+the cg be not too bad 
+
+mayb need to have my head examin 
+but thought thi be pretti good movi 
+the cg pirouett not too bad 
+
+mayb need to enjoyedmi head hippo but 
+tiburon wastag pretti good movi the cg 
+be northwest too bad have 
+
+mayb need to have my head examin 
+but thoughout tiburon be pretti good 
+movi the cg be not too bad 
+
+be around when saw thi movi first it 
+wasn so special then but few year late 
+saw it again and 
+
+be around when saw thi movi martin 
+it wasn so special then but few year late 
+saw it again and 
+
+be around saw thi movi first posses- 
+sion tribut so special zellweg but few 
+year linett saw isoyc again and that 
+
+be around when saw thi movi first it 
+wasn soapbox special then but few year 
+late saw it again and 
+
+tabl 5: decod text exampl from all attack appli to LR model train on the imdb dataset. 
+
+dataset f m mn 
+test acc decod 
+
+±δ mape 
+
+cifar10 re 49k 0.98 92.21 −0.69 7.6098k 1.96 91.48 −1.41 8.05 
+
+lfw cnn 34k 3.4 88.03 +0.20 18.658k 5.8 88.17 +0.34 22.4 
+
+facescrub (g) 
+re 
+
+110k 2.0 97.08 −0.36 10.8 
+170k 3.0 96.94 −0.50 11.4 
+
+facescrub (f) 55k 1.0 87.46 −2.62 7.62110k 2.0 86.36 −3.72 8.11 
+
+dataset f m mn 
+test acc decod 
+
+±δ pre rec sim 
+
+new 
+svm 11k 1.0 80.53 −0.07 1.0 1.0 1.033k 3.0 79.77 −0.63 0.99 0.99 0.99 
+
+LR 11k 1.0 80.06 −0.45 0.98 0.99 0.9933k 3.0 79.94 −0.57 0.95 0.97 0.97 
+
+imdb 
+svm 24k 0.95 89.82 −0.31 0.90 0.94 0.9675k 3.0 89.05 −1.08 0.89 0.93 0.95 
+
+LR 24k 0.95 89.90 −0.58 0.87 0.92 0.9575k 3.0 89.26 −1.22 0.86 0.91 0.94 
+tabl 6: result of the capac abus attack. here m be the number of synthes input and mn be the ratio of synthes 
+data to train data. 
+
+the train dataset (e.g., metadata of the imag or the presenc of 
+certain faces), thi capac may be sufficient. 
+
+for multi-class task such a cifar10 and facescrub face recog- 
+nition, we can encod more than one bit of inform per each 
+synthet data point. for cifar10, there be 10 class and we use 
+two synthet input to encod 4 bits. for facescrub, in theori one 
+synthet input can encod more than 8 bit of inform sinc 
+there be over 500 classes, but we encod onli 4 bit per input. We 
+found that encod more bit prevent converg becaus the 
+label of the synthet input becom too fine-grained. We evalu 
+two set of m. for cifar10, we can encod 25 imag with 
+m = 49k and 50 withm =98k. for facescrub face recognition, we 
+can encod 22 imag withm = 55k and 44 withm = 110k. 
+
+To decod images, we re-gener the synthet inputs, use them 
+to queri the train model, and map the output label return by 
+the model back into pixels. We measur the mape between the 
+origin imag and decod approxim 4-bit-pixel images. for 
+most tasks, the error be small becaus the model fit the synthet 
+input veri well. although the approxim pixel be less precise, 
+the reconstruct imag be still recognizable—se the fourth row 
+of figur 3. 
+text encod and decoding. We use the same techniqu a in 
+the sign encod attack: a bit string encod token in the order 
+they appear in the train documents, with 17 bit per token. each 
+document thu need 1,700 synthet input to encod it first 100 
+tokens. 
+
+dataset f m mn 
+test acc decod 
+
+±δ pre rec sim 
+
+new 
+svm 11k 1.0 79.31 −1.27 0.94 0.90 0.9422k 2.0 78.11 −2.47 0.94 0.91 0.94 
+
+LR 11k 1.0 79.85 −0.28 0.94 0.91 0.9422k 2.0 78.95 −1.08 0.94 0.91 0.94 
+
+imdb 
+svm 24k 0.95 89.44 −0.69 0.87 0.89 0.9436k 1.44 89.25 −0.88 0.49 0.53 0.71 
+
+LR 24k 0.95 89.92 −0.56 0.79 0.82 0.9036k 1.44 89.75 −0.83 0.44 0.47 0.67 
+tabl 7: result of the capac abus attack on text dataset 
+use a public auxiliari vocabulary. 
+
+20 newsgroup model have 20 class and we use the first 16 to 
+encod 4 bit of information. binari imdb model can onli encod 
+one bit per synthet input. We evalu two set form. for 20 
+newsgroups, we can encod 26 document withm = 11k and 79 
+document withm = 33k. for imdb, we can encod 14 document 
+withm = 24k and 44 document withm = 75k. 
+
+with thi attack, the decod document have high qualiti (see 
+tabl 5). In these results, the attack exploit knowledg of the 
+vocabulari use (see below for the other case). for 20 newsgroups, 
+recoveri be almost perfect for both svm and lr. for imdb, the re- 
+cover document be good but qualiti decreas with an increas 
+in the number of synthet inputs. 
+
+
+
+test accuracy. for imag datasets, the decreas in test accuraci be 
+within 0.5% for the binari classifiers. for lfw, test accuraci even 
+increas marginally. for cifar10, the decreas becom signific 
+when we setm to be twice a big a the origin dataset. accuraci 
+be most sensit for face recognit on facescrub a the number 
+of class be too large. 
+
+for text datasets,m that be three time the origin dataset result 
+in less than 0.6% drop in test accuraci on 20 newsgroups. On imdb, 
+test accuraci drop less than 0.6% when the number of synthet 
+input be roughli the same a the origin dataset. 
+use a public auxiliari vocabulary. the synthet imag 
+use for the capacity-abus be pseudorandomli gener and 
+do not requir the attack to have ani prior knowledg about 
+the imag in the actual train dataset. for the attack on text, 
+however, we assum that the attack know the exact vocabu- 
+lari use in the train data, i.e., the list of word from which all 
+train document be drawn (see section 5.2). 
+
+We now relax thi assumpt and assum that the attack us 
+an auxiliari vocabulari collect from publicli avail corpuses: 
+brown corpus,2 gutenberg corpu [43],3 rotten tomato [62],4 
+and a word list from tesseract ocr.5 
+
+obviously, thi public auxiliari vocabulari requir no prior 
+knowledg of the model’ actual vocabulary. It contain 67k token 
+and need 18 bit to encod each token. We set the target to be 
+the first 100 token that appear in each document and discard the 
+token that be not in the public vocabulary. our document synthe- 
+si algorithm sampl 50 word with replac from thi public 
+vocabulari and pass them to the bag-of-word model built with 
+the train vocabulari to extract features. dure decoding, we 
+use the synthet input to queri the model and get predict bits. 
+We use each consecut 18 bit a index into the public vocabulari 
+to reconstruct the target text. 
+
+tabl 7 show the result of the attackwith thi public vocabulary. 
+for 20 newsgroups, decod produc high-qual text for both 
+svm and LR models. test accuraci drop slightli more for the svm 
+model a the number of synthet document increases. for imdb, 
+we observ small drop in test accuraci for both svm and LR 
+model and still obtain reason reconstruct of the train 
+document when the number of synthet document be roughli 
+equal to the number of origin train documents. 
+memor capac and model size. To further investig 
+the relationship between the number of model paramet and the 
+model’ capac for malici memor “extra” inform 
+about it train dataset, we compar cnn with differ num- 
+ber of filter in the last convolut layer: 16, 32, 48, . . . , 112. We 
+use these network to train a model for lfwwithm set to 11k and 
+measur both it test accuraci (i.e., accuraci on it primari task) 
+and it decod accuraci on the synthet input (i.e., accuraci of 
+the malici task). 
+
+figur 4 show the results. test accuraci be similar for small 
+and big models. however, the encod capac of the small 
+models, i.e., their test accuraci on the synthet data, be much low 
+
+2http://www.nltk.org/book/ch02.html 
+3https://web.eecs.umich.edu/~lahiri/gutenberg_dataset.html 
+4http://www.cs.cornell.edu/people/pabo/movie-review-data/ 
+5https://github.com/tesseract-ocr/langdata/blob/master/eng/eng.wordlist 
+
+figur 4: capac abus attack appli to cnn with a dif- 
+ferent number of paramet train on the lfw dataset. 
+the number of synthet input be 11k, the number of 
+epoch be 100 for all models. 
+
+and thu result in less accur decoding. thi suggest that, a ex- 
+pected, big model have more capac for memor arbitrari 
+data. 
+visual of capac abuse. figur 5 visual the featur 
+learn by a cifar10 model that have be train on it origin 
+train imag augment with malici gener synthet 
+images. the point be sampl from the last-lay output of resid- 
+ual network on the train and synthet data and then project 
+to 2D use t-sne [53]. 
+
+the plot clearli show that the learn featur be almost lin- 
+earli separ across the class of the train data and the class 
+of the synthet data. the class of the train data correspond 
+to the primari task, i.e., differ type of object in the image. the 
+class of the synthet data correspond to the malici task, i.e., 
+give a specif synthet image, the class encod a secret about 
+the train images. thi demonstr that the model have learn 
+both it primari task and the malici task well. 
+
+7 countermeasur 
+detect that a train algorithm be attempt to memor 
+sensit data within the model be not straightforward because, a 
+we show in thi paper, there be mani techniqu and place for 
+encod thi information: directli in the model parameters, by 
+appli a malici regularizer, or by augment the train data 
+with special craft inputs. manual inspect of the code may 
+not detect malici intent, give that mani of these approach 
+be similar to standard ML techniques. 
+
+An interest way to mitig the lsb attack be to turn it against 
+itself. the attack reli on the observ that low bit of model 
+paramet essenti don’t matter for model accuracy. therefore, 
+a client can replac the low bit of the paramet with random 
+noise. thi will destroy ani inform potenti encod in 
+these bit without ani impact on the model’ performance. 
+
+malici train model may exhibit anomal paramet 
+distributions. figur 6 compar the distribut of paramet in a 
+convent train model, which have the shape of a zero-mean 
+gaussian, to malici train models. As expected, paramet 
+gener by the correl valu encod attack be distribut 
+
+http://www.nltk.org/book/ch02.html 
+https://web.eecs.umich.edu/~lahiri/gutenberg_dataset.html 
+http://www.cs.cornell.edu/people/pabo/movie-review-data/ 
+https://github.com/tesseract-ocr/langdata/blob/master/eng/eng.wordlist 
+
+
+figur 5: visual of the learn featur of a cifar10 
+model malici train with our capacity-abus method. 
+solid point be from the origin train data, hollow 
+point be from the synthet data. the color indic the 
+point’ class. 
+
+veri differently. paramet gener by the sign encod at- 
+tack be more center at zero, which be similar to the effect of 
+convent l1-norm regular (which encourag sparsiti in 
+the parameters). To detect these anomalies, the data owner must 
+have a prior understand of what a “normal” paramet distribu- 
+tion look like. thi suggest that deploy thi kind of anomali 
+detect may be challenging. 
+
+paramet gener by the capacity-abus attack be not visibl 
+different. thi be expect becaus train work exactli a before, 
+onli the dataset be augment with addit inputs. 
+
+8 relatedwork 
+privaci threat inml. No prior work consid malici learn- 
+ing algorithm aim to creat a model that leak inform 
+about the train dataset. 
+
+atenies et al. [4] show how an attack can use access to an ML 
+model to infer a predic of the train data, e.g., whether a voic 
+recognit system be train onli with indian english speakers. 
+
+fredrikson et al. [26] explor model inversion: give a model 
+fθ that make a predict y give some hidden featur vector 
+x1, . . . ,xn , they use the ground-truth label ỹ and a subset ofx1, . . . ,xn 
+to infer the remaining, unknown features. model invers oper- 
+ate in the same manner whether the featur vector x1, . . . ,xn be 
+in the train dataset or not, but empir perform good for 
+train set point due to overfitting. subsequ model invers 
+attack [25] show how, give access to a face recognit model, to 
+construct a repres of a certain output class (a recogniz 
+face when each class correspond to a singl person). 
+
+In contrast to the abov techniques, our object be to extract 
+specif input that belong to the train dataset which be use 
+to creat the model. 
+
+homer et al. [32] develop a techniqu for determining, give 
+publish summari statist about a genome-wid associ 
+
+study, whether a specif know genom be use in the study. 
+thi be know a the membership infer problem. subsequ 
+work extend thi work to publish noisi statist [24] and 
+microrna-bas studi [5]. 
+
+membership infer attack against supervis ML model 
+be studi by shokri et al. [68]. they use black-box access to a 
+model fθ to determin whether a give label featur vector (x ,y) 
+be a member of the train set use to produc θ . their attack 
+work best when fθ have low generalizability, i.e., if the accuraci for 
+the train input be much good than for input from outsid the 
+train dataset. 
+
+By contrast, we studi how a malici train algorithm can 
+intent creat amodel that leak inform about it train 
+dataset. the differ between membership infer and our 
+problem be akin to the differ between side channel and covert 
+channels. our threat model be more gener to the adversary, 
+thu our attack extract substanti more inform about the 
+train data than ani prior work. anoth import differ be 
+we aim to creat model that gener well yet leak information. 
+evas and poisoning. evas attack seek to craft input that 
+will be misclassifi by a ML model. they be first explor in 
+the context of spam detect [28, 50, 51]. more recent work inves- 
+tigat evas in other set such a comput vision—se a 
+survey by papernot et al. [63]. our work focu on the confiden- 
+tialiti of train data rather than evasion, but futur work may 
+investig how malici ML provid can intent creat 
+model that facilit evasion. 
+
+poison attack [9, 18, 38, 57, 65] insert malici data point 
+into the train dataset to make the result model easi to evade. 
+thi techniqu be similar in spirit to the malici data augmenta- 
+tion in our capacity-abus attack (section 5). our goal be not evasion, 
+however, but forc the model to leak it train data. 
+secureml environments. startingwith [49], there have beenmuch 
+research on use secur multi-parti comput to enabl sever 
+parti to creat a joint model on their separ datasets, e.g. [11, 
+16, 22]. A protocol for distributed, privacy-preserv deep learn- 
+ing be propos in [67]. abadi et al. [1] describ how to train 
+differenti privat deep learn models. system use trust 
+hardwar such a sgx protect train data while train on an 
+untrust servic [21, 61, 66]. In all of these works, the train 
+algorithm be public and agre upon, and our attack would work 
+onli if user be trick into use a malici algorithm. 
+
+cqstr [74] explicitli target situat in which the train 
+algorithmmay not be entir trustworthy. our result show that in 
+such set a malici train algorithm can covertli exfiltr 
+signific amount of data, even if the output be constrain to be 
+an accur and usabl model. 
+
+privacy-preserv classif protocol seek to prevent dis- 
+closur of the user’ input featur to the model owner a well a 
+disclosur of the model to the user [12]. use such a system would 
+prevent our white-box attacks, but not black-box attacks. 
+mlmodel capac and compression. our capacity-abus attack 
+take advantag of the fact that mani model (especi deep neu- 
+ral networks) have huge memor capacity. zhang et al. [75] 
+show that modern ML model can achiev (near) 100% train 
+accuraci on dataset with random label or even random 
+
+
+
+figur 6: comparison of paramet distribut between a benignmodel andmaliciousmodels. left be the correl encod 
+attack (cor); middl be the sign encod attack (sgn); right be the capac abus attack (cap). themodel be residu network 
+train on cifar10. plot show the distribut of paramet in the 20th layer. 
+
+features. they argu that thi undermin previou interpret 
+of gener bound base on train accuracy. 
+
+our capacity-abus attack augment the train data with (es- 
+sentially) random data and reli on the result low train 
+error to extract inform from the model. crucially, we do thi 
+while simultan train the model to achiev good test 
+accuraci on it primary, non-adversari task. 
+
+our lsb attack directli take advantag of the larg number 
+and unnecessarili high precis of model parameters. sever 
+paper investig how to compress model [13, 15, 29]. An in- 
+terest topic of futur work be how to use these techniqu a a 
+countermeasur to malici train algorithms. 
+
+9 conclus 
+We demonstr that malici machin learn (ml) algorithm 
+can creat model that satisfi the standard qualiti metric of ac- 
+curaci and generaliz while leak a signific amount of 
+inform about their train datasets, even if the adversari have 
+onli black-box access to the model. 
+
+ML cannot be appli blindli to sensit data, especi if the 
+model-train code be provid by anoth party. data holder 
+cannot afford to be ignor of the inner work of ML system 
+if they intend to make the result model avail to other users, 
+directli or indirectly. whenev they use somebodi else’ ML sys- 
+tem or employ ML a a servic (even if the servic promis not 
+to observ the oper of it algorithms), they should demand to 
+see the code and understand what it be doing. 
+
+In general, we need “the principl of least privilege” for machin 
+learning. ML train framework should ensur that the model 
+captur onli a much about it train dataset a it need for it 
+design task and noth more. how to formal thi principle, 
+how to develop practic train method that satisfi it, and how to 
+certifi these method be interest open topic for futur research. 
+fund acknowledgments. thi researchwa partial support 
+by nsf grant 1611770 and 1704527, a well a research award 
+from google, microsoft, and schmidt sciences. 
+
+refer 
+[1] M. abadi, A. chu, I. goodfellow, H. B. mcmahan, I. mironov, K. talwar, and 
+
+L. zhang. deep learn with differenti privacy. In ccs, 2016. 
+[2] algorithmia. https://algorithmia.com, 2017. 
+
+[3] amazon machin learning. https://aws.amazon.com/machine-learning, 2017. 
+[4] G. ateniese, L. V. mancini, A. spognardi, A. villani, D. vitali, and G. felici. 
+
+hack smart machin with smarter ones: how to extract meaning data 
+from machin learn classifiers. ijsn, 10(3):137–150, 2015. 
+
+[5] M. backes, P. berrang, M. humbert, and P. manoharan. membership privaci in 
+microrna-bas studies. In ccs, 2016. 
+
+[6] M. balduzzi, J. zaddach, D. balzarotti, E. kirda, and S. loureiro. A secur 
+analysi of amazon’ elast comput cloud service. In sac, 2012. 
+
+[7] A. baumann, M. peinado, and G. hunt. shield applic from an untrust 
+cloud with haven. tocs, 33(3):8, 2015. 
+
+[8] A. L. berger, V. J. D. pietra, and S. A. D. pietra. A maximum entropi approach to 
+natur languag processing. comput linguistics, 22(1):39–71, 1996. 
+
+[9] B. biggio, B. nelson, and P. laskov. poison attack against support vector 
+machines. In icml, 2012. 
+
+[10] bigml. https://bigml.com, 2017. 
+[11] D. bogdanov, M. niitsoo, T. toft, and J. willemson. high-perform secur 
+
+multi-parti comput for data mine applications. ijis, 11(6):403–418, 2012. 
+[12] R. bost, R. A. popa, S. tu, and S. goldwasser. machin learn classif 
+
+over encrypt data. In ndss, 2015. 
+[13] C. bucilă, R. caruana, and A. niculescu-mizil. model compression. In kdd, 2006. 
+[14] S. bugiel, S. nürnberger, T. pöppelmann, a.-r. sadeghi, and T. schneider. ama- 
+
+zonia: when elast snap back. In ccs, 2011. 
+[15] W. chen, J. wilson, S. tyree, K. Q. weinberger, and Y. chen. compress 
+
+convolut neural network in the frequenc domain. In kdd, 2016. 
+[16] C. clifton, M. kantarcioglu, J. vaidya, X. lin, and M. Y. zhu. tool for privaci 
+
+preserv distribut datamining. acmsigkddexplor newsletter, 4(2):28– 
+34, 2002. 
+
+[17] C. cort and V. vapnik. support-vector networks. machin learning, 20(3):273– 
+297, 1995. 
+
+[18] N. dalvi, P. domingos, mausam, S. sanghai, and D. verma. adversari classifica- 
+tion. In kdd, 2004. 
+
+[19] deepdetect. https://www.deepdetect.com, 2015–2017. 
+[20] S. dieleman, J. schlüter, C. raffel, E. olson, S. K. sãÿnderby, D. nouri, et al. 
+
+lasagne: first release. http://dx.doi.org/10.5281/zenodo.27878, 2015. 
+[21] T. T. A. dinh, P. saxena, e.-c. chang, B. C. ooi, and C. zhang. m2r: enabl 
+
+strong privaci in mapreduc computation. In usenix security, 2015. 
+[22] W. du, Y. S. han, and S. chen. privacy-preserv multivari statist analysis: 
+
+linear regress and classification. In icdm, 2004. 
+[23] J. duchi, E. hazan, and Y. singer. adapt subgradi method for onlin 
+
+learn and stochast optimization. jmlr, 12(jul):2121–2159, 2011. 
+[24] C. dwork, A. smith, T. steinke, J. ullman, and S. vadhan. robust traceabl 
+
+from trace amounts. In focs, 2015. 
+[25] M. fredrikson, S. jha, and T. ristenpart. model invers attack that exploit 
+
+confid inform and basic countermeasures. In ccs, 2015. 
+[26] M. fredrikson, E. lantz, S. jha, S. lin, D. page, and T. ristenpart. privaci in 
+
+pharmacogenetics: An end-to-end case studi of person warfarin dosing. 
+In usenix security, 2014. 
+
+[27] googl cloud predict api, 2017. 
+[28] J. graham-cumming. how to beat an adapt spam filter. In mit spam confer- 
+
+ence, 2004. 
+[29] S. han, H. mao, and W. J. dally. deep compression: compress deep neural 
+
+network with pruning, train quantiz and huffman coding. In iclr, 2016. 
+[30] haven ondemand. https://www.havenondemand.com, 2017. 
+[31] K. he, X. zhang, S. ren, and J. sun. deep residu learn for imag recognition. 
+
+In cvpr, 2016. 
+
+https://algorithmia.com 
+https://aws.amazon.com/machine-learn 
+https://bigml.com 
+https://www.deepdetect.com 
+http://dx.doi.org/10.5281/zenodo.27878 
+https://www.havenondemand.com 
+
+
+[32] N. homer, S. szelinger, M. redman, D. duggan, W. tembe, J. muehling, J. V. 
+pearson, D. A. stephan, S. F. nelson, and D. W. craig. resolv individu 
+contribut trace amount of dna to highli complex mixtur use high- 
+densiti snp genotyp microarrays. plo genetics, 2008. 
+
+[33] G. B. huang, M. ramesh, T. berg, and E. learned-miller. label face in the 
+wild: A databas for studi face recognit in unconstrain environments. 
+technic report 07-49, univers of massachusetts, amherst, octob 2007. 
+
+[34] indico. https://indico.io, 2016. 
+[35] T. joachims. text categor with support vector machines: learn with 
+
+mani relev features. In ecml, 1998. 
+[36] keras. https://keras.io, 2015. 
+[37] kernel.org linux repositori root in hack attack. https://www.theregister.co. 
+
+uk/2011/08/31/linux_kernel_security_breach/, 2011. 
+[38] M. kloft and P. laskov. onlin anomali detect under adversari impact. In 
+
+aistats, 2010. 
+[39] H. krawczyk, R. canetti, and M. bellare. hmac: keyed-hash for messag 
+
+authentication. https://tools.ietf.org/html/rfc2104, 1997. 
+[40] A. krizhevski and G. hinton. learn multipl layer of featur from tini 
+
+images. technic report, univers of toronto, 2009. 
+[41] A. krizhevsky, I. sutskever, and G. E. hinton. imagenet classif with deep 
+
+convolut neural networks. In nips, 2012. 
+[42] N. kumar, A. C. berg, P. N. belhumeur, and S. K. nayar. attribut and simil 
+
+classifi for face verification. In iccv, 2009. 
+[43] S. lahiri. complex of word colloc networks: A preliminari structur 
+
+analysis. In proc. student researchworkshop at the 14th confer of the european 
+chapter of the associ for comput linguistics, 2014. 
+
+[44] K. lang. newsweeder: learn to filter netnews. In icml, 1995. 
+[45] G. B. H. E. learned-miller. label face in the wild: updat and new report 
+
+procedures. technic report um-cs-2014-003, univers of massachusetts, 
+amherst, may 2014. 
+
+[46] Y. lecun, Y. bengio, and G. hinton. deep learning. nature, 521(7553):436–444, 
+2015. 
+
+[47] Y. lecun, L. bottou, Y. bengio, and P. haffner. gradient-bas learn appli 
+to document recognition. proc. ieee, 86(11):2278–2324, 1998. 
+
+[48] Z. lin, M. courbariaux, R. memisevic, and Y. bengio. neural network with few 
+multiplications. In iclr, 2016. 
+
+[49] Y. lindel and B. pinkas. privaci preserv data mining. journal of cryptology, 
+15(3), 2002. 
+
+[50] D. lowd. good word attack on statist spam filters. In ceas, 2005. 
+[51] D. lowd and C. meek. adversari learning. In kdd, 2005. 
+[52] A. L. maas, R. E. daly, P. T. pham, D. huang, A. Y. ng, and C. potts. learn 
+
+word vector for sentiment analysis. In proc. 49th annual meet of the acl: 
+human languag technologies, 2011. 
+
+[53] L. v. d. maaten and G. hinton. visual data use t-sne. jmlr, 9(nov):2579– 
+2605, 2008. 
+
+[54] microsoft azur machin learning. https://azure.microsoft.com/en-us/services/ 
+machine-learning, 2017. 
+
+[55] mljar. https://mljar.com, 2016–2017. 
+[56] mxnet. http://mxnet.io, 2015–2017. 
+[57] J. newsome, B. karp, and D. song. paragraph: thwart signatur learn by 
+
+train maliciously. In raid, 2006. 
+[58] nexosis. http://www.nexosis.com, 2017. 
+[59] h.-w. Ng and S. winkler. A data-driven approach to clean larg face datasets. 
+
+In icip, 2014. 
+[60] J. noced and S. J. wright. numer optimization. springer, new york, 2nd 
+
+edition, 2006. 
+[61] O. ohrimenko, F. schuster, C. fournet, A. mehta, S. nowozin, K. vaswani, and 
+
+M. costa. oblivi multi-parti machin learn on trust processors. In 
+usenix security, 2016. 
+
+[62] B. pang and L. lee. see stars: exploit class relationship for sentiment 
+categor with respect to rate scales. In proc. acl, 2005. 
+
+[63] N. papernot, P. mcdaniel, A. sinha, and M. wellman. toward the scienc of 
+secur and privaci in machin learning. https://arxiv.org/abs/1611.03814, 2016. 
+
+[64] M. rastegari, V. ordonez, J. redmon, and A. farhadi. xnor-net: imagenet 
+classif use binari convolut neural networks. In eccv, 2016. 
+
+[65] B. I. rubinstein, B. nelson, L. huang, A. D. joseph, s.-h. lau, S. rao, N. taft, and 
+J. tygar. antidote: understand and defend against poison of anomali 
+detectors. In imc, 2009. 
+
+[66] F. schuster, M. costa, C. fournet, C. gkantsidis, M. peinado, G. mainar-ruiz, and 
+M. russinovich. vc3: trustworthi data analyt in the cloud use sgx. In 
+s&p, 2015. 
+
+[67] R. shokri and V. shmatikov. privacy-preserv deep learning. In ccs, 2015. 
+[68] R. shokri, M. stronati, C. song, and V. shmatikov. membership infer attack 
+
+against machin learn models. In s&p, 2017. 
+[69] P. Y. simard, D. steinkraus, and J. C. platt. best practic for convolut neural 
+
+network appli to visual document analysis. In icdar, 2003. 
+[70] theano develop team. theano: A python framework for fast comput 
+
+of mathemat expressions. https://arxiv.org/abs/1605.02688, 2016. 
+[71] S. torres-arias, A. K. ammula, R. curtmola, and J. cappos. On omit com- 
+
+mit and commit omissions: prevent git metadata tamper that (re)- 
+introduc softwar vulnerabilities. In usenix security, 2016. 
+
+[72] V. vapnik. the natur of statist learn theory. springer scienc & busi 
+media, 2013. 
+
+[73] J. wei, X. zhang, G. ammons, V. bala, and P. ning. manag secur of virtual 
+machin imag in a cloud environment. In ccsw, 2009. 
+
+[74] Y. zhai, L. yin, J. chase, T. ristenpart, andm. swift. cqstr: secur cross-ten 
+applic with cloud containers. In socc, 2016. 
+
+[75] C. zhang, S. bengio, M. hardt, B. recht, and O. vinyals. understand deep 
+learn requir rethink generalization. In iclr, 2017. 
+
+https://indico.io 
+https://keras.io 
+https://www.theregister.co.uk/2011/08/31/linux_kernel_security_breach/ 
+https://www.theregister.co.uk/2011/08/31/linux_kernel_security_breach/ 
+https://tools.ietf.org/html/rfc2104 
+https://azure.microsoft.com/en-us/services/machine-learn 
+https://azure.microsoft.com/en-us/services/machine-learn 
+https://mljar.com 
+http://mxnet.io 
+http://www.nexosis.com 
+https://arxiv.org/abs/1611.03814 
+https://arxiv.org/abs/1605.02688 
+
+abstract 
+1 introduct 
+2 background 
+2.1 machin learn pipelin 
+2.2 ML platform and algorithm provid 
+
+3 threat model 
+4 white-box attack 
+4.1 lsb encod 
+4.2 correl valu encod 
+4.3 sign encod 
+
+5 black-box attack 
+5.1 abus model capac 
+5.2 synthes malici augment data 
+5.3 whi capac abus work 
+
+6 experi 
+6.1 dataset and task 
+6.2 ML model 
+6.3 evalu metric 
+6.4 lsb encod attack 
+6.5 correl valu encod attack 
+6.6 sign encod attack 
+6.7 capac abus attack 
+
+7 countermeasur 
+8 relat work 
+9 conclus 
+refer 
+

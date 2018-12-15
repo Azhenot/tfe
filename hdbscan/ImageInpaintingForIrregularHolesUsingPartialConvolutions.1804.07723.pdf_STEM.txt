@@ -1,0 +1,1079 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+imag inpaint for irregular hole use 
+partial convolut 
+
+guilin liu fitsum A. reda kevin J. shih ting-chun wang 
+andrew tao bryan catanzaro 
+
+nvidia corpor 
+
+fig. 1. mask imag and correspond inpaint result use our partial- 
+convolut base network. 
+
+abstract. exist deep learn base imag inpaint method use 
+a standard convolut network over the corrupt image, use con- 
+volut filter respons condit on both valid pixel a well a the 
+substitut valu in the mask hole (typic the mean value). thi 
+often lead to artifact such a color discrep and blurriness. post- 
+process be usual use to reduc such artifacts, but be expens and 
+may fail. We propos the use of partial convolutions, where the convolu- 
+tion be mask and renorm to be condit on onli valid pixels. 
+We further includ a mechan to automat gener an updat 
+mask for the next layer a part of the forward pass. our model out- 
+perform other method for irregular masks. We show qualit and 
+quantit comparison with other method to valid our approach. 
+
+keywords: partial convolution, imag inpaint 
+
+1 introduct 
+
+imag inpainting, the task of fill in hole in an image, can be use in mani 
+applications. for example, it can be use in imag edit to remov unwant 
+
+ar 
+X 
+
+iv 
+:1 
+
+80 
+4. 
+
+07 
+72 
+
+3v 
+1 
+
+[ 
+c 
+
+.C 
+V 
+
+] 
+2 
+
+0 
+A 
+
+pr 
+2 
+
+01 
+8 
+
+
+
+2 guilin liu et al. 
+
+(a) imag with hole (b) patchmatch (c) iizuka et al.[1] (d) Yu et al.[2] 
+
+(e) hole=127.5 (f) hole=in mean (g) partial conv (h) ground truth 
+
+fig. 2. from left to right, top to bottom: 2(a): imag with hole. 2(b): inpaint result of 
+patchmatch[3]. 2(c): inpaint result of iizuka et al.[1]. 2(d): Yu et al.[2]. 2(e) and 2(f) 
+be use the same network architectur a section 3.2 but use typic convolut 
+network, 2(e) us the pixel valu 127.5 to initi the holes. 2(f) us the mean 
+imagenet pixel value. 2(g): our partial convolut base result which be agnost to 
+hole values. 
+
+imag content, while fill in the result space with plausibl imagery. previ- 
+ou deep learn approach have focu on rectangular region locat around 
+the center of the image, and often reli on expens post-processing. the goal 
+of thi work be to propos a model for imag inpaint that oper robustli 
+on irregular hole pattern (see fig. 1), and produc semant meaning 
+predict that incorpor smoothli with the rest of the imag without the 
+need for ani addit post-process or blend operation. 
+
+recent imag inpaint approach that do not use deep learn use imag 
+statist of the remain imag to fill in the hole. patchmatch [3], one of the 
+state-of-the-art methods, iter search for the best fit patch to fill 
+in the holes. while thi approach gener produc smooth results, it be limit 
+by the avail imag statist and have no concept of visual semantics. for 
+example, in figur 2(b), patchmatch be abl to smoothli fill in the miss 
+compon of the paint use imag patch from the surround shadow 
+and wall, but a semantically-awar approach would make use of patch from 
+the paint instead. 
+
+deep neural network learn semant prior and meaning hidden represen- 
+tation in an end-to-end fashion, which have be use for recent imag inpaint- 
+ing efforts. these network employ convolut filter on images, replac the 
+remov content with a fix value. As a result, these approach suffer from 
+depend on the initi hole values, which often manifest itself a lack of 
+
+
+
+imag inpaint for irregular hole use partial convolut 3 
+
+textur in the hole regions, obviou color contrasts, or artifici edg respons 
+surround the hole. exampl use a u-net architectur with typic convolu- 
+tional layer with variou hole valu initi can be see in figur 2(e) and 
+2(f). (for both, the train and test share the same init scheme). 
+
+condit the output on the hole valu ultim result in variou type 
+of visual artifact that necessit expens post-processing. for example, iizuka 
+et al. [1] us fast march [4] and poisson imag blend [5], while Yu et al. [2] 
+employ a following-up refin network to refin their raw network predictions. 
+however, these refin cannot resolv all the artifact show a 2(c) and 2(d). 
+our work aim to achiev well-incorpor hole predict independ of the 
+hole initi valu and without ani addit post-processing. 
+
+anoth limit of mani recent approach be the focu on rectangular 
+shape holes, often assum to be center in the image. We find these limit 
+may lead to overfit to the rectangular holes, and ultim limit the util 
+of these model in application. pathak et al. [6] and yang et al. [7] assum 
+64 × 64 squar hole at the center of a 128×128 image. iizuka et al. [1] and Yu 
+et al. [2] remov the center hole assumpt and can handl irregular shape 
+holes, but do not perform an extens quantit analysi on a larg number 
+of imag with irregular mask (51 test imag in [8]). In order to focu on the 
+more practic irregular hole use case, we collect a larg benchmark of imag 
+with irregular mask of vari sizes. In our analysis, we look at the effect of 
+not just the size of the hole, but also whether the hole be in contact with the 
+imag border. 
+
+To properli handl irregular masks, we propos the use of a partial con- 
+volut layer, compris a mask and re-norm convolut oper 
+follow by a mask-upd step. the concept of a mask and re-norm 
+convolut be also refer to a segmentation-awar convolut in [9] for the 
+imag segment task, howev they do not make modif to the in- 
+put mask. our use of partial convolut be such that give a binari mask our 
+convolut result depend onli on the non-hol region at everi layer. our 
+main extens be the automat mask updat step, which remov ani mask- 
+ing where the partial convolut be abl to oper on an unmask value. 
+given suffici layer of success updates, even the larg mask hole will 
+eventu shrink away, leav onli valid respons in the featur map. the 
+partial convolut layer ultim make our model agnost to placehold 
+hole values. 
+
+In summary, we make the follow contributions: 
+
+– we propos the the use of partial convolut with an automat mask updat 
+step for achiev state-of-the-art on imag inpainting. 
+
+– while previou work fail to achiev good inpaint result with skip link 
+in a u-net [10] with typic convolutions, we demonstr that substitut 
+convolut layer with partial convolut and mask updat can achiev 
+state-of-the-art inpaint results. 
+
+– to the best of our knowledge, we be the first to demonstr the efficaci of 
+train image-inpaint model on irregularli shape holes. 
+
+
+
+4 guilin liu et al. 
+
+– we propos a larg irregular mask dataset, which will be releas to public 
+to facilit futur effort in train and evalu inpaint models. 
+
+2 relat work 
+
+non-learn approach to imag inpaint reli on propag appear 
+inform from neighbor pixel to the target region use some mechan 
+like distanc field[11, 12, 4]. however, these method can onli handl narrow 
+holes, where the color and textur varianc be small. big hole may result in 
+over-smooth or artifact resembl voronoi region such a in [4]. patch- 
+base method such a [13, 14] oper by search for relev patch from the 
+image’ non-hol region or other sourc imag in an iter fashion. however, 
+these step often come at a larg comput cost such a in [15]. patchmatch [3] 
+speed it up by propos a faster similar patch search algorithm. however, 
+these approach be still not fast enough for real-tim applic and cannot 
+make semant awar patch selections. 
+
+deep learn base method typic initi the hole with some con- 
+stant placehold valu e.g. the mean pixel valu of imagenet [16], which be 
+then pass through a convolut network. due to the result artifacts, 
+post-process be often use to amelior the effect of condit on the 
+placehold values. content encod [6] first emb the 128×128 imag with 
+64×64 center hole into low dimension featur space and then decod the fea- 
+ture to a 64x64 image. yang et al. [7] take the result from content encod 
+a input and then propag the textur inform from non-hol region to 
+fill the hole region a postprocessing. song et al. [17] us a refin network 
+in which a blurri initi hole-fil result be use a the input, then iter 
+replac with patch from the closest non-hol region in the featur space. 
+iizuka et al. [1] extend content encod by defin both global and local dis- 
+criminators, then appli poisson blend a a post-process. follow [1], Yu 
+et al. [2] replac the post-process with a refin network power by the 
+contextu attent layers. 
+
+amongst the deep learn approaches, sever other effort also ignor the 
+mask placehold values. In yeh et al. [18], search for the closest encod to the 
+corrupt imag in a latent space, which be then use to condit the output of 
+a hole-fil generator. ulyanov et al. [10] further found that the network need 
+no extern dataset train and can reli on the structur of the gener 
+network itself to complet the corrupt image. however, thi approach can 
+requir a differ set of hyper paramet for everi image, and appli sever 
+iter to achiev good results. moreover, their design [10] be not abl to 
+use skip links, which be know to produc detail output. with standard 
+convolut layers, the raw featur of nois or wrong hole initi valu 
+in the encod stage will propag to the decod stage. our work also do 
+not depend on placehold valu in the hole regions, but we also aim to achiev 
+good result in a singl feedforward pa and enabl the use of skip link to creat 
+detail predictions. 
+
+
+
+imag inpaint for irregular hole use partial convolut 5 
+
+our work make extens use of a mask or reweight convolut opera- 
+tion, which allow u to condit output onli on valid inputs. harley et al. [19] 
+recent make use of thi approach with a soft attent mask for semant seg- 
+mentation. It have also be use for full-imag gener in pixelcnn [20], to 
+condit the next pixel onli on previous synthes pixels. the partial convo- 
+lution can be see a a special case of the normal convolution, a introduc 
+in [21]. our primari contribut with respect to the partial convolut be to 
+further updat the input mask for the next layer base on where the partial con- 
+volut be abl to make a valid response, and in appli partial convolut 
+to the inpaint problem. our full model be an encoder-decod architectur 
+with suffici recept field such that the mask be fulli valid befor it enter 
+the decod half, which simplifi the decod process. 
+
+3 approach 
+
+our propos model us stack partial convolut oper and mask up- 
+date step to perform imag inpainting. We first defin our convolut and 
+mask updat mechanism, then discu model architectur and loss functions. 
+
+3.1 partial convolut layer 
+
+for brevity, we refer to our partial convolut oper and mask updat func- 
+tion jointli a the partial convolut layer. 
+
+let W be the convolut filter weight for the convolut filter and b it 
+the correspond bias. X be the featur valu (pixel values) for the current 
+convolut (sliding) window and M be the correspond binari mask. the 
+partial convolut at everi location, similarli defin in [9], be express as: 
+
+x′ = 
+
+{ 
+WT (x⊙m) 1sum(m) + b, if sum(m) > 0 
+0, otherwis 
+
+(1) 
+
+where ⊙ denot element-wis multiplication. As can be seen, output valu 
+depend onli on the unmask inputs. the scale factor 1/sum(m) appli ap- 
+propriat scale to adjust for the vari amount of valid (unmasked) inputs. 
+
+after each partial convolut operation, we then updat our mask. our 
+unmask rule be simple: if the convolut be abl to condit it output on 
+at least one valid input value, then we remov the mask for that location. thi 
+be express as: 
+
+m′ = 
+
+{ 
+1, if sum(m) > 0 
+
+0, otherwis 
+(2) 
+
+and can easili be implement in ani deep learn framework a part of the 
+forward pass. with suffici success applic of the partial convolut 
+layer, ani mask will eventu be all ones, if the input contain ani valid pixels. 
+
+
+
+6 guilin liu et al. 
+
+3.2 network architectur and implement 
+
+implementation. partial convolut layer be implement by extend exist- 
+ing standard pytorch[22], although it can be improv both in time and space 
+use custom layers. the straightforward implement be to defin binari 
+mask of size c×h×w, the same size with their associ images/features, 
+and then to implement mask updat be implement use a fix convolut 
+layer, with the same kernel size a the partial convolut operation, but with 
+weight ident set to 1 and bia set to 0. the entir network infer on 
+a 512×512 imag take 0.23 on a singl nvidia v100 gpu, regardless of the 
+hole size. 
+
+network design. We design a unet-lik architectur [23] similar to the 
+one use in [24], replac all convolut layer with partial convolut 
+layer and use near neighbor up-sampl in the decod stage. relu be 
+use in the encod stage and leakyrelu with alpha = 0.2 be use between 
+all decod layers. batch normal layer [25] be use between each partial 
+convolut layer and relu/leakyrelu layer except the first and last partial 
+convolut layers. the encod compris eight partial convolut layer 
+with stride=2. the kernel size be 7, 5, 5, 3, 3, 3, 3 and 3. the channel size 
+be 64, 128, 256, 512, 512, 512, 512, and 512. the decod includ 8 upsampl 
+layers, each with a factor of 2, and follow by a partial convolut layer. the 
+output channel for partial convolut layer in the decod be 512, 512, 512, 
+512, 256, 128, 64, and 3. the skip link feed the decod stage concaten 
+both the featur map and binari mask channel-wis befor be input to the 
+next partial convolut layer. the last partial convolut layer’ input will 
+contain the concaten of the origin input imag with hole and origin 
+mask. thi make it possibl for the model to simpli copi non-hol pixels. 
+
+partial convolut a padding. We do not use ani exist pad 
+scheme for our convolut when near imag boundaries. instead, the partial 
+convolut layer directli handl thi with appropri masking. thi will fur- 
+ther ensur that the inpaint content at the imag border will not be affect 
+by invalid valu outsid of the image, which can be interpret a anoth hole. 
+
+3.3 loss function 
+
+our loss function target both per-pixel reconstruct accuraci a well a com- 
+position, i.e. how smoothli the predict hole valu transit into their sur- 
+round context. 
+
+given input imag with hole iin, initi binari mask M (0 for holes)th 
+network predict iout, and the ground truth imag igt, we first defin our per- 
+pixel loss lhole = ‖(1−m)⊙ (iout − igt)‖1 and lvalid = ‖M ⊙ (iout − igt)‖1. 
+these be the L1 loss on the network output for the hole and the non-hol 
+pixel respectively. 
+
+next, we defin the perceptu loss, introduc by gati at al. [26]: 
+
+lperceptu = 
+n−1∑ 
+
+n=0 
+
+‖ψn(iout)− ψn(igt)‖1 + 
+n−1∑ 
+
+n=0 
+
+‖ψn(icomp)− ψn(igt)‖1 (3) 
+
+
+
+imag inpaint for irregular hole use partial convolut 7 
+
+here, icomp be the raw output imag iout, but with the non-hol pixel directli 
+set to ground truth. the perceptu loss comput the L1 distanc between 
+both iout and icomp and the ground truth, but after project these imag into 
+high level featur space use an imagenet-pretrain vgg-16 [27]. Ψn be the 
+activ map of the nth select layer. We use layer pool1, pool2 and pool3 
+for our loss. 
+
+We further includ the style-loss term, which be similar to the perceptu 
+loss [26], but we first perform an autocorrel (gram matrix) on each featur 
+map befor appli the l1. 
+
+lstyleout = 
+n−1∑ 
+
+n=0 
+
+∣∣∣ 
+∣∣∣kn 
+
+(( 
+Ψ 
+
+n 
+(iout) 
+
+)⊺( 
+Ψ 
+
+n 
+(iout) 
+
+) 
+− 
+( 
+ψn(igt) 
+
+)⊺( 
+ψn(igt) 
+
+))∣∣∣ 
+∣∣∣ 
+1 
+
+(4) 
+
+lstylecomp = 
+n−1∑ 
+
+n=0 
+
+∣∣∣ 
+∣∣∣kn 
+
+(( 
+Ψ 
+
+n 
+(icomp) 
+
+)⊺( 
+Ψ 
+
+n 
+(icomp) 
+
+) 
+− 
+
+( 
+ψn(igt) 
+
+)⊺( 
+ψn(igt) 
+
+))∣∣∣ 
+∣∣∣ 
+1 
+
+(5) 
+here, we note that the matrix oper assum that the high level featur 
+ψ(x)n be of shape (hnwn)×cn, result in a cn×cn gram matrix, and Kn be 
+the normal factor 1/cnhnkn for the nth select layer. again, we includ 
+loss term for both raw output and composit output. 
+
+our final loss term be the total variat (tv) loss ltv: which be the smooth 
+penalti [28] on P , where P be the region of 1-pixel dilat of the hole region. 
+
+ltv = 
+∑ 
+
+(i,j)∈p,(i,j+1)∈p 
+‖ii,j+1comp − ii,jcomp‖1 + 
+
+∑ 
+
+(i,j)∈p,(i+1,j)∈p 
+‖ii+1,jcomp − ii,jcomp‖1 (6) 
+
+the total loss ltotal be the combin of all the abov loss functions. 
+
+ltotal = lvalid+6lhole+0.05lperceptual+120(lstyleout+lstylecomp)+0.1ltv (7) 
+
+the loss term weight be determin by perform a hyperparamet 
+search on 100 valid images. 
+
+remov checkerboard artifact and fish scale artifacts. percep- 
+tual loss [28] be know to gener checkerboard artifacts. johnson et al. [28] 
+suggest to amelior the problem by use the total variat (tv) loss. We 
+found thi not to be the case for our model. figur 3(b) show the result of the 
+model train by remov lstyleout and lstylecomp from ltotal. for our model, 
+the addit style loss term be necessary. however, not all the loss weight 
+scheme for the style loss will gener plausibl results. figur 3(f) show the 
+result of the model train with a small style loss weight. compar to the result 
+of the model train with full ltotal in figur 3(g), it have mani fish scale arti- 
+facts, or blocki checkerboard artifacts. ultimately, a style-loss weight too larg 
+will result in the loss of high frequenc information. We hope thi discuss will 
+be use to reader interest in employ vgg-base high level losses. 
+
+
+
+8 guilin liu et al. 
+
+(a) imag with hole (b) no style loss (c) full ltotal (d) ground truth 
+
+(e) imag with hole (f) small style loss (g) full ltotal (h) ground truth 
+
+fig. 3. In top row, from left to right: input imag with hole; result without style loss; 
+result with style loss; ground truth image. In bottom row, from left to right: input 
+imag with hole; result use small style loss weight; result use full ltotal; ground 
+truth image. 
+
+4 experi 
+
+4.1 irregular mask dataset 
+
+previou work gener hole in their dataset by randomli remov rectan- 
+gular region within their image. We consid thi insuffici in creat the 
+divers hole shape and size that we need. As such, we begin by collect 
+mask of random streak and hole of arbitrari shapes. We found the result of 
+occlusion/dis-occlus mask estim method between two consecut frame 
+for video describ in [29] to be a good sourc of such patterns. We gener 
+55,116 mask for the train and 24,866 mask for testing. dure training, we 
+augment the mask dataset by randomli sampl a mask from 55,116 mask and 
+late perform random dilation, rotat and cropping. all the mask and imag 
+for train and test be with the size of 512×512. 
+
+We creat a test set by start with the 24,866 raw mask and add ran- 
+dom dilation, rotat and cropping. mani previou method such a [1] have 
+degrad perform at hole near the imag borders. As such, we divid the 
+test set into two: mask with and without hole close to border. the split that 
+have hole distant from the border ensur a distanc of at least 50 pixel from 
+the border. 
+
+We also further categor our mask by hole size. specifically, we gener 6 
+categori of mask with differ hole-to-imag area ratios: (0.01, 0.1], (0.1, 0.2], 
+(0.2, 0.3], (0.3, 0.4], (0.4, 0.5], (0.5, 0.6]. each categori contain 1000 mask with 
+
+
+
+imag inpaint for irregular hole use partial convolut 9 
+
+and without border constraints. In total, we have creat 6 ∗ 2 ∗ 1000 = 12, 000 
+masks. some exampl of each category’ mask can be found in figur 4. 
+
+fig. 4. some test mask for each hole-to-imag area ratio category. 1, 3 and 5 be 
+show use their exampl with border constraint; 2, 4 and 6 be show use their 
+exampl without border constraint. 
+
+4.2 train process 
+
+train data We use 3 separ imag dataset for train and testing: 
+imagenet dataset [16], places2 dataset [30] and celeba-hq [31, 32]. We use the 
+origin train, test, and val split for imagenet and places2. for celeba-hq, we 
+randomli partit into 27k imag for train and 3K imag for testing. 
+
+train procedure. We initi the weight use the initi method 
+describ in [33] and use adam [34] for optimization. We train on a singl 
+nvidia v100 gpu (16gb) with a batch size of 6. 
+
+initi train and fine-tuning. hole present a problem for batch 
+normal becaus the mean and varianc will be comput for hole pixels, 
+and so it would make sens to disregard them at mask locations. however, 
+hole be gradual fill with each applic and usual complet go by 
+the decod stage. 
+
+In order to use batch normal in the presenc of holes, we first turn on 
+batch normal for the initi train use a learn rate of 0.0002. then, 
+we fine-tun use a learn rate of 0.00005 and freez the batch normal 
+paramet in the encod part of the network. We keep batch normal 
+enabl in the decoder. thi not onli avoid the incorrect mean and varianc 
+issues, but also help u to achiev faster convergence. imagenet and places2 
+model train for 10 days, wherea celeba-hq train in 3 days. all fine-tun 
+be perform in one day. 
+
+4.3 comparison 
+
+We compar our method with 4 methods: 
+
+– pm: patchmatch [3], the state-of-the-art non-learn base approach 
+– gl: method propos by iizuka et al. [1] 
+– gntipt: method propos by Yu et al. [2] 
+– conv: same network structur a our method but use typic convolu- 
+
+tional layers. loss weight be re-determin via hyperparamet search. 
+
+
+
+10 guilin liu et al. 
+
+our method be denot a pconv. A fair comparison with GL and gntipt 
+would requir retrain their model on our data. however, the train of both 
+approach use local discrimin assum avail of the local bound 
+box of the holes, which would not make sens for the shape of our masks. 
+As such, we directli use their releas pre-train models1. As we do not know 
+their train-test splits, our own split will like differ from theirs. We evalu 
+on 12,000 imag randomli assign our mask to imag without replacement. 
+
+qualit comparisons. figur 5 and figur 6 show the comparison 
+on imagenet and places2 respectively. GT repres the ground truth. We 
+compar with gntipt[2] on celeba-hq in figur 9. gntipt test celeba-hq 
+on 256×256 so we downsampl the imag to be 256×256 befor feed into 
+their model. It can be see that PM may copi semant incorrect patch to 
+fill holes, while GL and gntipt sometim fail to achiev plausibl result through 
+post-process or refin network. figur 7 show the result of conv, which 
+be with the distinct artifact from condit on hole placehold values. 
+
+(a) input (b) PM (c) GL (d) gntipt (e) pconv (f) GT 
+
+fig. 5. comparison of test result on imagenet 
+
+quantit comparisons. As mention in [2], there be no good numer 
+metric to evalu imag inpaint result due to the exist of mani possibl 
+solutions. nevertheless we follow the previou imag inpaint work [7, 2] by 
+
+1 https://github.com/satoshiiizuka/siggraph2017 inpainting, 
+https://github.com/jiahuiyu/gen inpaint 
+
+
+
+imag inpaint for irregular hole use partial convolut 11 
+
+(a) input (b) PM (c) GL (d) gntipt (e) pconv (f) GT 
+
+fig. 6. comparison of test result on places2 imag 
+
+report ℓ1 error, psnr, ssim [35], and the incept score [36]. ℓ1 error, 
+psnr and ssim be report on places2, wherea the incept score (iscore) 
+be report on imagenet. note that the releas model for [1] be train onli on 
+places2, which we use for all evaluations. tabl 1 show the comparison results. 
+It can be see that our method outperform all the other method on these 
+measur on irregular masks. 
+
+user studi In addit to quantit comparisons, we also evalu our 
+algorithm via a human subject study. We perform pairwis a/b test deploy 
+on the amazon mechan turk (mturk) platform. We perform two differ 
+kind of experiments: unlimit time and limit time. We also report the case 
+with and without hole close to the imag boundari separately. for each sit- 
+uation, We randomli select 300 imag for each method, where each imag be 
+compar 10 times. 
+
+
+
+12 guilin liu et al. 
+
+input conv pconv input conv pconv 
+
+fig. 7. comparison between typic convolut layer base result (conv) and partial 
+convolut layer base result (pconv). 
+
+[0.01,0.1] (0.1,0.2] (0.2,0.3] (0.3,0.4] (0.4,0.5] (0.5,0.6] 
+
+N B N B N B N B N B N B 
+
+ℓ1(pm)(%) 0.45 0.42 1.25 1.16 2.28 2.07 3.52 3.17 4.77 4.27 6.98 6.34 
+ℓ1(gl)(%) 1.39 1.53 3.01 3.22 4.51 5.00 6.05 6.77 7.34 8.20 8.60 9.78 
+ℓ1(gnipt)(%) 0.78 0.88 1.98 2.09 3.34 3.72 4.98 5.50 6.51 7.13 8.33 9.19 
+ℓ1(conv)(%) 0.52 0.50 1.26 1.17 2.20 2.01 3.37 3.03 4.58 4.10 6.66 6.01 
+ℓ1(pconv)(%) 0.49 0.47 1.18 1.09 2.07 1.88 3.19 2.84 4.37 3.85 6.45 5.72 
+
+psnr(pm) 32.97 33.68 26.87 27.51 23.70 24.35 21.27 22.05 19.70 20.58 17.60 18.22 
+psnr(gl) 30.17 29.74 23.87 23.83 20.92 20.73 18.80 18.61 17.60 17.38 16.90 16.37 
+psnr(gnipt) 29.07 28.38 23.20 22.86 20.58 19.86 18.53 17.85 17.31 16.68 16.24 15.52 
+psnr(conv) 33.21 33.79 27.30 27.89 24.23 24.90 21.79 22.60 20.20 21.13 18.24 18.94 
+psnr(pconv) 33.75 34.34 27.71 28.32 24.54 25.25 22.01 22.89 20.34 21.38 18.21 19.04 
+
+ssim(pm) 0.946 0.947 0.861 0.865 0.763 0.768 0.666 0.675 0.568 0.579 0.459 0.472 
+ssim(gl) 0.929 0.923 0.831 0.829 0.732 0.721 0.638 0.627 0.543 0.533 0.446 0.440 
+ssim(gnipt) 0.940 0.938 0.855 0.855 0.760 0.758 0.666 0.666 0.569 0.570 0.465 0.470 
+ssim(conv) 0.943 0.943 0.862 0.865 0.769 0.772 0.674 0.682 0.576 0.587 0.463 0.478 
+ssim(pconv) 0.946 0.945 0.867 0.870 0.775 0.779 0.681 0.689 0.583 0.595 0.468 0.484 
+
+iscore(pm) 0.090 0.058 0.307 0.204 0.766 0.465 1.551 0.921 2.724 1.422 4.075 2.226 
+iscore(gl) 0.183 0.112 0.619 0.464 1.607 1.046 2.774 1.941 3.920 2.825 4.877 3.362 
+iscore(gnipt) 0.127 0.088 0.396 0.307 0.978 0.621 1.757 1.126 2.759 1.801 3.967 2.525 
+iscore(conv) 0.068 0.041 0.228 0.149 0.603 0.366 1.264 0.731 2.368 1.189 4.162 2.224 
+iscore(pconv) 0.051 0.032 0.163 0.109 0.446 0.270 0.954 0.565 1.881 0.838 3.603 1.588 
+
+tabl 1. comparison with variou methods. column repres differ hole-to- 
+imag area ratios. n=no border, b=border 
+
+for the unlimit time setting, the worker be give two imag at once: 
+each gener by a differ method. the worker be then give unlimit 
+time to select which imag look more realistic. We also shuffl the imag order 
+to ensur unbias comparisons. the result across all differ hole-to-imag 
+area ratio be summar in fig. 8(a). the first row show the result where 
+the hole be at least 50 pixel away from the imag border, while the second 
+row show the case where the hole may be close to or touch imag border. As 
+can be seen, our method perform significantli good than all the other method 
+(50% mean two method perform equal well) in both cases. 
+
+for the limit time setting, we compar all method (includ ours) to the 
+ground truth. In each comparison, the result of one method be chosen and show 
+to the worker along with the ground truth for a limit amount of time. the 
+worker be then ask to select which imag look more natural. thi evalu 
+
+
+
+imag inpaint for irregular hole use partial convolut 13 
+
+how quickli the differ between the imag can be perceived. the comparison 
+result for differ time interv be show in fig. 8(b). again, the first row 
+show the case where the hole do not touch the imag boundari while the 
+second row allow that. our method outperform the other method in most 
+case across differ time period and hole-to-imag area ratios. 
+
+(b) limit time comparison(a) unlimit time comparison 
+
+250 m 1000 m 4000 m 
+
+N 
+o 
+
+b 
+o 
+
+u 
+n 
+
+d 
+ari 
+
+h 
+o 
+
+le 
+W 
+
+ith 
+b 
+
+o 
+u 
+
+n 
+d 
+
+ari 
+h 
+
+o 
+le 
+
+fig. 8. user studi results. We perform two kind of experiments: unlimit time and 
+limit time. (a) In the unlimit time setting, we compar our result with the result 
+gener by anoth method. the rate where our result be prefer be graphed. 50% 
+mean two method be equal. In the first row, the hole be not allow to touch the 
+imag boundary, while in the second row it be allowed. (b) In the limit time setting, 
+we compar all method to the ground truth. the subject be give some limit time 
+(250ms, 1000m or 4000ms) to select which imag be more realistic. the rate where 
+ground truth be prefer over the other method be reported. the low the curve, the 
+better. 
+
+5 discuss & extens 
+
+5.1 discuss 
+
+We propos the use of a partial convolut layer with an automat mask updat- 
+ing mechan and achiev state-of-the-art imag inpaint results. our model 
+can robustli handl hole of ani shape, size location, or distanc from the imag 
+borders. further, our perform do not deterior catastroph a hole 
+increas in size, a see in figur 10. however, one limit of our method be 
+that it fail for some spars structur imag such a the bar on the door in 
+figur 11, and, like most methods, struggl on the larg of holes. 
+
+5.2 extens to imag super resolut 
+
+We also extend our framework to imag super resolut task by offset pixel 
+and insert holes. specifically, give a low resolut imag I with heighth and 
+
+
+
+14 guilin liu et al. 
+
+(a) input (b) gntipt (c) pconv(ours) (d) ground truth 
+
+fig. 9. test result on celeba-hq. 
+
+fig. 10. inpaint result with variou dilat of the hole region from left to right: 
+0, 5, 15, 35, 55, and 95 pixel dilat respectively. top row: input; bottom row: corre- 
+spond inpaint results. 
+
+width W and up-scal factor K, we construct the input I ′ with height k*h 
+and width k*w for the network use the following: for each pixel (x, y) in I, we 
+put it at (k*x+⌊k/2⌋, k*y+⌊k/2⌋) in I ′ and mark thi posit to have mask 
+valu be 1. one exampl input set and correspond output with k=4 can 
+be found in figur 12. We compar with two well-known imag super-resolut 
+approach srgan[37] and mdsr+[38] with k=4 in figur 13. 
+
+
+
+imag inpaint for irregular hole use partial convolut 15 
+
+fig. 11. failur cases. each group be order a input, our result and ground truth. 
+
+(a) low re (b) input (c) input mask (d) output (e) GT 
+
+fig. 12. exampl input and output for imag super resolut task. input to the net- 
+work be construct from the low resolut imag by offset pixel and insert 
+hole use the way describ in section 5.2. 
+
+bicub srgan mdsr+ pconv GT 
+
+fig. 13. comparison with srgan and mdsr+ for imag super resolut task. 
+
+acknowledgement. We would like to thank jonah alben, rafael vall 
+costa, karan sapra, chao yang, raul puri, brandon rowlett and other nvidia 
+colleagu for valuabl discussions, and chri hebert for technic support. 
+
+
+
+16 guilin liu et al. 
+
+refer 
+
+1. iizuka, s., simo-serra, e., ishikawa, h.: global and local consist imag 
+completion. acm transact on graphic (tog) 36(4) (2017) 107 
+
+2. yu, j., lin, z., yang, j., shen, x., lu, x., huang, t.s.: gener imag inpaint 
+with contextu attention. arxiv preprint arxiv:1801.07892 (2018) 
+
+3. barnes, c., shechtman, e., finkelstein, a., goldman, d.b.: patchmatch: A ran- 
+domiz correspond algorithm for structur imag editing. acm transact 
+on graphics-tog 28(3) (2009) 24 
+
+4. telea, a.: An imag inpaint techniqu base on the fast march method. 
+journal of graphic tool 9(1) (2004) 23–34 
+
+5. pérez, p., gangnet, m., blake, a.: poisson imag editing. acm transact on 
+graphic (tog) 22(3) (2003) 313–318 
+
+6. pathak, d., krahenbuhl, p., donahue, j., darrell, t., efros, a.a.: context en- 
+coders: featur learn by inpainting. in: proceed of the ieee confer on 
+comput vision and pattern recognition. (2016) 2536–2544 
+
+7. yang, c., lu, x., lin, z., shechtman, e., wang, o., li, h.: high-resolut imag 
+inpaint use multi-scal neural patch synthesis. in: the ieee confer on 
+comput vision and pattern recognit (cvpr). volum 1. (2017) 3 
+
+8. hays, j., efros, a.a.: scene complet use million of photographs. in: acm 
+transact on graphic (tog). volum 26., acm (2007) 4 
+
+9. harley, a.w., derpanis, k.g., kokkinos, i.: segmentation-awar convolut 
+network use local attent masks. 2017 ieee intern confer on 
+comput vision (iccv) (2017) 5048–5057 
+
+10. ulyanov, d., vedaldi, a., lempitsky, v.: deep imag prior. arxiv preprint 
+arxiv:1711.10925 (2017) 
+
+11. bertalmio, m., sapiro, g., caselles, v., ballester, c.: imag inpainting. in: pro- 
+ceed of the 27th annual confer on comput graphic and interact tech- 
+niques, acm press/addison-wesley publish co. (2000) 417–424 
+
+12. ballester, c., bertalmio, m., caselles, v., sapiro, g., verdera, j.: filling-in by 
+joint interpol of vector field and gray levels. ieee transact on imag 
+process 10(8) (2001) 1200–1211 
+
+13. efros, a.a., freeman, w.t.: imag quilt for textur synthesi and transfer. in: 
+proceed of the 28th annual confer on comput graphic and interact 
+techniques, acm (2001) 341–346 
+
+14. kwatra, v., essa, i., bobick, a., kwatra, n.: textur optim for example- 
+base synthesis. in: acm transact on graphic (tog). volum 24., acm 
+(2005) 795–802 
+
+15. simakov, d., caspi, y., shechtman, e., irani, m.: summar visual data use 
+bidirect similarity. in: comput vision and pattern recognition, 2008. cvpr 
+2008. ieee confer on, ieee (2008) 1–8 
+
+16. russakovsky, o., deng, j., su, h., krause, j., satheesh, s., ma, s., huang, z., 
+karpathy, a., khosla, a., bernstein, m., berg, a.c., fei-fei, l.: imagenet larg 
+scale visual recognit challenge. intern journal of comput vision 
+(ijcv) 115(3) (2015) 211–252 
+
+17. song, y., yang, c., lin, z., li, h., huang, q., kuo, c.c.j.: imag inpaint use 
+multi-scal featur imag translation. arxiv preprint arxiv:1711.08590 (2017) 
+
+18. yeh, r., chen, c., lim, t.y., hasegawa-johnson, m., do, m.n.: semant imag 
+inpaint with perceptu and contextu losses. arxiv preprint arxiv:1607.07539 
+(2016) 
+
+
+
+imag inpaint for irregular hole use partial convolut 17 
+
+19. harley, a.w., derpanis, k.g., kokkinos, i.: segmentation-awar convolut 
+network use local attent masks. in: ieee intern confer on com- 
+puter vision (iccv). volum 2. (2017) 7 
+
+20. van den oord, a., kalchbrenner, n., espeholt, l., vinyals, o., graves, a., et al.: 
+condit imag gener with pixelcnn decoders. in: advanc in neural 
+inform process systems. (2016) 4790–4798 
+
+21. knutsson, h., westin, c.f.: normal and differenti convolution. in: proceed- 
+ing of ieee confer on comput vision and pattern recognition. (jun 1993) 
+515–523 
+
+22. paszke, a., gross, s., chintala, s., chanan, g., yang, e., devito, z., lin, z., 
+desmaison, a., antiga, l., lerer, a.: automat differenti in pytorch. (2017) 
+
+23. ronneberger, o., fischer, p., brox, t.: u-net: convolut network for biomedi- 
+cal imag segmentation. in: intern confer on medic imag comput 
+and computer-assist intervention, springer (2015) 234–241 
+
+24. isola, p., zhu, j.y., zhou, t., efros, a.a.: image-to-imag translat with con- 
+dition adversari networks. arxiv preprint (2017) 
+
+25. ioffe, s., szegedy, c.: batch normalization: acceler deep network train by 
+reduc intern covari shift. in: intern confer on machin learning. 
+(2015) 448–456 
+
+26. gatys, l.a., ecker, a.s., bethge, m.: A neural algorithm of artist style. arxiv 
+preprint arxiv:1508.06576 (2015) 
+
+27. simonyan, k., zisserman, a.: veri deep convolut network for large-scal 
+imag recognition. arxiv preprint arxiv:1409.1556 (2014) 
+
+28. johnson, j., alahi, a., fei-fei, l.: perceptu loss for real-tim style transfer and 
+super-resolution. in: european confer on comput vision, springer (2016) 
+694–711 
+
+29. sundaram, n., brox, t., keutzer, k.: dens point trajectori by gpu-acceler 
+larg displac optic flow. in: european confer on comput vision, 
+springer (2010) 438–451 
+
+30. zhou, b., lapedriza, a., khosla, a., oliva, a., torralba, a.: places: A 10 million 
+imag databas for scene recognition. ieee transact on pattern analysi and 
+machin intellig (2017) 
+
+31. liu, z., luo, p., wang, x., tang, x.: deep learn face attribut in the wild. in: 
+proceed of intern confer on comput vision (iccv). (decemb 
+2015) 
+
+32. karras, t., aila, t., laine, s., lehtinen, j.: progress grow of gan for im- 
+prove quality, stability, and variation. arxiv preprint arxiv:1710.10196 (2017) 
+
+33. he, k., zhang, x., ren, s., sun, j.: delv deep into rectifiers: surpass human- 
+level perform on imagenet classification. in: proceed of the ieee interna- 
+tional confer on comput vision. (2015) 1026–1034 
+
+34. kingma, d.p., ba, j.: adam: A method for stochast optimization. arxiv preprint 
+arxiv:1412.6980 (2014) 
+
+35. wang, z., bovik, a.c., sheikh, h.r., simoncelli, e.p.: imag qualiti assessment: 
+from error visibl to structur similarity. ieee transact on imag process 
+13(4) (2004) 600–612 
+
+36. salimans, t., goodfellow, i., zaremba, w., cheung, v., radford, a., chen, x.: 
+improv techniqu for train gans. in: advanc in neural inform pro- 
+cess systems. (2016) 2234–2242 
+
+37. ledig, c., theis, l., huszár, f., caballero, j., cunningham, a., acosta, a., aitken, 
+a., tejani, a., totz, j., wang, z., et al.: photo-realist singl imag super- 
+resolut use a gener adversari network. arxiv preprint (2016) 
+
+
+
+18 guilin liu et al. 
+
+38. lim, b., son, s., kim, h., nah, s., lee, k.m.: enhanc deep residu network 
+for singl imag super-resolution. in: the ieee confer on comput vision 
+and pattern recognit (cvpr) workshops. volum 1. (2017) 3 
+
+appendix 
+
+detail of network architectur 
+
+modul name filter size # filters/channel stride/up factor batchnorm nonlinear 
+
+pconv1 7×7 64 2 - relu 
+pconv2 5×5 128 2 Y relu 
+pconv3 5×5 256 2 Y relu 
+pconv4 3×3 512 2 Y relu 
+pconv5 3×3 512 2 Y relu 
+pconv6 3×3 512 2 Y relu 
+pconv7 3×3 512 2 Y relu 
+pconv8 3×3 512 2 Y relu 
+
+nearestupsample1 512 2 - - 
+concat1(w/ pconv7) 512+512 - - 
+
+pconv9 3×3 512 1 Y leakyrelu(0.2) 
+nearestupsample2 512 2 - - 
+
+concat2(w/ pconv6) 512+512 - - 
+pconv10 3×3 512 1 Y leakyrelu(0.2) 
+
+nearestupsample3 512 2 - - 
+concat3(w/ pconv5) 512+512 - - 
+
+pconv11 3×3 512 1 Y leakyrelu(0.2) 
+nearestupsample4 512 2 - - 
+
+concat4(w/ pconv4) 512+512 - - 
+pconv12 3×3 512 1 Y leakyrelu(0.2) 
+
+nearestupsample5 512 2 - - 
+concat5(w/ pconv3) 512+256 - - 
+
+pconv13 3×3 256 1 Y leakyrelu(0.2) 
+nearestupsample6 256 2 - - 
+
+concat6(w/ pconv2) 256+128 - - 
+pconv14 3×3 128 1 Y leakyrelu(0.2) 
+
+nearestupsample7 128 2 - - 
+concat7(w/ pconv1) 128+64 - - 
+
+pconv15 3×3 64 1 Y leakyrelu(0.2) 
+nearestupsample8 64 2 - - 
+concat8(w/ input) 64+3 - - 
+
+pconv16 3×3 3 1 - - 
+tabl 2. pconv be defin a a partial convolut layer with the specifi filter 
+size, stride and number of filters. pconv1-8 be in encod stage, wherea pconv9-16 
+be in decod stage. the batchnorm column indic whether pconv be follow 
+by a batch normal layer. the nonlinear column show whether and what 
+nonlinear layer be use (follow the batchnorm if batchnorm be used). skip link 
+be show use concat∗, which concaten the previou near neighbor upsampl 
+result with the correspond mention pconv# result from the encod stage. 
+
+
+
+imag inpaint for irregular hole use partial convolut 19 
+
+more comparison on irregular mask 
+
+input PM GL gntipt pconv GT 
+
+fig. 14. comparison on irregular masks. the abbrevi of the notat be the 
+same a figur 5 and figur 6 in the paper. 
+
+
+
+20 guilin liu et al. 
+
+more comparison on regular mask 
+
+input PM GL gntipt pconv GT 
+
+fig. 15. comparison on regular masks. the abbrevi of the notat be the 
+same a figur 5 and figur 6 in the paper. 
+
+
+
+imag inpaint for irregular hole use partial convolut 21 
+
+more comparison On imag super resolut 
+
+bicub srgan mdsr+ pconv GT 
+
+
+
+22 guilin liu et al. 
+
+more result of our approach 
+
+input pconv input pconv 
+
+
+
+imag inpaint for irregular hole use partial convolut 23 
+
+input pconv input pconv 
+
+

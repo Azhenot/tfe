@@ -1,0 +1,1217 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+fight fake news: imag splice detect 
+via learn self-consist 
+
+minyoung huh∗1,2 andrew liu∗1 andrew owens1 alexei A. efros1 
+
+UC berkeley1 carnegi mellon university2 
+
+input ground truth sourc imag 
+predict splice 
+
+mask 
+ground truth mask 
+
+fig. 1: our algorithm learn to detect and local imag manipul (splices), despit be 
+train onli on unmanipul images. the two input imag abov might look plausible, but our 
+model correctli determin that they have be manipul becaus they lack self-consistency: 
+the visual inform within the predict splice region be found to be inconsist with the 
+rest of the image. imag credits: automat creat splice from hay and efro [1] (top), 
+manual splice from reddit user /u/name-albert einstein (bottom). 
+
+abstract. advanc in photo edit and manipul tool have make it sig- 
+nificantli easi to creat fake imagery. learn to detect such manipulations, 
+however, remain a challeng problem due to the lack of suffici train 
+data. In thi paper, we propos a model that learn to detect visual manipul 
+from unlabel data through self-supervision. given a larg collect of real 
+photograph with automat record exif metadata, we train a model to de- 
+termin whether an imag be self-consist — that is, whether it content could 
+have be produc by a singl imag pipeline. We appli thi self-supervis 
+learn method to the task of detect and local imag splices. although 
+the propos model obtain state-of-the-art perform on sever benchmarks, 
+we see it a mere a step in the long quest for a truli general-purpos visual 
+forens tool. 
+
+keywords: visual forensics, imag splicing, self-supervis learning, exif 
+
+1 introduct 
+
+malici imag manipulation, long the domain of dictat and spi agencies, have now 
+becom access to legion of common internet troll and facebook con-men [2]. 
+
+∗indic equal contribution. 
+code and addit result can be found on our website. 
+
+ar 
+X 
+
+iv 
+:1 
+
+80 
+5. 
+
+04 
+09 
+
+6v 
+1 
+
+[ 
+c 
+
+.C 
+V 
+
+] 
+1 
+
+0 
+M 
+
+ay 
+2 
+
+01 
+8 
+
+https://minyoungg.github.io/selfconsistency/ 
+
+
+2 huh et al. 
+
+exif cameramake: nikon corpor 
+exif cameramodel: nikon d5300 
+exif colorspace: srgb 
+exif datetimeoriginal: 2016:09:13 16:58:26 
+exif exifimagelength: 3947 
+exif exifimagewidth: 5921 
+exif flash: No 
+exif focallength: 31.0mm 
+exif whitebalance: auto 
+exif compressedbitsperpixel: 2 
+
+… 
+
+exif cameramake: eastman kodak compani 
+exif cameramodel: kodak easyshar cx7300… 
+exif colorspace: srgb 
+exif datetimeoriginal: 2005:09:29 01:31:02 
+exif exifimagelength: 1544 
+exif exifimagewidth: 2080 
+exif flash: No (auto) 
+exif focallength: 5.9mm 
+exif whitebalance: auto 
+exif compressedbitsperpixel: 181/100 
+
+… 
+
+fig. 2: anatomi of a splice: a fake imag be creat by splice togeth content from two sourc 
+images. the insight explor in thi paper be that patch from splice imag be typic pro- 
+duce by differ imag pipelines, a indic by the exif meta-data of the two sourc 
+images. the problem be that in practice, we never have access to these sourc images.1 
+
+with onli rudimentari edit skills, it be now possibl to creat realist imag compos- 
+ite [3, 4], fill in larg imag region [1, 5, 6], gener plausibl video from speech [7, 
+8], etc. one might have hop that these new method for creat synthet visual con- 
+tent would be met with commensur power techniqu for detect fakes, but 
+thi have not be the case so far. 
+
+one problem be that standard supervis learn approaches, which have be veri 
+success for mani type of detect problems, be not well-suit for imag foren- 
+sics. thi be becaus the space of manipul imag be so vast and diverse, that it be 
+rather unlik we will ever have enough manipul train data for a supervis 
+method to fulli succeed. indeed, detect visual manipul can be thought of a an 
+anomali detect problem — we want to flag anyth that be “out of the ordinary,” 
+even though we might not have a good model of what that might be. In other words, we 
+would like a method that do not requir ani manipul train data at all, but can 
+work in an unsupervised/self-supervis regime. 
+
+In thi work, we turn to a vast and previous underutil sourc of data, imag 
+exif metadata. exif tag be camera specif that be digit engrav into 
+an imag file at the moment of captur and be ubiquit available. consid the 
+photo show in figur 2. while at first glanc it might seem authentic, we see on closer 
+inspect that a car have be insert into the scene. the content for thi splice region 
+come from a differ photo, show on the right. such a manipul be call an imag 
+splice, and it be one of the most common way of creat visual fakes. If we have access 
+to the two sourc photographs, we would see from their exif metadata that there be 
+a number of differ in the imag pipelines: one photo be take with an nikon 
+camera, the other with a kodak camera; they be shot use differ focal lengths, and 
+save with differ jpeg qualiti settings, etc. our insight be that one might be abl to 
+detect splice imag becaus they be compos of region that be captur with 
+differ imag pipelines. Of course, in forens applications, we do not have access 
+
+1photo credits: nimbl dataset [9] and flickr user jame stave. 
+
+
+
+fight fake news: imag splice detect via learn self-consist 3 
+
+to the origin sourc imag nor, in general, do we even have access to the fraudul 
+photo’ metadata. thi pose a challeng when tri to design method that use exif 
+cues. 
+
+We propos a self-supervis method for identifi and local imag splice 
+by predict the consist of exif attribut between pair of patch to determin 
+whether they come from a singl coher image. We valid our approach use sev- 
+eral benchmark dataset and show that the model perform good than the state-of-the- 
+art — despit never see annot splice or use handcraft detect cues. 
+
+2 relat work 
+
+over the years, research have propos a varieti of visual forens method for iden- 
+tifi variou manipul [2]. the earli and most thoroughli studi approach be 
+to use domain knowledg to isol physic cue within an image. draw upon tech- 
+niqu from signal processing, previou method focu on cue such a misalign 
+jpeg block [10], compress quantiz artifact [11], resampl artifact [12], 
+color filter array discrep [13], and camera-hardwar “fingerprints” [14]. We 
+take particular inspir from the recent work of agarw and farid [15] which ex- 
+ploit a seemingli insignific differ between imag pipelin to detect splice 
+imag region — namely, the way that differ camera truncat number dure jpeg 
+quantization. while these domain-specif approach have proven to be extrem use- 
+ful due to their easi interpretability, we believ that the use of machin learn will 
+open the door to discov mani more use cue while also produc more adapt- 
+abl algorithms. 
+
+indeed, recent work have move away from use a priori knowledg and toward 
+appli end-to-end learn method for solv specif forens task use label 
+train data. for example, salloum et al. [16] propos learn to detect splice by 
+train a fulli convolut network on label train data. bondi et al. [17] train a 
+model to identifi a photo’ sourc camera model and appli their predict to detect 
+manipul [18]. there have also be work that estim whether a photo’ semant 
+content (e.g., weather) match it metadata [19]. moreover, there have be a varieti 
+of learn method for detect physic cues, such a double-jpeg compress [20, 
+21] and contrast enhanc [22]. 
+
+In our work, we seek to further reduc the amount of inform we provid to the 
+algorithm by have it learn to detect manipul without ground-truth annotations. 
+for this, we take inspir from recent work in self-supervis [23, 24, 25, 26, 27, 
+28] which train model by solv task sole defin use unlabel data. Of these, 
+the most close relat approach be that of doersch et al. [24], in which they train 
+a model to predict the rel posit of pair of patch within an image. surpris- 
+ingly, the author found that their method learn to util veri subtl artifact like 
+chromat len aberr a a shortcut for learn the task. while imag nois be 
+a nuisanc in their work, it be a use signal for u — our self-supervis algorithm 
+be design to learn about properti of the imag pipelin while ignor semantics. 
+our technic approach be also similar to [29], which train a segment model use 
+self-supervis to predict whether pair of patch co-occur in space or time. 
+
+
+
+4 huh et al. 
+
+imag A 
+
+imag B 
+
+self-supervis train 
+
+imag A metadata 
+
+imag B metadata 
+
+consist 
+
+metadata? 
+
+imag patch 
+
+(128 x 128) 
+
+exif cameramodel: nikon d3200 
+exif cameramake: nikon corp 
+exif colorspace: uncalibr 
+exif isospeedratings: 800 
+exif datetimeoriginal: 2016:04:17 
+exif imagelength: 2472 
+exif imagewidth: 3091 
+exif flash: flash do not fire 
+exif focallength: 90 
+exif exposuretime: 1/100 
+exif whitebalance: auto 
+
+… 
+
+siames network 
+
+exif cameramodel: nikon d3200 
+exif cameramake: nikon corp 
+exif colorspace: uncalibr 
+exif isospeedratings: 800 
+exif datetimeoriginal: 2016:04:17 
+exif imagelength: 2472 
+exif imagewidth: 3091 
+exif flash: flash do not fire 
+exif focallength: 90 
+exif exposuretime: 1/100 
+exif whitebalance: auto 
+
+… 
+
+resnet-50 concaten 
+
+featur 
+
+(1 x 8192) 
+
+binari 
+
+classif 
+
+diff 
+diff 
+diff 
+diff 
+diff 
+diff 
+diff 
+same 
+diff 
+diff 
+same 
+… 
+
+fig. 3: self-supervis training: our model take two random patch from differ imag and 
+predict whether they have consist meta-data. each attribut be use a a consist metric 
+dure train and testing. 
+
+individu imag metadata tags, such a focal length, gps, hashtags, etc. have long 
+be employ in comput vision a free supervisori signal. A particularli creativ 
+use of exif metadata be demonstr by kuthirumm et al. [30], who use the 
+cameramodel tag of a veri larg imag collect to comput per-camera prior such 
+a their non-linear respons functions. In contrast, our approach us almost the entir 
+list of exif tag simultaneously. 
+
+our work be also relat to the anomali detect problem. unlik tradit visual 
+anomali detect work, which be larg concern with detect unusu semant 
+event like the presenc of rare object and action [31, 32], our work need to find 
+anomali in photo whose content be design to be plausibl enough to fool humans. 
+therefor the anomal cue we search for should be impercept to human and 
+invari to the semant of the scene. 
+
+3 learn photograph self-consist 
+
+our model work by predict whether a pair of imag patch be consist with 
+each other. given two patches, Pi and Pj , we estim the probabl x1, x2, ..., xn 
+that they share the same valu for each of n metadata attributes. We then estim the 
+patches’ overal consistency, cij , by combin our n observ of metadata con- 
+sistency. At evalu time, our model take a potenti manipul test imag and 
+measur the consist between mani differ pair of patches. A low consist 
+score indic that the patch be like produc by two distinct imag systems, 
+suggest that they origin from differ images. although the consist score 
+for ani singl pair of patch will be noisy, aggreg mani observ provid a 
+reason stabl estim of overal imag self-consistency. 
+
+
+
+fight fake news: imag splice detect via learn self-consist 5 
+
+3.1 predict exif attribut consist 
+
+We use a siames network to predict the probabl that a pair of 128 × 128 imag 
+patch share the same valu for each exif metadata attribute. We train thi network 
+with imag patch randomli sampl from 400, 000 flickr photos, make predict 
+on all exif attribut that appear in more than 50, 000 photo (n = 80, the full list of 
+attribut can be found in section a1). for a give exif attribute, we discard exif 
+valu that occur less than 100 times. 
+
+We observ that train with a typic random sampl procedur will not be suc- 
+cess because: 1) there be some rare exif valu that will be veri difficult to learn, 
+and 2) randomli select pair of imag be unlik to have consist exif val- 
+ue just by chance. therefore, we introduc two type of re-balanc dure training: 
+unari and pairwise. for unari re-balancing, we oversampl rare exif attribut valu 
+(e.g. rare camera models). when construct a mini-batch, we first choos an exif 
+attribut and uniformli sampl an exif valu from all possibl valu of thi attribute. 
+for pairwis re-balancing, we make sure that pair of train imag within a mini- 
+batch be select such that for a give exif attribute, half the batch share that valu 
+and half do not. 
+analysi although we train on all avail exif attributes, we expect the model to 
+excel at distinguish one that directli correl to properti of the imag pipelin 
+such a lensmak [24, 17]. In contrast, arbitrari attribut like the exact date an imag 
+be take (datetimeoriginal) leav no inform cue in an image. In order to 
+identifi predict metadata, we evalu our exif-consist model on a dataset 
+of 50k held-out photo and report the individu exif attribut accuraci in figur 4. 
+becaus the accuraci be comput on pairwise-balanc batches, chanc perform 
+be 50%. 
+
+our model obtain high accuraci when predict the consist of attribut 
+close associ with the imag format process such a lensmake, which con- 
+tain valu such a appl and fujifilm. but more surprisingly, we found that the 
+most predict attribut be usercomment. upon further inspection, we found that 
+usercom be a gener field that can be popul with arbitrari data. We found 
+that the most frequent valu be either binari string emb by camera man- 
+ufactur or log left by imag process software. for example, one of the com- 
+mon usercom values, process with vscocam, be add by a popular photo- 
+filter application. In section a1, we show the full list of exif attribut and their 
+correspond definitions. 
+
+3.2 post-process consist 
+
+mani imag manipul be perform with the intent of make the result im- 
+age look plausibl to the human eye: splice region be resized, edg artifact be 
+smoothed, and the result imag be re-jpeged. If our network could predict whether 
+two patch be post-process differently, then thi would be compel evid for 
+photograph inconsistency. To model post-process consistency, we add three aug- 
+mentat oper dure training: re-jpeging, gaussian blur, and imag resizing. 
+half of the time, we appli the same oper to both patches; the other half of the 
+
+
+
+6 huh et al. 
+
+exif usercom 
+exif focalplaneresolutionunit 
+
+exif filesourc 
+exif customrend 
+
+exif lensmak 
+exif lightsourc 
+
+exif sensingmethod 
+exif lensspecif 
+
+exif scenetyp 
+inter interoperabilityvers 
+
+exif sharp 
+imag make 
+
+exif satur 
+exif contrast 
+
+exif flashpixvers 
+imag yresolut 
+imag xresolut 
+
+imag ycbcrposit 
+inter interoperabilityindex 
+
+exif exposureprogram 
+
+exif subsectim 
+exif subsectimeorigin 
+
+exif subsectimedigit 
+gp gpsdate 
+
+chanc 
+
+accuraci 
+40 50 60 70 80 90 
+
+fig. 4: exif accuracy: how predict be 
+exif attributes? for each attribute, we com- 
+pute pairwise-consist accuraci on flickr 
+imag use our self-consist model. 
+
+exif-consist (ours) 
+imag yresolut 
+imag xresolut 
+
+imag exifoffset 
+imag model 
+
+exif exifimagelength 
+exif exifvers 
+
+exif exifimagewidth 
+exf exposuremod 
+
+exif focallength 
+exif whitebal 
+
+exif fnumber 
+imag datetim 
+
+exif datetimeorigin 
+exif datetimedigit 
+
+exif colorspac 
+exif flash 
+
+exif exposuretim 
+image-consist 
+
+inter interoperabilityvers 
+
+cfa 
+fcn 
+noi 
+
+camera-classif 
+dct 
+
+columbia - splice local (map) 
+0.5 0.6 0.7 0.8 0.9 1.0 
+
+fig. 5: exif splice localization: how use 
+be exif attribut for local splices? We 
+comput individu local score on the 
+columbia dataset. 
+
+time, we appli differ operations. the paramet of each oper be randomli 
+chosen from an evenli discret set of numbers. We introduc three addit clas- 
+sific task (one per augment type) that be use to train the model to predict 
+whether a pair of patch receiv the same parameter augmentation. thi increas 
+our 80-way classif to 83-way. sinc the order of the post-process oper 
+matters, we appli them in a random order each time. 
+
+3.3 predict patch consist 
+
+onc we have predict the consist of a pair of patch for each of our exif 
+(plu post-processing) attributes, we would like to estim the pairs’ overal consis- 
+tenci cij . If we be solv a supervis task, then a natur choic would be to use 
+splice region a supervis to predict, from the n exif-consist predictions, the 
+probabl that the two patch belong to differ regions. unfortunately, we do not 
+have splice imag to train on. instead, we use a self-supervis proxi task. given the 
+83 consist predictions, we train a two-lay classifi to predict whether the two 
+patch come from the same imag or not. becaus we onli see natur imag dur- 
+ing training, we know for certain that imag consist be equival to photograph 
+consistency. 
+
+3.4 directli predict imag consist 
+
+one might ask whether a model can learn a measur of consist by directli predict- 
+ing whether two imag patch come from the same image. the main problem be that 
+
+
+
+fight fake news: imag splice detect via learn self-consist 7 
+
+mean shiftinputground truth mask 
+
+… 
+
+patch consist 
+
+a b c d 
+
+fig. 6: test time: our model sampl patch in a grid from an input imag (b) and estim 
+consist for everi pair of patches. (c) for a give patch, we get a consist map over all 
+other patch in the image. (d) We use mean shift to aggreg the consist map into a final 
+prediction. 
+
+such a model, which be train on arbitrari imag pairs, will be tempt to focu on 
+easi cue becaus they be suffici to solv the vast major of cases. for example, 
+the network might simpli learn to compar color histograms, which be a surprisingli 
+power cue for same/differ imag classif task [33, 29]. Of course, give in- 
+finit train data and train time, we would expect thi model to eventu learn 
+the same cue a the metadata model. To studi thi further, we also train a siames 
+network with the similar structur to the metadata model (section 3.1) to solv thi 
+same-or-differ imag consist task. 
+
+3.5 from patch consist to imag self-consist 
+
+So far we have introduc model that can measur some form of consist be- 
+tween pair of patches. In order to transform thi into someth usabl for detect 
+splices, we need to aggreg these pairwis consist probabl into a global self- 
+consist score for the entir image. 
+
+given an image, we sampl approxim 500 patch in a grid, select a stride 
+depend on the size of the image, and construct an affin matrix by comput con- 
+sistenc between everi pair of patches. that is, for a give patch, we can visual a 
+respons map correspond to it consist with everi other patch in the image. To 
+increas the spatial resolut of each respons map, we averag the predict of over- 
+lap patches. If there be a splice, then the major of patch from the untamp 
+portion of the imag will ideal have low consist with patch from the tamper 
+region (see figur 6c). 
+
+To produc a singl respons map for an input image, we want to find the most con- 
+sistent mode among all 500 patch respons maps. We do thi mode-seek use mean 
+shift [34]. the result respons map natur segment the imag into consist and 
+inconsist region (see figur 6d). We call the merg respons map a consist 
+
+
+
+8 huh et al. 
+
+tamper ground truth combin 
+
+imag gpsinfoexif filesourcegp gpsdate 
+
+exif digitalzoomratio exif gaincontrolimag model 
+
+exif fnumber exif isospeedr imag ycbcrposit exif exifvers exif colorspac imag make 
+
+exif exifimagewidth exif exifimagelength 
+
+fig. 7: consist map from differ exif tags: We comput consist map for each 
+metadata attribut independ (respons map sort by local accuracy). the merg 
+consist map accur local the splice car. 
+
+map. We can also qualit visual the tamper imag region by cluster the 
+affin matrix, e.g. with normal cut [35]. 
+
+To help understand how differ exif attribut vari in their consist predic- 
+tions, we creat respons map for each tag for an exampl imag (figur 7). while the 
+individu tag provid a noisi consist signal, the merg respons map accur 
+local the splice region. 
+
+4 result 
+
+We evalu our self-consist model on two close relat tasks: splice detect 
+and splice localization. In the former, our goal be to simpli classifi imag a be 
+splice vs. authentic. In the latter, the goal be to local the splice region within an 
+image. 
+
+4.1 benchmark 
+
+We evalu our method on five differ datasets. thi includ three exist datasets: 
+the wide use columbia dataset [36], which consist of 180 rel simpl splices, 
+and two more challeng datasets, carvalho et al. [37] (94 images) and realist 
+tamper [38] (220 images), which combin splice with post-process operations. 
+
+one potenti shortcom of these exist dataset be that they be creat by 
+a small number of artist and may not be repres of the varieti of forgeri en- 
+counter online. To address thi issue, we introduc a new in-the-wild forens dataset 
+that consist of 201 imag scrap from the onion, a parodi news websit (i.e. fake 
+news), and reddit photoshop battles, an onlin commun of user who creat 
+and share manipul images. sinc ground truth label be not avail for internet 
+
+
+
+fight fake news: imag splice detect via learn self-consist 9 
+
+dataset columbia [36] carvalho [37] RT [38] 
+
+cfa [39] 0.83 0.64 0.54 
+dct [40] 0.58 0.63 0.52 
+noi [41] 0.73 0.66 0.52 
+
+supervis fcn 0.57 0.56 0.56 
+
+camera classif 0.70 0.73 0.15 
+image-consist 0.96 0.65 0.35 
+exif-consist 0.98 0.87 0.55 
+
+tabl 1: splice detection: We compar our splice detect accuraci on 3 differ datasets. for 
+each one, we measur the mean averag precis (map) of detect whether an imag have be 
+spliced. the number be comput on the valid set. 
+
+splices, we annot the dataset by hand and obtain approxim ground truth (refer- 
+ring to the sourc imag when they be available). 
+
+finally, we also want to evalu our method on automatically-gener splices. 
+for this, we use the scene complet data from hay and efro [1], which come with 
+inpaint results, masks, and sourc imag for a total of 55 splices. We note that the 
+ground-truth mask be onli approximate, sinc the scene complet algorithm may 
+alter a small region of pixel outsid the mask in order to produc seamless splices. 
+
+4.2 comparison 
+
+We compar three baselin algorithms, all of which use classic imag process tech- 
+niqu to explicitli model and exploit imag artifacts: color filter array (cfa) [39] 
+detect artifact in color pattern interpolation; jpeg dct [40] detect inconsist 
+over jpeg coefficients; and nois varianc (noi) [41] detect anomal nois pat- 
+tern use wavelets. We use implement of these algorithm provid by [42]. 
+
+sinc we also want to compar our unsupervis method with approach that 
+be train on label data, we report result from a learning-bas method: e-mfcn 
+[16]. given a dataset of splice imag and mask a train data, they use a supervis 
+fulli convolut network (fcn) [43] to predict splice mask and boundari in test 
+images. As a supervis method, their model requir a larg train set of splices. 
+sinc their model and data be not publicli available, we implement a simplifi 
+version of their algorithm use a standard fcn that be train with a train split 
+of the columbia, carvalho, and realist tamper datasets. We split everi dataset in 
+half to construct train/valid sets. 
+
+finally, we present two simplifi version of our full exif-consist model. the 
+first, camera-classification, be train to directli predict which camera model pro- 
+duce a give imag patch. We evalu the output of the camera classif model by 
+sampl imag patch from a test imag and assign the most frequent predict 
+camera a the natur imag and everyth els a the splice region. We consid an 
+imag to be untamp when everi patch’ predict camera model be the same. 
+
+the second model, image-consistency, be a network that directli predict whether 
+two patch be sampl from the same imag (section 3.4). An imag be consid 
+like to have be tamper if it constitu patch be predict to have come from 
+
+
+
+10 huh et al. 
+
+columbia [36] carvalho [37] RT [38] in-the-wild hay [1] 
+
+model mcc F1 p-map mcc F1 p-map p-map p-map p-map 
+
+cfa [39] 0.23 0.47 0.84 0.16 0.29 0.58 0.69 0.56 0.58 
+dct [40] 0.33 0.52 0.58 0.19 0.31 0.60 0.53 0.55 0.52 
+noi [41] 0.41 0.57 0.69 0.25 0.34 0.66 0.58 0.65 0.60 
+
+supervis fcn 0.37 0.57 0.80 0.07 0.57 0.58 0.58 0.55 0.57 
+
+camera classif 0.29 0.51 0.59 0.15 0.55 0.53 0.51 0.54 0.55 
+image-consist 0.55 0.59 0.91 0.20 0.76 0.67 0.58 0.72 0.69 
+exif-consist 0.69 0.71 0.97 0.37 0.91 0.75 0.59 0.72 0.75 
+
+tabl 2: splice localization: We evalu our model on 5 dataset use a mean averag 
+precision-bas metric (p-map). We also includ mcc and F1 metrics, follow [16]. for these 
+two metrics, we obtain a binari mask by threshold our consist map at 0.5. 
+
+columbia [36] carvalho [37] 
+
+model mcc F1 mcc F1 
+
+e-mfcn [16] 0.48 0.61 0.41 0.48 
+
+image-consist 0.58 0.62 0.17 0.71 
+exif-consist 0.70 0.72 0.32 0.86 
+
+tabl 3: comparison against salloum et. al: We compar against number report by [16] for 
+splice localization. We note that they comput their number after find individu threshold 
+that optim their score per image, while we threshold our probabl at 0.5. 
+
+differ images. the evalu of the simplifi model be perform the same way 
+a our full exif-consist model. 
+
+We train all our models, includ our variant models, use a resnet50 [44] 
+pretrain on imagenet [45]. We use a batch size of 128 and optim our object 
+use adam [46] with a learn rate of 1e − 4. for exif-consist and image- 
+consistency, we report our result after train for 1 million iterations. the 2 fulli 
+connect layer use to comput patch consist on top of the exif-consist 
+model predict be train for 10, 000 iterations. 
+
+4.3 splice detect 
+
+We evalu splice detect use the three dataset that contain both untamp and 
+manipul images: columbia, carvalho, and realist tampering. for each algo- 
+rithm, we extract the local map and obtain an overal score by averag the 
+output pixels. the imag be rank base on their overal scores, and we comput the 
+mean averag precis (map) for the whole dataset. We chose to use map a it be a 
+condens represent of the precision-recal curv previous use by [42, 39, 40, 
+41]. 
+
+tabl 1 show the map for detect manipul images. our exif-consist 
+model achiev state-of-the-art perform on columbia and carvalho while produc- 
+ing result compar to supervis fcn on realist tampering. 
+
+
+
+fight fake news: imag splice detect via learn self-consist 11 
+
+input ground truthconsist input ground truthconsist normal cutnorm cut 
+
+fig. 8: detect fakes: exif consist success local manipul across mani 
+differ datasets. We show qualit result on imag from carvalho, in-the-wild, hay and 
+realist tampering. 
+
+
+
+12 huh et al. 
+
+input consist input consist 
+
+fig. 9: respons on real images: our algorithm’ respons map contain few inconsist 
+when give an untamp images. 
+
+input ground truthconsist normal cut input ground truthconsist normal cut 
+
+fig. 10: failur cases: We present typic failur mode of our model. As we can see with 
+outdoor images, overexposur frequent lead to fals posit in the sky. In addit some 
+splice be too small that we cannot effect locat them use consistency. final the flower 
+copy-mov confus exif consist becaus inconsist post-process augment will 
+disagre with consist exif values. 
+
+4.4 splice local 
+
+have see that our model can distinguish splice and authent images, we next 
+ask whether it can also local splice region within images. for each imag in our 
+dataset, our algorithm produc an unnorm probabl that each pixel be part of a 
+splice. 
+
+sinc it be sometim ill-defin which of the two segment be splice (e.g. when the 
+splice be approxim half of the image), we evalu our perform use a metric 
+that be invari to permut of the two regions. We use a metric similar to map, 
+but with symmetri and permut invari built in (we denot it p-map). given 
+
+
+
+fight fake news: imag splice detect via learn self-consist 13 
+
+cfa dct noiinput fcnimage-consistencyground truth mask exif-consist 
+
+fig. 11: compar methods: We visual the qualit differ between self-consist 
+and baselines. our model can correctli local imag splice from in-the-wild, columbia and 
+carvalho that other method make mistak on. 
+
+an image’ ground-truth binari mask m and unnorm splice probabl p, we 
+comput max(s(m, p), s(1−m, p)), where s(m, p) be symmetr averag precision: 
+1 
+2 (ap (m, p) + AP (1 − m, 1 − p)). We also evalu our result use mcc and 
+F1 measures, so that we could directli compar with previou forens work [16]. 
+however, these metric evalu a binari segmentation, and henc requir threshold 
+the predict probabilities. We threshold our predict at p = 0.5 for all images. 
+sinc [16] report their number on the full columbia and carvalho, we evalu our 
+method on the full dataset and report the comparison in tabl 3. 
+
+the quantit result on tabl 2 show that our self-consist model achiev 
+the best perform across all dataset with the except of the realist tamper- 
+ing (rt) dataset. notably, the model gener outperform the supervis baselines, 
+which be train with actual manipul images, despit the fact that our model never 
+saw a tamper imag dure training. We suspect that the supervis models’ poor per- 
+formanc may be due to the difficulti in gener to manipul make by artist 
+whose work be not present at train time. 
+
+We also observ that exif-consist consist outperform image-consist 
+across differ datasets. We suspect that thi may be due to “shortcuts” image-consist 
+learn dure train (3.4). for example, dure train it often suffic to analyz the 
+similar of the content of the patch (e.g., their color histograms). At test time, how- 
+ever, these shortcut be not maladapt sinc a forger will have intent conceal 
+such obviou cues. 
+
+It be also instruct to look at the qualit result of our method, which we show 
+in figur 8. We see that our method can local manipul on a wide rang of 
+differ splices. furthermore, in figur 9, we show that our method produc highli 
+consist predict when test on real images. We can also look at the qualit 
+differ between our method and the baselin in figur 11. 
+
+finally, we ask which exif tag be use for perform the splice local 
+task. To studi this, we comput a respons map for individu tag on the columbia 
+
+
+
+14 huh et al. 
+
+dataset, which we show in figur 7. We see that the most success tag tend to be 
+associ with the dimens of the camera and the camera model. 
+failur case In figur 10 we show some common failur cases. our perform 
+on realist tamper illustr some shortcom with exif-consistency. first, our 
+model be not well-suit to find small splice that be common in rt. when splice 
+region be small, the model’ larg stride will complet skip over splice regions, 
+mistakenli suggest that no manipul exist. second, over- and under-expos 
+region be sometim flag by our model to be inconsist becaus they lack ani 
+meta-data signal (e.g. becaus they be nearli uniformli black or white). finally, RT 
+contain a signific number of addit manipulations, such a copy-move, that can- 
+not be consist detect via meta-data consist sinc the manipul content 
+come from exactli the same photo. 
+
+5 discuss 
+
+In thi paper, we have propos a self-supervis method for detect imag manipu- 
+lations. our experi show that the propos method obtain state-of-the-art result 
+on sever datasets, even though it do not use label data dure training. however, 
+our work also rais a number of questions. In contrast to physic motiv forens 
+method [2], our model’ result be not easili interpretable, and in particular, it be not 
+clear which visual cue it us to solv the task. It also remain an open question how 
+best to fuse consist measur across an imag for local manipulations. 
+finally, while our model be train without ani human annotations, it be still affect in 
+complex way by design decis that go into the self-supervis task, such a the 
+way that exif tag be balanc dure training. 
+
+self-supervis approach to visual forens hold the promis of gener to 
+a wide rang of manipul — potenti beyond those that can feasibl be learn 
+through supervis training. however, for a forens algorithm to be truli general, it 
+must also model the action of intellig forger that adapt to the detect algorithms. 
+work in adversari machin learn [47, 48] suggest that have a self-learn 
+forger in the loop will make the forgeri detect problem much more difficult to solve, 
+requir new technic advanc to solve. 
+
+As new advanc in comput vision and image-edit emerge, there be an increas- 
+ingli urgent need for effect visual forens methods. We see our approach, which 
+success detect manipul without see exampl of manipul images, a 
+be an initi step toward build general-purpos forens tools. 
+
+acknowledg 
+
+thi work be supported, in part, by darpa grant fa8750-16-c-0166 and UC berke- 
+ley center for long-term cybersecurity. We thank hani farid and shruti agarw for 
+their advice, assistance, and inspir in build thi project, david fouhey and al- 
+lan jabri for help with the editing, and abhinav gupta for let u use hi gpus. 
+finally, we thank the mani reddit and onion artist who unknowingli contribut to 
+our dataset. 
+
+
+
+fight fake news: imag splice detect via learn self-consist 15 
+
+refer 
+
+1. hays, j., efros, a.a.: scene complet use million of photographs. in: acm transac- 
+tion on graphic (tog). volum 26., acm (2007) 4 1, 2, 9, 10 
+
+2. farid, h.: photo forensics. mit press (2016) 1, 3, 14 
+3. zhu, j.y., krahenbuhl, p., shechtman, e., efros, a.a.: learn a discrimin model for 
+
+the percept of realism in composit images. in: the ieee intern confer on 
+comput vision (iccv). (decemb 2015) 2 
+
+4. tsai, y.h., shen, x., lin, z., sunkavalli, k., lu, x., yang, m.h.: deep imag harmonization. 
+in: cvpr. (2017) 2 
+
+5. barnes, c., shechtman, e., finkelstein, a., goldman, d.b.: patchmatch: A random 
+correspond algorithm for structur imag editing. acm trans. graph. 28(3) (2009) 
+24–1 2 
+
+6. pathak, d., krahenbuhl, p., donahue, j., darrell, t., efros, a.a.: context encoders: featur 
+learn by inpainting. in: the ieee confer on comput vision and pattern recogni- 
+tion (cvpr). (june 2016) 2 
+
+7. suwajanakorn, s., seitz, s.m., kemelmacher-shlizerman, i.: synthes obama: learn 
+lip sync from audio. acm transact on graphic (tog) 36(4) (2017) 95 2 
+
+8. chung, j.s., jamaludin, a., zisserman, a.: you say that? arxiv preprint arxiv:1705.02966 
+(2017) 2 
+
+9. of standards, n.i., technology: the 2017 nimbl challeng evalu datasets. https: 
+//www.nist.gov/itl/iad/mig/nimble-challeng 2 
+
+10. liu, q.: detect of misalign crop and recompress with the same quantiz 
+matrix and relev forgery. (2011) 3 
+
+11. luo, w., huang, j., qiu, g.: jpeg error analysi and it applic to digit imag forensics. 
+ieee transact on inform forens and secur 5(3) (2010) 480–491 3 
+
+12. huang, f., huang, j., shi, y.q.: detect doubl jpeg compress with the same quantiza- 
+tion matrix. ieee transact on inform forens and secur 5(4) (2010) 848–856 
+3 
+
+13. popescu, a.c., farid, h.: expos digit forgeri by detect trace of resampling. ieee 
+transact on signal process 53(2) (2005) 758–767 3 
+
+14. swaminathan, a., wu, m., liu, k.r.: digit imag forens via intrins fingerprints. 3(1) 
+(2008) 101–117 3 
+
+15. agarwal, s., farid, h.: photo forens from jpeg dimples. workshop on imag forens 
+and secur (2017) 3 
+
+16. salloum, r., ren, y., kuo, c.j.: imag splice local use A multi-task fulli convo- 
+lution network (mfcn). corr abs/1709.02016 (2017) 3, 9, 10, 13 
+
+17. bondi, l., baroffio, l., gera, d., bestagini, p., delp, e.j., tubaro, s.: first step toward 
+camera model identif with convolut neural networks. ieee signal process 
+letter 24(3) (march 2017) 259–263 3, 5 
+
+18. bondi, l., lameri, s., güera, d., bestagini, p., delp, e.j., tubaro, s.: tamper detect 
+and local through cluster of camera-bas cnn features. in: proceed of the 
+ieee confer on comput vision and pattern recognit workshops. (2017) 1855– 
+1864 3 
+
+19. chen, b.c., ghosh, p., morariu, v.i., davis., l.s.: detect of metadata tamper through 
+discrep between imag content and metadata use multi-task deep learning. ieee 
+confer on comput vision and pattern recognit workshop (cvprw) (2017) 3 
+
+20. barni, m., bondi, l., bonettini, n., bestagini, p., costanzo, a., maggini, m., tondi, b., 
+tubaro, s.: align and non-align doubl jpeg detect use convolut neural 
+networks. corr abs/1708.00930 (2017) 3 
+
+https://www.nist.gov/itl/iad/mig/nimble-challeng 
+https://www.nist.gov/itl/iad/mig/nimble-challeng 
+
+
+16 huh et al. 
+
+21. amerini, i., uricchio, t., ballan, l., caldelli, r.: local of jpeg doubl compress 
+through multi-domain convolut neural networks. in: proc. of ieee cvpr workshop 
+on media forensics. (2017) 3 
+
+22. wen, l., qi, h., lyu, s.: contrast enhanc estim for digit imag forensics. arxiv 
+preprint arxiv:1706.03875 (2017) 3 
+
+23. de sa, v.: learn classif with unlabel data. in: neural inform process 
+systems. (1994) 3 
+
+24. doersch, c., gupta, a., efros, a.a.: unsupervis visual represent learn by context 
+prediction. iccv (2015) 3, 5 
+
+25. jayaraman, d., grauman, k.: learn imag represent tie to ego-motion. in: iccv. 
+(decemb 2015) 3 
+
+26. agrawal, p., carreira, j., malik, j.: learn to see by moving. in: iccv. (2015) 3 
+27. owens, a., wu, j., mcdermott, j.h., freeman, w.t., torralba, a.: ambient sound provid 
+
+supervis for visual learning. (2016) 3 
+28. zhang, r., isola, p., efros, a.a.: split-brain autoencoders: unsupervis learn by cross- 
+
+channel prediction. (2017) 3 
+29. isola, p., zoran, d., krishnan, d., adelson, e.h.: learn visual group from co- 
+
+occurr in space and time. (2016) 3, 7 
+30. kuthirummal, s., agarwala, a., goldman, d.b., nayar, s.k.: prior for larg photo col- 
+
+lection and what they reveal about cameras. in: european confer on comput vision, 
+springer (2008) 74–87 4 
+
+31. hoai, m., De la torre, f.: max-margin earli event detectors. intern journal of com- 
+puter vision 107(2) (2014) 191–202 4 
+
+32. mahadevan, v., li, w., bhalodia, v., vasconcelos, n.: anomali detect in crowd scenes. 
+in: comput vision and pattern recognit (cvpr), 2010 ieee confer on, ieee 
+(2010) 1975–1981 4 
+
+33. lalonde, j.f., efros, a.a.: use color compat for assess imag realism. in: com- 
+puter vision, 2007. iccv 2007. ieee 11th intern confer on, ieee (2007) 1–8 
+7 
+
+34. cheng, y.: mean shift, mode seeking, and clustering. ieee transact on pattern analysi 
+and machin intellig 17(8) (aug 1995) 790–799 7 
+
+35. shi, j., malik, j.: normal cut and imag segmentation. ieee transact on pattern 
+analysi and machin intellig 22(8) (aug 2000) 888–905 8 
+
+36. ng, t.t., chang, s.f.: A data set of authent and splice imag blocks. (2004) 8, 9, 10 
+37. d. carvalho, t.j., riess, c., angelopoulou, e., pedrini, h., d. R. rocha, a.: expos dig- 
+
+ital imag forgeri by illumin color classification. ieee transact on inform 
+forens and secur 8(7) (juli 2013) 1182–1194 8, 9, 10 
+
+38. korus, p., huang, j.: evalu of random field model in multi-mod unsupervis tam- 
+pere localization. in: proc. of ieee int. workshop on inf. forens and security. (2016) 
+8, 9, 10 
+
+39. ferrara, p., bianchi, t., rosa, a.d., piva, a.: imag forgeri local via fine-grain 
+analysi of cfa artifacts. ieee trans. inform forens and secur 7(5) (2012) 1566– 
+1577 9, 10 
+
+40. ye, s., sun, q., chang, e.c.: detect digit imag forgeri by measur inconsist 
+of block artifact. in: icme07. (2017) 9, 10 
+
+41. mahdian, b., saic, s.: use nois inconsist for blind imag forensics. in: ivc09. 
+(2009) 9, 10 
+
+42. zampoglou, m., papadopoulos, s., kompatsiaris, y., bouwmeester, r., spangenberg, j.: 
+web and social medium imag forens for news professionals. in: social media In the news- 
+room, smnews16@cwsm, tenth intern aaai confer on web and social me- 
+dia workshops. (2016) 9, 10 
+
+
+
+fight fake news: imag splice detect via learn self-consist 17 
+
+43. shelhamer, e., long, j., darrell, t.: fulli convolut network for semant segmentation. 
+corr abs/1605.06211 (2016) 9 
+
+44. he, k., zhang, x., ren, s., sun, j.: deep residu learn for imag recognition. in: 
+proceed of the ieee confer on comput vision and pattern recognition. (2016) 
+770–778 10 
+
+45. deng, j., dong, w., socher, r., li, l.j., li, k., fei-fei, l.: imagenet: A large-scal hier- 
+archic imag database. in: cvpr09. (2009) 10 
+
+46. kingma, d.p., ba, j.: adam: A method for stochast optimization. corr abs/1412.6980 
+(2014) 10 
+
+47. ian J. goodfellow, y.b.: gener adversari networks. arxiv preprint arxiv:1406.2661 
+(2014) 14 
+
+48. szegedy, c., zaremba, w., sutskever, i., bruna, j., erhan, d., goodfellow, i., fergus, r.: 
+intrigu properti of neural networks. arxiv preprint arxiv:1312.6199 (2013) 14 
+
+
+
+18 huh et al. 
+
+A1 appendix 
+exif attribut definit We have abbrevi the definit that be origin 
+sourc from http://www.exiv2.org/tags.html. pleas visit our websit for addit 
+exif inform such as: distributions, common values, and predict rankings. 
+
+exif attribut definit 
+exif brightnessvalu the valu of brightness. 
+exif colorspac the color space inform tag be alway record a the color space speci- 
+
+fier. normal srgb be use to defin the color space base on the PC monitor 
+condit and environment. If a color space other than srgb be used, uncali- 
+brate be set. imag data record a uncalibr can be treat a srgb when 
+it be convert to flashpix. 
+
+exif componentsconfigur inform specif to compress data. the channel of each compon be 
+arrang in order from the 1st compon to the 4th. for uncompress data 
+the data arrang be give in the tag. however, sinc can onli express the 
+order of Y, Cb and cr, thi tag be provid for case when compress data us 
+compon other than Y, cb, and Cr and to enabl support of other sequences. 
+
+exif compressedbitsperpixel specif to compress data; state the compress bit per pixel. 
+exif contrast thi tag indic the direct of contrast process appli by the camera 
+
+when the imag be shot. 
+exif customrend thi tag indic the use of special process on imag data, such a ren- 
+
+dere gear to output. when special process be performed, the reader be 
+expect to disabl or minim ani further processing. 
+
+exif datetimedigit the date and time when the imag be store a digit data. 
+exif datetimeorigin the date and time when the origin imag data be generated. 
+exif digitalzoomratio thi tag indic the digit zoom ratio when the imag be shot. If the nu- 
+
+merat of the record valu be 0, thi indic that digit zoom be not 
+used. 
+
+exif exifimagelength the number of row of imag data. In jpeg compress data a jpeg marker 
+be use instead of thi tag. 
+
+exif exifimagewidth the number of column of imag data, equal to the number of pixel per row. 
+In jpeg compress data a jpeg marker be use instead of thi tag. 
+
+exif exifvers the version of thi standard supported. nonexist of thi field be take to 
+mean nonconform to the standard 
+
+exif exposurebiasvalu the exposur bias. 
+exif exposuremod thi tag indic the exposur mode set when the imag be shot. In auto- 
+
+bracket mode, the camera shoot a seri of frame of the same scene at 
+differ exposur settings. 
+
+exif exposureprogram the class of the program use by the camera to set exposur when the pictur 
+be taken. 
+
+exif exposuretim exposur time, give in seconds. 
+exif filesourc indic the imag source. If a dsc record the image, thi tag valu of thi 
+
+tag alway be set to 3, indic that the imag be record on a dsc. 
+exif flash indic the statu of flash when the imag be shot. 
+exif flashpixvers the flashpix format version support by a fpxr file. 
+exif fnumber the F number. 
+exif focallength the actual focal length of the lens, in mm. 
+exif focallengthin35mmfilm thi tag indic the equival focal length assum a 35mm film camera, in 
+
+mm. A valu of 0 mean the focal length be unknown. note that thi tag differ 
+from the tag. 
+
+exif focalplaneresolutionunit unit of measur for focalplanexresolut and focalplaneyresolution. 
+exif focalplanexresolut number of pixel per focalplaneresolutionunit in imagewidth direct for 
+
+main image. 
+exif focalplaneyresolut number of pixel per focalplaneresolutionunit in imagelength direct for 
+
+main image. 
+exif gaincontrol thi tag indic the degre of overal imag gain adjustment. 
+exif interoperabilityoffset unknown 
+exif isospeedr indic the iso speed and iso latitud of the camera or input devic a 
+
+specifi in iso 12232. 
+exif lensmak thi tag record the len manufactur a an ascii string. 
+exif lensmodel thi tag record the lens’ model name and model number a an ascii string. 
+exif lensspecif thi tag note minimum focal length, maximum focal length, minimum F num- 
+
+ber in the minimum focal length, and minimum F number in the maximum 
+focal length, which be specif inform for the len that be use in 
+photography. when the minimum F number be unknown, the notat be 0/0 
+
+exif lightsourc the kind of light source. 
+
+http://www.exiv2.org/tags.html 
+
+
+fight fake news: imag splice detect via learn self-consist 19 
+
+exif maxaperturevalu the small F number of the lens. 
+exif meteringmod the meter mode. 
+exif offsetschema unknown 
+exif satur thi tag indic the direct of satur process appli by the camera 
+
+when the imag be shot. 
+exif scenecapturetyp thi tag indic the type of scene that be shot. It can also be use to record 
+
+the mode in which the imag be shot. note that thi differ from the tag. 
+exif scenetyp indic the type of scene. If a dsc record the image, thi tag valu must 
+
+alway be set to 1, indic that the imag be directli photographed. 
+exif sensingmethod type of imag sensor. 
+exif sensitivitytyp the sensitivitytyp tag indic which one of the paramet of iso12232 be 
+
+the photographicsensit tag. 
+exif sharp thi tag indic the direct of sharp process appli by the camera 
+
+when the imag be shot. 
+exif shutterspeedvalu shutter speed. 
+exif subjectarea thi tag indic the locat and area of the main subject in the overal scene. 
+exif subjectdistancerang thi tag indic the distanc to the subject. 
+exif subsectim A tag use to record fraction of second for the tag. 
+exif subsectimedigit A tag use to record fraction of second for the tag. 
+exif subsectimeorigin A tag use to record fraction of second for the tag. 
+exif usercom A tag for exif user to write keyword or comments. 
+exif whitebal thi tag indic the white balanc mode set when the imag be shot. 
+gp gpsaltitud indic the altitud base on the refer in gpsaltituderef. 
+gp gpsaltituderef indic the altitud use a the refer altitude. 
+gp gpsdate A charact string record date and time inform rel to utc (coor- 
+
+dinat univers time). 
+gp gpsimgdirect indic the direct of the imag when it be captured. 
+gp gpsimgdirectionref indic the refer for give the direct of the imag when it be captured. 
+gp gpslatitud indic the latitude. 
+gp gpslatituderef indic whether the latitud be north or south latitude. 
+gp gpslongitud indic the longitude. 
+gp gpslongituderef indic whether the longitud be east or west longitude. 
+gp gpstimestamp indic the time a utc (coordin univers time). 
+gp gpsversionid indic the version of gps. 
+imag artist thi tag record the name of the camera owner, photograph or imag creator. 
+imag copyright copyright information. 
+imag exifoffset imag exifoffset. 
+imag gpsinfo A pointer to the gp info ifd. 
+imag imagedescript A charact string give the titl of the image. 
+imag make the manufactur of the record equipment. 
+imag model the model name or model number of the equipment. 
+imag orient the imag orient view in term of row and columns. 
+imag printimagematch print imag matching, descript needed. 
+imag resolutionunit the unit for measur yresolut and xresolution. the same unit be use 
+
+for both. 
+imag softwar thi tag record the name and version of the softwar or firmwar of the camera 
+
+or imag input devic use to gener the image. 
+imag xresolut number of pixel per focalplaneresolutionunit in imagewidth direct for 
+
+main image. 
+imag ycbcrposit the posit of chromin compon in relat to the lumin compo- 
+
+nent. 
+imag yresolut number of pixel per focalplaneresolutionunit in imagelength direct for 
+
+main image. 
+inter interoperabilityindex indic the identif of the interoper rule. 
+inter interoperabilityvers interoper version. 
+inter relatedimagelength imag height. 
+inter relatedimagewidth imag width. 
+
+
